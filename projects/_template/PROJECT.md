@@ -1,6 +1,9 @@
-# `<project-name>`
+---
+name: <project-name>
+status: active
+---
 
-状態: active
+# `<project-name>`
 
 ## 目的
 
