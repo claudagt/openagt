@@ -35,19 +35,29 @@ Full documentation is in Japanese. The structure itself (directory names, file l
 3. `skills/_template/` をコピーして必要なSkillを追加し、[skills/README.md](skills/README.md) の一覧へ登録する。
 4. [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md) の規約に沿ってKnowledgeを蓄積しながら運用する。
 
-## 利用例
+## アーキテクチャと利用例
 
-エージェント1体につき、この構造を1つ持たせる。マシンを増やせば水平に拡張できる。
+構成は2層。操作卓となるメインマシン1台と、エージェントを動かすサブマシン群。
+エージェント1体につきこの構造を1つ持たせ、サブマシンを増やせば水平に拡張できる。
 
 ```text
-Mac mini 1/
+メインマシン（操作卓）
+├── Codex Desktop ──┐
+└── Claude Desktop ─┴─ 各製品のリモート接続機能でサブマシンへ
+
+サブマシン1
 ├── Agent-1/agent-directory/   # エージェントごとに独立した知識・スキル・プロジェクト
 ├── Agent-2/agent-directory/
 └── Agent-3/agent-directory/
-Mac mini 2/
+サブマシン2
 ├── Agent-4/agent-directory/
 └── ...
 ```
+
+推論は各デスクトップ製品側で実行され、サブマシンはエージェントの作業領域
+（ファイル・シェル・この構造）を担う。役割の分離が本質であり、機種やOSには依存しない。
+実行環境はローカルマシンを想定する（クラウド対応は今後の視野）。
+作者の想定環境はメインマシンが MacBook Pro、サブマシンが Mac mini。
 
 ## 構成
 
@@ -134,7 +144,7 @@ AIメモリの並列記録（各作業に付随する副作用 — 第5の分類
 - **Anthropic Claude Code** — Claude DesktopのCodeタブ（Claude Code Desktop）
 
 想定する配置は、メインの作業マシンとは別の専用マシン（Mac miniなど）で
-エージェントを動かす構成（「利用例」参照）。操作は、メインマシンの各デスクトップアプリから
+エージェントを動かす構成（「アーキテクチャと利用例」参照）。操作は、メインマシンの各デスクトップアプリから
 それぞれの製品のリモート接続機能で専用マシンへ接続し、遠隔で行う。同一マシンでの利用も可能。
 
 推奨運用はデスクトップのローカルセッションだが、CLI・IDE拡張・クラウド環境でも、
