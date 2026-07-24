@@ -9,7 +9,8 @@ AIエージェントのディレクトリ構造テンプレート。
 A directory-structure template for AI agents — accumulate knowledge, acquire skills, and grow your agent while it works.
 
 - `AGENTS.md` — top-level contract that routes every request (knowledge / skills / temp work / projects)
-- `knowledge/` — immutable source records (`raw/`, `research/`) turned into reusable knowledge (`wiki/`)
+- `CLAUDE.md` — Claude Code entry point; imports `AGENTS.md` (`@AGENTS.md`)
+- `knowledge/` — immutable source records (`raw/`, `research/`) turned into reusable knowledge (`wiki/`), plus `memory/` — a lightweight mirror where the running AI records what it saved to its own persistent memory (`openai.md` / `anthropic.md`, split by memory owner, separate from the raw/research/wiki pipeline)
 - `skills/` — analysis procedures with entry points (`SKILL.md`), one directory per skill
 - `projects/` — long-lived work and deliverables (`PROJECT.md`), one directory per project
 - `evals/` — behavioral QA: cases that verify routing and contract compliance
@@ -22,6 +23,8 @@ Getting started:
 2. Replace the `<agent-name>` / `<project-dir>` placeholders in [AGENTS.md](AGENTS.md).
 3. Add your skills by copying `skills/_template/` and register them in [skills/README.md](skills/README.md).
 4. Operate the agent, accumulating knowledge under the rules in [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md).
+
+Recommended environments: the template itself is model- and client-agnostic. The primary recommended setups are desktop local sessions — OpenAI Codex (inside the ChatGPT desktop app) and Anthropic Claude Code (Claude Desktop's Code tab) — opened on a local copy of this repository. The intended deployment is a dedicated machine per agent (e.g., a Mac mini) separate from your main computer, operated via each product's remote-connection feature from the desktop app on your main machine. Other environments (CLI, IDE extensions, cloud) also work as long as they can read the contracts.
 
 Full documentation is in Japanese. The structure itself (directory names, file layout) is language-neutral, and the rule files are written for LLM agents, which read Japanese natively.
 
@@ -51,12 +54,16 @@ Mac mini 2/
 ```text
 agent-directory/
 ├── AGENTS.md               # 最上位規約 — 依頼の振り分け・禁止事項・参照順序
+├── CLAUDE.md               # Claude Code用の入口 — @AGENTS.md をインポート
 ├── README.md               # このファイル
 ├── LICENSE                 # MIT License
 ├── .env.example            # 環境変数のプレースホルダー
 ├── .tmp/                   # 一時作業領域 — Git管理外
 ├── knowledge/
 │   ├── KNOWLEDGE.md        # Knowledge運用の正本
+│   ├── memory/             # AIメモリの並列記録 — 実行AIの永続メモリのミラー
+│   │   ├── openai.md       # OpenAI系（Codexなど）のメモリ記録
+│   │   └── anthropic.md    # Anthropic系（Claude Codeなど）のメモリ記録
 │   ├── raw/                # 内部で生まれた原記録 — 編集・削除しない
 │   ├── research/           # 外部から取得した原資料 — 内容を変えない
 │   └── wiki/               # 原資料を再利用可能な知識へ変換
@@ -90,7 +97,7 @@ agent-directory/
 | 領域 | 役割 |
 |------|------|
 | `AGENTS.md` | 司令塔 — 依頼を正しい場所へ振り分ける |
-| `knowledge/` | 記憶 — 原資料の蓄積と知識化 |
+| `knowledge/` | 記憶 — 原資料の蓄積と知識化、AIメモリの並列記録（`memory/`） |
 | `skills/` | 能力 — 分析方法と判定 |
 | `projects/` | 仕事 — 固有プロジェクトの入力・成果物・実行記録 |
 | `evals/` | 品質 — ルーティングと規約遵守の検証 |
@@ -111,7 +118,28 @@ agent-directory/
 
 一時的な作業
   .tmp/ に置く → 正式保存後に片付ける
+
+AIメモリの並列記録（各作業に付随する副作用 — 第5の分類ではない）
+  実行AIが自身の永続メモリへ保存 → 同じ内容を knowledge/memory/<memory-owner>.md へ追記
+  （raw / research / wiki の通常経路は通らない）
 ```
+
+## 推奨実行環境
+
+このテンプレート自体は、特定のモデルやクライアントに依存しない。
+
+主な推奨環境は、ローカルのリポジトリフォルダを開いて利用する次の2つのデスクトップ環境。
+
+- **OpenAI Codex** — ChatGPTデスクトップアプリ内のCodex（旧Codexアプリの利用者も同様）
+- **Anthropic Claude Code** — Claude DesktopのCodeタブ（Claude Code Desktop）
+
+想定する配置は、メインの作業マシンとは別の専用マシン（Mac miniなど）で
+エージェントを動かす構成（「利用例」参照）。操作は、メインマシンの各デスクトップアプリから
+それぞれの製品のリモート接続機能で専用マシンへ接続し、遠隔で行う。同一マシンでの利用も可能。
+
+推奨運用はデスクトップのローカルセッションだが、CLI・IDE拡張・クラウド環境でも、
+この規約を読める場合は利用できる。特定のモデルバージョンを前提としない。
+各製品側のメモリ機能は、このリポジトリが自動で有効化するものではなく、各製品側の設定に従う。
 
 ## License
 

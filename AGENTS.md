@@ -28,6 +28,23 @@
 
 分類に迷う場合は作業を始めず、利用者に確認する。
 
+## AIメモリの並列記録
+
+上記4分類とは別の、各作業に付随する副作用の規約。第5の分類ではない。
+
+- 実行AIが、このリポジトリでの作業内容を自身の製品側永続メモリへ新規保存または更新した場合、
+  同じ作業の中で同じ内容を `knowledge/memory/<memory-owner>.md` にも追記する。
+- 記録するかどうかは実行AI自身のメモリ判断に従う。リポジトリ側で保存価値を再判定しない。
+  自身のメモリへ保存しない内容を、この規約だけを理由に `knowledge/memory/` へ追加しない。
+- 保存先はモデル名ではなくメモリ機構の所有者で決め、製品・実行環境名は記録内の `Source` に書く。
+  OpenAI系（Codex、ChatGPTデスクトップのCodex）→ `knowledge/memory/openai.md`
+  Anthropic系（Claude Code、Claude DesktopのCodeタブ）→ `knowledge/memory/anthropic.md`
+- この並列記録では、通常のKnowledge取り込み（`raw/`・`research/`・`wiki/` への分類・知識化）を行わず、
+  `wiki/index.md`・`wiki/log.md` も更新しない。完全に同一の内容がすでにある場合だけ追記を省略できる。
+- 秘密情報は製品側メモリにもリポジトリ側メモリにも保存しない。
+
+詳細は [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md) の `memory/` 節に従う。
+
 ## 禁止事項
 
 - 秘密情報（APIキー、トークン、パスワード、接続文字列）を表示・保存・コミットしない。

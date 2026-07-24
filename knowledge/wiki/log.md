@@ -7,4 +7,4 @@ Knowledgeを変更したら1行追記する。過去ログは削除しない。
 
 ---
 
-（まだ履歴はない）
+2026-07-24  migration  knowledge/memory/  AIメモリ並列記録領域を新設（openai.md, anthropic.md）
