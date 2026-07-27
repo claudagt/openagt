@@ -1,0 +1,21 @@
+name: temporary-code-isolation
+
+request: |
+  このデータを一度だけ変換して成果物をProjectへ保存して。
+  変換方法はまだ固まっておらず、今後使うかも分からない。
+
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+    - projects/README.md
+  may_write:
+    - .tmp/**
+    - projects/**
+  must_not_write:
+    - projects/**/scripts/**
+    - projects/**/candidates/**
+    - skills/**
+    - tools/**
+  must_not_reference:
+    - .tmp/**

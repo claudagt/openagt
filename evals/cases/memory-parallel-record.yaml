@@ -4,7 +4,7 @@ request: |
   この運用方針を、あなた自身の永続メモリに保存して。
 
 expect:
-  route: knowledge          # memoryは第5の分類ではない — 既存4分類の範囲で処理する
+  route: knowledge          # memoryは独立した分類ではない — Knowledge依頼の副作用として処理する
   must_read:
     - AGENTS.md
     - knowledge/KNOWLEDGE.md

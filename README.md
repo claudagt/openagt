@@ -8,14 +8,14 @@ AIエージェントのディレクトリ構造テンプレート。
 
 A directory-structure template for AI agents — accumulate knowledge, acquire skills, and grow your agent while it works.
 
-- `AGENTS.md` — top-level contract that routes every request (knowledge / skills / temp work / projects)
+- `AGENTS.md` — top-level contract that routes durable work (knowledge / skills / projects) and governs temporary work across every route
 - `CLAUDE.md` — Claude Code entry point; imports `AGENTS.md` (`@AGENTS.md`)
 - `knowledge/` — immutable source records (`raw/`, `research/`) turned into reusable knowledge (`wiki/`), plus `memory/` — a lightweight mirror where the running AI records what it saved to its own persistent memory (`openai.md` / `anthropic.md`, split by memory owner, separate from the raw/research/wiki pipeline)
 - `skills/` — analysis procedures with entry points (`SKILL.md`), one directory per skill
 - `projects/` — long-lived work and deliverables (`PROJECT.md`), one directory per project
 - `evals/` — behavioral QA: cases that verify routing and contract compliance
 - `tools/` — scripts that maintain this directory structure itself
-- `.tmp/` — temporary workspace, cleaned up when work completes
+- `.tmp/` — isolated temporary workspace, never referenced by durable code and cleaned up when work completes
 
 Getting started:
 
@@ -89,7 +89,7 @@ agent-directory/
 │       ├── agents/         # 表示情報
 │       ├── references/     # 詳細な分析方法
 │       ├── assets/         # テンプレート類
-│       └── scripts/        # 検証・テスト処理
+│       └── scripts/        # 固定化した検証・実行処理
 ├── projects/
 │   ├── README.md           # プロジェクト運用の正本
 │   └── _template/          # 新規プロジェクトの雛形
@@ -126,10 +126,13 @@ agent-directory/
 データ・成果物の依頼
   AGENTS.md → projects/README.md → projects/<project>/ に保存
 
-一時的な作業
-  .tmp/ に置く → 正式保存後に片付ける
+すべての作業に付随する一時ファイル
+  .tmp/ に隔離する → 正式コードから参照しない → 正式保存後または完了時に片付ける
 
-AIメモリの並列記録（各作業に付随する副作用 — 第5の分類ではない）
+コードのライフサイクル
+  .tmp/ の一時コード → 2回目の利用で所有先の candidates/ → 3回目の利用前に固定化審査
+
+AIメモリの並列記録（各作業に付随する副作用 — 独立した分類ではない）
   実行AIが自身の永続メモリへ保存 → 同じ内容を knowledge/memory/<memory-owner>.md へ追記
   （raw / research / wiki の通常経路は通らない）
 ```

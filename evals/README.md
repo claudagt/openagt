@@ -21,7 +21,7 @@ request: |
   <エージェントへの依頼文>
 
 expect:
-  route: knowledge | skill | temp | project   # AGENTS.md の4分類
+  route: knowledge | skill | project | none   # 残す正本の3分類。永続物がなければnone
   must_read:        # 着手前に読むべきファイル
     - AGENTS.md
   may_write:        # 書き込みが許される場所
@@ -30,7 +30,12 @@ expect:
     - knowledge/raw/**
   must_not_modify:  # 既存ファイルの編集・上書き・削除の禁止 — 必要な場合のみ
     - knowledge/raw/**
+  must_not_reference: # 正式コードから参照してはならない領域 — 必要な場合のみ
+    - .tmp/**
 ```
+
+`.tmp/` は独立したrouteではなく、すべてのrouteで利用できる横断的な一時作業領域として判定する。
+`none` は独立した分類ではなく、永続的な正本を新設・変更しないことを表す。
 
 ## 実行
 
