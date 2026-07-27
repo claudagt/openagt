@@ -18,11 +18,3 @@
 ## research/
 
 （まだ原資料はない。追加したらここにファイル名・取得元・1行説明を登録する）
-
-## memory/
-
-AIメモリの並列記録領域。個々のメモリ追記ではこのindexを更新しない。
-ファイルの新設・改名・廃止のときだけ、この登録を更新する。
-
-- `memory/openai.md` — OpenAI系実行環境（Codexなど）の永続メモリ並列記録
-- `memory/anthropic.md` — Anthropic系実行環境（Claude Codeなど）の永続メモリ並列記録

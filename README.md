@@ -10,7 +10,7 @@ A directory-structure template for AI agents — accumulate knowledge, acquire s
 
 - `AGENTS.md` — top-level contract that routes durable work (knowledge / skills / projects) and governs temporary work across every route
 - `CLAUDE.md` — Claude Code entry point; imports `AGENTS.md` (`@AGENTS.md`)
-- `knowledge/` — immutable source records (`raw/`, `research/`) turned into reusable knowledge (`wiki/`), plus `memory/` — a lightweight mirror where the running AI records what it saved to its own persistent memory (`openai.md` / `anthropic.md`, split by memory owner, separate from the raw/research/wiki pipeline)
+- `knowledge/` — immutable source records (`raw/`, `research/`) turned into reusable knowledge (`wiki/`)
 - `skills/` — analysis procedures with entry points (`SKILL.md`), one directory per skill
 - `projects/` — long-lived work and deliverables (`PROJECT.md`), one directory per project
 - `evals/` — behavioral QA: cases that verify routing and contract compliance
@@ -71,9 +71,6 @@ agent-directory/
 ├── .tmp/                   # 一時作業領域 — Git管理外
 ├── knowledge/
 │   ├── KNOWLEDGE.md        # Knowledge運用の正本
-│   ├── memory/             # AIメモリの並列記録 — 実行AIの永続メモリのミラー
-│   │   ├── openai.md       # OpenAI系（Codexなど）のメモリ記録
-│   │   └── anthropic.md    # Anthropic系（Claude Codeなど）のメモリ記録
 │   ├── raw/                # 内部で生まれた原記録 — 編集・削除しない
 │   ├── research/           # 外部から取得した原資料 — 内容を変えない
 │   └── wiki/               # 原資料を再利用可能な知識へ変換
@@ -107,7 +104,7 @@ agent-directory/
 | 領域 | 役割 |
 |------|------|
 | `AGENTS.md` | 司令塔 — 依頼を正しい場所へ振り分ける |
-| `knowledge/` | 記憶 — 原資料の蓄積と知識化、AIメモリの並列記録（`memory/`） |
+| `knowledge/` | 記憶 — 原資料の蓄積と知識化 |
 | `skills/` | 能力 — 分析方法と判定 |
 | `projects/` | 仕事 — 固有プロジェクトの入力・成果物・実行記録 |
 | `evals/` | 品質 — ルーティングと規約遵守の検証 |
@@ -132,9 +129,9 @@ agent-directory/
 コードのライフサイクル
   .tmp/ の一時コード → 2回目の利用で所有先の candidates/ → 3回目の利用前に固定化審査
 
-AIメモリの並列記録（各作業に付随する副作用 — 独立した分類ではない）
-  実行AIが自身の永続メモリへ保存 → 同じ内容を knowledge/memory/<memory-owner>.md へ追記
-  （raw / research / wiki の通常経路は通らない）
+製品側AIメモリ（各作業に付随する規約 — 独立した分類ではない）
+  永続化すべき内容 → 先に上記の正本へ保存 → 必要なら製品側メモリへ写す
+  （製品側メモリは正本から派生する任意のキャッシュ。矛盾したらリポジトリを優先する）
 ```
 
 ## 推奨実行環境
