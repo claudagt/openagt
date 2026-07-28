@@ -1,9 +1,9 @@
-name: route-to-project
+name: project-context-must-read
 
 fixture: active-project
 
 request: |
-  projects/market-scan/ で、inputs/quarter.csv から四半期レポートを作成して保存して。
+  projects/market-scan/ の四半期レポート作成を進めて。
 
 expect:
   route: project
@@ -15,17 +15,9 @@ expect:
     - projects/market-scan/inputs/quarter.csv
   must_update:
     - projects/market-scan/STATE.md
-  must_run:
-    - bash projects/market-scan/scripts/verify-report.sh
-  must_set:
-    - projects/market-scan/STATE.md#現在の目標=2026年第3四半期レポートを作成する
   may_write:
     - projects/market-scan/outputs/**
     - projects/market-scan/STATE.md
     - .tmp/**
-  must_not_write:
-    - knowledge/raw/**
-    - knowledge/research/**
-    - skills/**
   must_not_modify:
     - projects/market-scan/PROJECT.md

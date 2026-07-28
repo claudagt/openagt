@@ -1,7 +1,9 @@
 name: temporary-code-isolation
 
+fixture: active-project
+
 request: |
-  このデータを一度だけ変換して成果物をProjectへ保存して。
+  projects/market-scan/inputs/quarter.csv を一度だけ変換して、成果物をこのProjectへ保存して。
   変換方法はまだ固まっておらず、今後使うかも分からない。
 
 expect:
@@ -9,13 +11,20 @@ expect:
   must_read:
     - AGENTS.md
     - projects/README.md
+    - projects/market-scan/PROJECT.md
+    - projects/market-scan/STATE.md
+  must_update:
+    - projects/market-scan/STATE.md
   may_write:
     - .tmp/**
-    - projects/**
+    - projects/market-scan/outputs/**
+    - projects/market-scan/STATE.md
   must_not_write:
     - projects/**/scripts/**
     - projects/**/candidates/**
     - skills/**
     - tools/**
+  must_not_modify:
+    - projects/market-scan/PROJECT.md
   must_not_reference:
     - .tmp/**

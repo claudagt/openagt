@@ -8,11 +8,11 @@ AIエージェントのディレクトリ構造テンプレート。
 
 A directory-structure template for AI agents — accumulate knowledge, acquire skills, and grow your agent while it works.
 
-- `AGENTS.md` — top-level contract that routes durable work (knowledge / skills / projects) and governs temporary work across every route
+- `AGENTS.md` — top-level mission, vision, decision principles, and routing contract
 - `CLAUDE.md` — Claude Code entry point; imports `AGENTS.md` (`@AGENTS.md`)
 - `knowledge/` — immutable source records (`raw/`, `research/`) turned into reusable knowledge (`wiki/`)
 - `skills/` — analysis procedures with entry points (`SKILL.md`), one directory per skill
-- `projects/` — long-lived work and deliverables (`PROJECT.md`), one directory per project
+- `projects/` — long-lived work and deliverables: `PROJECT.md` defines the outcome contract and `STATE.md` carries current state
 - `evals/` — behavioral QA: cases that verify routing and contract compliance
 - `tools/` — scripts that maintain this directory structure itself
 - `.tmp/` — isolated temporary workspace, never referenced by durable code and cleaned up when work completes
@@ -20,9 +20,10 @@ A directory-structure template for AI agents — accumulate knowledge, acquire s
 Getting started:
 
 1. Copy or clone this repository (one copy per agent).
-2. Replace the `<agent-name>` / `<project-dir>` placeholders in [AGENTS.md](AGENTS.md).
+2. Replace the `<agent-name>` / `<agent-mission>` / `<agent-vision>` / `<project-dir>` placeholders in [AGENTS.md](AGENTS.md).
 3. Add your skills by copying `skills/_template/` and register them in [skills/README.md](skills/README.md).
 4. Operate the agent, accumulating knowledge under the rules in [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md).
+5. Run `bash tools/validate-agent-directory.sh --strict` before operating the instantiated agent.
 
 Recommended environments: the template itself is model- and client-agnostic. The primary recommended setups are desktop local sessions — OpenAI Codex (inside the ChatGPT desktop app) and Anthropic Claude Code (Claude Desktop's Code tab) — opened on a local copy of this repository. The intended deployment is a dedicated machine per agent (e.g., a Mac mini) separate from your main computer, operated via each product's remote-connection feature from the desktop app on your main machine. Other environments (CLI, IDE extensions, cloud) also work as long as they can read the contracts.
 
@@ -31,9 +32,11 @@ Full documentation is in Japanese. The structure itself (directory names, file l
 ## 利用開始
 
 1. このリポジトリをコピーまたはクローンする。
-2. [AGENTS.md](AGENTS.md) の `<agent-name>` などのプレースホルダーを、自分のエージェント名・役割・固有プロジェクトに書き換える。
+2. [AGENTS.md](AGENTS.md) の `<agent-name>` などのプレースホルダーを、
+   自分のエージェント名・役割・使命・ビジョン・固有プロジェクトに書き換える。
 3. `skills/_template/` をコピーして必要なSkillを追加し、[skills/README.md](skills/README.md) の一覧へ登録する。
 4. [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md) の規約に沿ってKnowledgeを蓄積しながら運用する。
+5. `bash tools/validate-agent-directory.sh --strict` を実行し、初期設定と構造が合格することを確認する。
 
 ## アーキテクチャと利用例
 
@@ -63,7 +66,7 @@ Full documentation is in Japanese. The structure itself (directory names, file l
 
 ```text
 agent-directory/
-├── AGENTS.md               # 最上位規約 — 依頼の振り分け・禁止事項・参照順序
+├── AGENTS.md               # 最上位規約 — 使命・ビジョン・共通原則・振り分け・禁止事項
 ├── CLAUDE.md               # Claude Code用の入口 — @AGENTS.md をインポート
 ├── README.md               # このファイル
 ├── LICENSE                 # MIT License
@@ -90,13 +93,15 @@ agent-directory/
 ├── projects/
 │   ├── README.md           # プロジェクト運用の正本
 │   └── _template/          # 新規プロジェクトの雛形
-│       └── PROJECT.md      # 入口 — 状態・目的・完了条件・成果物・再現方法
+│       ├── PROJECT.md      # 成果契約 — 種別・目的・ゴールまたは使命・判断原則・検証
+│       └── STATE.md        # 現在状態 — 現在の目標・合格条件・決定・次の一手・検証
 ├── evals/
 │   ├── README.md           # 検証方法の正本
 │   ├── cases/              # 検証ケース — 1ケース1ファイル
 │   └── fixtures/           # ケース用の入力データ
 └── tools/
-    └── README.md           # 構造保守スクリプトの置き場 — 必要時に追加
+    ├── README.md           # 構造保守Toolの規約
+    └── validate-agent-directory.sh  # Project契約・STATE・Evals・秘密ファイル追跡の点検
 ```
 
 ## 役割
@@ -121,7 +126,8 @@ agent-directory/
   AGENTS.md → skills/README.md → SKILL.md →(必要なら Wiki・原資料へ遡る)
 
 データ・成果物の依頼
-  AGENTS.md → projects/README.md → projects/<project>/ に保存
+  AGENTS.md → projects/README.md → PROJECT.mdの成果契約 → STATE.mdの現在目標
+  → 実行・検証 → STATE.md更新 → finiteなら完了判定、continuousなら次目標
 
 すべての作業に付随する一時ファイル
   .tmp/ に隔離する → 正式コードから参照しない → 正式保存後または完了時に片付ける
@@ -133,6 +139,20 @@ agent-directory/
   永続化すべき内容 → 先に上記の正本へ保存 → 必要なら製品側メモリへ写す
   （製品側メモリは正本から派生する任意のキャッシュ。矛盾したらリポジトリを優先する）
 ```
+
+## Projectの成果契約
+
+```text
+使命・ビジョン = エージェント全体の長期的な方向
+PROJECT.md       = Projectの目的、成果契約、固定された判断基準
+STATE.md         = 現在地、現在の目標、検証結果、次の一手
+```
+
+`mode: finite` は検証可能な終了状態を達成したら `completed` にする。
+`mode: continuous` は現在の目標を更新しながら継続し、Project自体を完了扱いにしない。
+エージェントは両方を作業前に読み、完了条件または成功指標を前進させる作業だけを行う。
+完了報告前にProject固有の検証を実行し、状態が変わった同じ作業内で `STATE.md` を更新する。
+詳細は [projects/README.md](projects/README.md) を参照する。
 
 ## 推奨実行環境
 
