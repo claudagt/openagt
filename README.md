@@ -22,8 +22,8 @@ Getting started:
 1. Copy or clone this repository (one copy per agent).
 2. Replace the `<agent-name>` / `<agent-mission>` / `<agent-vision>` / `<project-dir>` placeholders in [AGENTS.md](AGENTS.md).
 3. Add your skills by copying `skills/_template/` and register them in [skills/README.md](skills/README.md).
-4. Operate the agent, accumulating knowledge under the rules in [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md).
-5. Run `bash tools/validate-agent-directory.sh --strict` before operating the instantiated agent.
+4. Run `bash tools/validate-agent-directory.sh --strict` to verify the instantiated agent.
+5. Operate the agent, accumulating knowledge under the rules in [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md).
 
 Recommended environments: the template itself is model- and client-agnostic. The primary recommended setups are desktop local sessions — OpenAI Codex (inside the ChatGPT desktop app) and Anthropic Claude Code (Claude Desktop's Code tab) — opened on a local copy of this repository. The intended deployment is a dedicated machine per agent (e.g., a Mac mini) separate from your main computer, operated via each product's remote-connection feature from the desktop app on your main machine. Other environments (CLI, IDE extensions, cloud) also work as long as they can read the contracts.
 
@@ -35,8 +35,8 @@ Full documentation is in Japanese. The structure itself (directory names, file l
 2. [AGENTS.md](AGENTS.md) の `<agent-name>` などのプレースホルダーを、
    自分のエージェント名・役割・使命・ビジョン・固有プロジェクトに書き換える。
 3. `skills/_template/` をコピーして必要なSkillを追加し、[skills/README.md](skills/README.md) の一覧へ登録する。
-4. [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md) の規約に沿ってKnowledgeを蓄積しながら運用する。
-5. `bash tools/validate-agent-directory.sh --strict` を実行し、初期設定と構造が合格することを確認する。
+4. `bash tools/validate-agent-directory.sh --strict` を実行し、初期設定と構造が合格することを確認する。
+5. [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md) の規約に沿ってKnowledgeを蓄積しながら運用する。
 
 ## アーキテクチャと利用例
 

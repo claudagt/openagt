@@ -65,6 +65,27 @@ contains_template_placeholder() {
   ) "$1"
 }
 
+has_plain_list_section() {
+  awk -v heading="$2" '
+    $0 == heading {
+      in_section = 1
+      next
+    }
+    in_section && /^## / {
+      exit
+    }
+    in_section && /^- \[[ xX]\] / {
+      has_checkbox = 1
+    }
+    in_section && /^- .+/ {
+      has_item = 1
+    }
+    END {
+      exit !(has_item && !has_checkbox)
+    }
+  ' "$1"
+}
+
 validate_project_contract() {
   local project_file="$1"
   local heading
@@ -117,8 +138,8 @@ validate_project_contract() {
     finite)
       require_fixed_line "$project_file" '## 最終ゴール'
       require_fixed_line "$project_file" '## 完了条件'
-      if ! grep -Eq '^- \[ \] .+' "$project_file"; then
-        fail "${project_file#"$repo_root"/} is missing a checkable completion condition"
+      if ! has_plain_list_section "$project_file" '## 完了条件'; then
+        fail "${project_file#"$repo_root"/} must use plain bullets for completion conditions"
       fi
       if grep -Fqx '## 継続的使命' "$project_file" ||
         grep -Fqx '## 成功指標' "$project_file" ||
