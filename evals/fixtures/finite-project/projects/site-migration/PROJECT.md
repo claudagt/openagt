@@ -16,9 +16,9 @@ mode: finite
 
 ## 完了条件
 
-- `outputs/migration-summary.md` が存在する。
-- サマリーに移行対象、検証結果、残課題が含まれる。
-- `scripts/verify-migration.sh` が合格する。
+- **PC-01** `outputs/migration-summary.md` が存在する。
+- **PC-02** サマリーに移行対象、検証結果、残課題が含まれる。
+- **PC-03** `scripts/verify-migration.sh` が合格する。
 
 ## 判断原則
 

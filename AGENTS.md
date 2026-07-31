@@ -52,14 +52,37 @@
 永続的に残すものがない作業では、上記の正本を新設・変更せず、必要な一時ファイルだけを `.tmp/` で扱う。
 分類に迷う場合は作業を始めず、利用者に確認する。
 
+## 作業開始前の確定
+
+必要な正本を読んだ後、変更または実行を始める前に、次の4項目を一意に特定する。
+
+- **Route:** `knowledge | skill | project | none` のどれで扱うか。
+- **Owner:** 永続的な変更を所有するリポジトリ内パス。永続的な変更がなければ `none`。
+- **Target:** 前進させる契約条件・成功指標、または従う規則。
+- **Verify:** 完了報告前に実行する検証。
+
+Project作業では、例えば `Route: project`、`Owner: projects/example/`、
+`Target: projects/example/PROJECT.md#PC-02`、`Verify: bash projects/example/scripts/verify.sh` と特定する。
+通常は内部で確定すればよく、利用者への毎回の表示や、この4項目だけを保存する新規ファイルは不要である。
+一意に特定できず、推測すると成果や安全性が変わる場合は作業を始めず利用者へ確認する。
+
+## 相互参照
+
+リポジトリ内の特定箇所を恒久的に参照するときは、`<repository-relative-path>#<target>` を使う。
+
+- 見出しは `AGENTS.md#依頼の振り分け` のように見出し名で参照する。
+- Project条件は `projects/example/PROJECT.md#PC-01` のように固定IDで参照する。
+- YAMLフロントマターは `projects/example/PROJECT.md#status` のようにキー名で参照する。
+- 同じProject内からの参照でも、原則として `PROJECT.md#PC-01` のように対象ファイルを明記する。
+- 内容追加でずれる行番号は恒久的な参照に使わず、参照のためだけに全Markdownへ数字の章番号を付けない。
+
 ## Projectの成果達成原則
 
 `PROJECT.md` は「どこへ行くか」を定める変更頻度の低い契約、`STATE.md` は「今どこにいるか」を示す
 現在状態の正本である。具体的な運用手順は [projects/README.md](projects/README.md) を正本とし、
 Project作業では次の不変条件を守る。
 
-1. **照合:** `STATE.md` の現在の目標と合格条件、それが前進させる `PROJECT.md` の完了条件または
-   成功指標を特定する。
+1. **照合:** `STATE.md` の現在の目標と合格条件、それが前進させる `PROJECT.md#PC-xx` を特定する。
 2. **実行:** 成果契約の範囲内で、最小かつ完全な変更を行う。
 3. **検証:** 成果物の存在ではなく、期待状態を満たした証拠を確認する。
 4. **状態更新:** 状態が変わった同じ作業内で `STATE.md` を更新する。

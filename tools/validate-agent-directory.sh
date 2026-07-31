@@ -65,8 +65,34 @@ contains_template_placeholder() {
   ) "$1"
 }
 
-has_plain_list_section() {
+has_valid_project_criteria() {
   awk -v heading="$2" '
+    /^## / {
+      in_section = ($0 == heading)
+      next
+    }
+    in_section && /^- / {
+      has_item = 1
+      if ($0 !~ /^- \*\*PC-(0[1-9]|[1-9][0-9])\*\* .+/) {
+        invalid = 1
+        next
+      }
+      id = substr($0, 5, 5)
+      if (seen[id]++) {
+        invalid = 1
+      }
+    }
+    /^- \*\*PC-/ && !in_section {
+      invalid = 1
+    }
+    END {
+      exit !(has_item && !invalid)
+    }
+  ' "$1"
+}
+
+state_section_targets() {
+  awk -v heading="$2" -v prefix="$3" '
     $0 == heading {
       in_section = 1
       next
@@ -74,14 +100,13 @@ has_plain_list_section() {
     in_section && /^## / {
       exit
     }
-    in_section && /^- \[[ xX]\] / {
-      has_checkbox = 1
-    }
-    in_section && /^- .+/ {
-      has_item = 1
-    }
-    END {
-      exit !(has_item && !has_checkbox)
+    in_section && index($0, prefix) == 1 {
+      target = $0
+      sub(/^.*PROJECT\.md#/, "", target)
+      sub(/`$/, "", target)
+      if (target ~ /^(PC-(0[1-9]|[1-9][0-9])|status)$/) {
+        print target
+      }
     }
   ' "$1"
 }
@@ -89,6 +114,7 @@ has_plain_list_section() {
 validate_project_contract() {
   local project_file="$1"
   local heading
+  local criterion_heading
   local mode
   local name
   local status
@@ -136,11 +162,9 @@ validate_project_contract() {
 
   case "$mode" in
     finite)
+      criterion_heading='## 完了条件'
       require_fixed_line "$project_file" '## 最終ゴール'
       require_fixed_line "$project_file" '## 完了条件'
-      if ! has_plain_list_section "$project_file" '## 完了条件'; then
-        fail "${project_file#"$repo_root"/} must use plain bullets for completion conditions"
-      fi
       if grep -Fqx '## 継続的使命' "$project_file" ||
         grep -Fqx '## 成功指標' "$project_file" ||
         grep -Fqx '## 見直し・終了条件' "$project_file"; then
@@ -148,6 +172,7 @@ validate_project_contract() {
       fi
       ;;
     continuous)
+      criterion_heading='## 成功指標'
       require_fixed_line "$project_file" '## 継続的使命'
       require_fixed_line "$project_file" '## 成功指標'
       require_fixed_line "$project_file" '## 見直し・終了条件'
@@ -161,6 +186,10 @@ validate_project_contract() {
       ;;
   esac
 
+  if ! has_valid_project_criteria "$project_file" "$criterion_heading"; then
+    fail "${project_file#"$repo_root"/} must use unique PC-xx bullets only in $criterion_heading"
+  fi
+
   if [[ "$project_file" != "$repo_root/projects/_template/PROJECT.md" ]] &&
     contains_template_placeholder "$project_file"; then
     fail "${project_file#"$repo_root"/} contains an unresolved placeholder"
@@ -169,8 +198,12 @@ validate_project_contract() {
 
 validate_project_state() {
   local state_file="$1"
+  local contract_targets
   local heading
+  local project_file
+  local target
   local updated_at
+  local verification_targets
   local headings=(
     '## 現在の到達点'
     '## 現在の目標'
@@ -200,6 +233,27 @@ validate_project_state() {
 
   for heading in "${headings[@]}"; do
     require_fixed_line "$state_file" "$heading"
+  done
+
+  project_file="$(dirname "$state_file")/PROJECT.md"
+  contract_targets="$(state_section_targets "$state_file" '## 現在の目標' '対象契約: `PROJECT.md#')"
+  if [[ "$(wc -l <<<"$contract_targets" | tr -d ' ')" != '1' || -z "$contract_targets" ]]; then
+    fail "${state_file#"$repo_root"/} must name one current target as PROJECT.md#PC-xx or PROJECT.md#status"
+  fi
+  verification_targets="$(state_section_targets "$state_file" '## 検証結果' '- 対象: `PROJECT.md#')"
+  if [[ -z "$verification_targets" ]]; then
+    fail "${state_file#"$repo_root"/} verification results must reference PROJECT.md#PC-xx or PROJECT.md#status"
+  fi
+
+  for target in $contract_targets $verification_targets; do
+    case "$target" in
+      status) ;;
+      PC-*)
+        if [[ -f "$project_file" ]] && ! grep -Fq -- "**$target**" "$project_file"; then
+          fail "${state_file#"$repo_root"/} references missing PROJECT.md#$target"
+        fi
+        ;;
+    esac
   done
 
   if [[ "$state_file" != "$repo_root/projects/_template/STATE.md" ]] &&

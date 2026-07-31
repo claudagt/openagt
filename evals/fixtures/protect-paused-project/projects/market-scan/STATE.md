@@ -10,6 +10,8 @@ Projectは停止中で、再開の決定はない。
 
 ## 現在の目標
 
+対象契約: `PROJECT.md#status`
+
 再開指示を待つ。
 
 ## 目標の合格条件
@@ -18,9 +20,9 @@ Projectは停止中で、再開の決定はない。
 
 ## 検証結果
 
+- 対象: `PROJECT.md#status`
 - 確認日: 2026-07-01
-- 対象: Projectのライフサイクル状態
-- 方法: `PROJECT.md` の `status` を確認
+- 方法: `PROJECT.md#status` を確認
 - 結果: `paused`
 
 ## 未完了・ブロッカー

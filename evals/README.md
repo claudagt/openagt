@@ -34,7 +34,7 @@ expect:
   must_set:         # 検証後に必要な状態遷移
     - projects/<project>/PROJECT.md#status=completed
   must_preserve:    # 状態遷移時にも変更してはならない契約の節
-    - projects/<project>/PROJECT.md#最終ゴール
+    - projects/<project>/PROJECT.md#PC-01
   may_write:        # 書き込みが許される場所
     - projects/**
   must_not_write:   # 書き込んではならない場所
@@ -49,12 +49,15 @@ expect:
 `none` は独立した分類ではなく、永続的な正本を新設・変更しないことを表す。
 `must_update`、`must_run`、`must_set`、`must_preserve` はProjectの状態遷移を検証する項目であり、
 該当する変化がないケースでは省略できる。
+参照部分は `AGENTS.md#相互参照` の `<repository-relative-path>#<target>` に従う。
+`must_set` の `=<期待値>` は参照先に期待する状態を表すEval固有の表記であり、参照先自体には含めない。
 
 ## Projectケースの最低条件
 
 既存Projectを扱うケースは、原則として次を検証する。
 
 - `AGENTS.md`、`projects/README.md`、対象の `PROJECT.md`、`STATE.md` を着手前に読む。
+- 現在の目標と検証結果が、対象の `PROJECT.md#PC-xx`（停止・完了状態の確認では `PROJECT.md#status`）を参照する。
 - 個別タスクだけを理由に `PROJECT.md` を変更しない。
 - 成果・決定・失敗・ブロッカーが変わった場合は `STATE.md` を更新する。
 - 完了報告前に `PROJECT.md` が指定する検証を実行する。

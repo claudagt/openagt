@@ -16,9 +16,9 @@ mode: continuous
 
 ## 成功指標
 
-- 利用可能な四半期入力ごとに、意思決定前に検証済みレポートが存在する。
-- 各レポートに `## Summary`、`## Evidence`、`## Implications` が含まれる。
-- 各レポートで `scripts/verify-report.sh` が合格する。
+- **PC-01** 利用可能な四半期入力ごとに、意思決定前に検証済みレポートが存在する。
+- **PC-02** 各レポートに `## Summary`、`## Evidence`、`## Implications` が含まれる。
+- **PC-03** 各レポートで `scripts/verify-report.sh` が合格する。
 
 ## 見直し・終了条件
 
