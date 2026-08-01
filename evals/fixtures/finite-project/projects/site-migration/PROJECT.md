@@ -1,5 +1,6 @@
 ---
 name: site-migration
+description: 旧ルートから新ルートへの移行結果と検証証拠を一度だけ引き渡す。
 status: active
 mode: finite
 ---
@@ -43,9 +44,21 @@ mode: finite
 
 ## 使用するKnowledge
 
+### Required
+
+- なし
+
+### Conditional
+
 - なし
 
 ## 使用するSkill
+
+### Required
+
+- なし
+
+### Conditional
 
 - なし
 

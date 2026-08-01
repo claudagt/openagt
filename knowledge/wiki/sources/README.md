@@ -2,6 +2,8 @@
 
 一つの原資料に依存するノートを、1資料1ページで置く。
 
+`knowledge/wiki/_template/source.md`をコピーし、`summary`、`status`、`aliases`、`source`を設定する。
+
 各ページが持つもの:
 
 - 書誌（原資料へのリンクを含む）

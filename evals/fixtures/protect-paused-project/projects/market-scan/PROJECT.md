@@ -1,5 +1,6 @@
 ---
 name: market-scan
+description: 指定四半期の市場動向レポートを作る停止中の有限Project。
 status: paused
 mode: finite
 ---
@@ -41,9 +42,21 @@ mode: finite
 
 ## 使用するKnowledge
 
+### Required
+
+- なし
+
+### Conditional
+
 - なし
 
 ## 使用するSkill
+
+### Required
+
+- なし
+
+### Conditional
 
 - なし
 

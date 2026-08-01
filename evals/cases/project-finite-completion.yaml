@@ -22,6 +22,7 @@ expect:
   must_set:
     - projects/site-migration/PROJECT.md#status=completed
     - projects/site-migration/STATE.md#現在の目標=なし（Project完了）
+    - projects/site-migration/STATE.md#次の一手=なし（Project完了）
   must_preserve:
     - projects/site-migration/PROJECT.md#目的
     - projects/site-migration/PROJECT.md#最終ゴール

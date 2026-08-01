@@ -1,175 +1,141 @@
 # agent-directory
 
-AIエージェントのディレクトリ構造テンプレート。
+長期稼働するAIエージェント1体ごとに持つ、ローカルファーストのディレクトリ構造テンプレート。
+Knowledge、Skill、Projectを正本として育てながら、1タスクの読込量は総量から切り離す。
 
-エージェントに知識を蓄積させ、固有のスキルを習得させることで、育てながらタスクを遂行していく。
+## English overview
 
-## English Overview
+A local-first repository template for one long-running AI agent. Canonical Markdown and source files may grow,
+while deterministic, status-aware retrieval keeps each task's working context bounded.
 
-A directory-structure template for AI agents — accumulate knowledge, acquire skills, and grow your agent while it works.
+- `AGENTS.md` — mission, routing, common policy, and the Context Loading Contract
+- `knowledge/` — immutable records and reusable source/topic knowledge
+- `skills/` — reusable procedures and output contracts
+- `projects/` — outcome contracts, current state, inputs, outputs, and run evidence
+- `evals/` — behavioral contracts for routing and bounded retrieval
+- `tools/` — dependency-free structure validation and context discovery
+- `.agent-cache/` — ignored, disposable catalog regenerated from canonical files
 
-- `AGENTS.md` — top-level mission, vision, decision principles, and routing contract
-- `CLAUDE.md` — Claude Code entry point; imports `AGENTS.md` (`@AGENTS.md`)
-- `knowledge/` — immutable source records (`raw/`, `research/`) turned into reusable knowledge (`wiki/`)
-- `skills/` — analysis procedures with entry points (`SKILL.md`), one directory per skill
-- `projects/` — long-lived work and deliverables: `PROJECT.md` defines the outcome contract and `STATE.md` carries current state
-- `evals/` — behavioral QA: cases that verify routing and contract compliance
-- `tools/` — scripts that maintain this directory structure itself
-- `.tmp/` — isolated temporary workspace, never referenced by durable code and cleaned up when work completes
-
-Getting started:
-
-1. Copy or clone this repository (one copy per agent).
-2. Replace the `<agent-name>` / `<agent-mission>` / `<agent-vision>` / `<project-dir>` placeholders in [AGENTS.md](AGENTS.md).
-3. Add your skills by copying `skills/_template/` and register them in [skills/README.md](skills/README.md).
-4. Run `bash tools/validate-agent-directory.sh --strict` to verify the instantiated agent.
-5. Operate the agent, accumulating knowledge under the rules in [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md).
-
-Recommended environments: the template itself is model- and client-agnostic. The primary recommended setups are desktop local sessions — OpenAI Codex (inside the ChatGPT desktop app) and Anthropic Claude Code (Claude Desktop's Code tab) — opened on a local copy of this repository. The intended deployment is a dedicated machine per agent (e.g., a Mac mini) separate from your main computer, operated via each product's remote-connection feature from the desktop app on your main machine. Other environments (CLI, IDE extensions, cloud) also work as long as they can read the contracts.
-
-Full documentation is in Japanese. The structure itself (directory names, file layout) is language-neutral, and the rule files are written for LLM agents, which read Japanese natively.
+The repository is model- and client-agnostic. Codex, Claude Code, CLIs, and IDE integrations can use the same
+canonical files and the same `tools/find-context.sh` output. Product-side memory and search databases are caches,
+never the source of truth.
 
 ## 利用開始
 
-1. このリポジトリをコピーまたはクローンする。
-2. [AGENTS.md](AGENTS.md) の `<agent-name>` などのプレースホルダーを、
-   自分のエージェント名・役割・使命・ビジョン・固有プロジェクトに書き換える。
-3. `skills/_template/` をコピーして必要なSkillを追加し、[skills/README.md](skills/README.md) の一覧へ登録する。
-4. `bash tools/validate-agent-directory.sh --strict` を実行し、初期設定と構造が合格することを確認する。
-5. [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md) の規約に沿ってKnowledgeを蓄積しながら運用する。
+1. このリポジトリをエージェント1体につき1つコピーまたはクローンする。
+2. [AGENTS.md](AGENTS.md)の`<agent-name>`、役割、使命、ビジョンを置換する。
+3. `skills/_template/`または`projects/_template/`を、明示された必要に応じてコピーする。
+4. `bash tools/validate-agent-directory.sh --strict --full`を実行する。
+5. `tools/find-context.sh --route <route> --limit 5 -- "検索語"`で対象候補を絞って運用する。
 
-## アーキテクチャと利用例
+テンプレートのままではプレースホルダーがあるため、通常validationは合格し、`--strict`は導入完了まで失敗する。
 
-構成は2層。操作卓となるメインマシン1台と、エージェントを動かすサブマシン群。
-エージェント1体につきこの構造を1つ持たせ、サブマシンを増やせば水平に拡張できる。
+## 基本原則
 
-```text
-メインマシン（操作卓）
-├── Codex Desktop ──┐
-└── Claude Desktop ─┴─ 各製品のリモート接続機能でサブマシンへ
+- リポジトリ内の正本を会話記憶、製品側AIメモリ、検索結果より優先する。
+- `raw/`と`research/`の既存原資料は変更・削除しない。
+- `sources/`と`topics/`も、人間・AIの判断を含むKnowledge正本として扱う。
+- `PROJECT.md`は低頻度の成果契約、`STATE.md`は短い現在状態とする。
+- 完了・停止・廃止を物理archiveで表さず、frontmatterの状態で検索から除外する。
+- 全件台帳をLLMへ渡さず、状態付きの決定的検索で最大5候補に絞る。
+- 派生catalogや規模閾値で自動生成するSQLiteは削除・再生成可能とし、恒久参照先にしない。
+- ベクトルDB、常駐サービス、外部課金は既定で導入しない。
 
-サブマシン1
-├── Agent-1/agent-directory/   # エージェントごとに独立した知識・スキル・プロジェクト
-├── Agent-2/agent-directory/
-└── Agent-3/agent-directory/
-サブマシン2
-├── Agent-4/agent-directory/
-└── ...
-```
+## Route
 
-推論は各デスクトップ製品側で実行され、サブマシンはエージェントの作業領域
-（ファイル・シェル・この構造）を担う。役割の分離が本質であり、機種やOSには依存しない。
-実行環境はローカルマシンを想定する（クラウド対応は今後の視野）。
-作者の想定環境はメインマシンが MacBook Pro、サブマシンが Mac mini。
+| Route | 対象 | 着手後に読む正本 |
+|---|---|---|
+| `knowledge` | 記憶、調査、統合 | `knowledge/KNOWLEDGE.md`と選択したKnowledge |
+| `skill` | 分析・判定手順 | `skills/README.md`と対象`SKILL.md` |
+| `project` | 固有の仕事・成果物 | `projects/README.md`、対象`PROJECT.md`、`STATE.md` |
+| `meta` | 規約、テンプレート、eval、tool | 対象領域のREADMEと変更対象 |
+| `none` | 永続変更のない回答・一時作業 | 必要最小限。中間物は`.tmp/` |
 
-## 構成
+## 構造
 
 ```text
 agent-directory/
-├── AGENTS.md               # 最上位規約 — 使命・ビジョン・共通原則・振り分け・禁止事項
-├── CLAUDE.md               # Claude Code用の入口 — @AGENTS.md をインポート
-├── README.md               # このファイル
-├── LICENSE                 # MIT License
-├── .env.example            # 環境変数のプレースホルダー
-├── .tmp/                   # 一時作業領域 — Git管理外
+├── AGENTS.md
+├── CLAUDE.md
+├── README.md
+├── .agent-cache/                 # Git管理外の派生物
 ├── knowledge/
-│   ├── KNOWLEDGE.md        # Knowledge運用の正本
-│   ├── raw/                # 内部で生まれた原記録 — 編集・削除しない
-│   ├── research/           # 外部から取得した原資料 — 内容を変えない
-│   └── wiki/               # 原資料を再利用可能な知識へ変換
-│       ├── index.md        # 全体の入口
-│       ├── guide.md        # 構造と使い方の案内
-│       ├── log.md          # 時系列履歴
-│       ├── sources/        # 資料別ノート — 1資料1ページ
-│       └── topics/         # 統合知識 — 1トピック1ページ
+│   ├── KNOWLEDGE.md
+│   ├── raw/                      # 不変の内部原記録
+│   ├── research/                 # 不変の外部原資料
+│   └── wiki/
+│       ├── index.md              # 小型ルートマップ
+│       ├── log.md                # 現在の変更履歴。既定では読まない
+│       ├── logs/                 # 閉鎖済みの不変ログ
+│       ├── _template/            # source/topic雛形
+│       ├── sources/              # 資料別Knowledge正本
+│       └── topics/               # 統合Knowledge正本
 ├── skills/
-│   ├── README.md           # スキル分類の正本
-│   └── _template/          # 新規スキルの雛形 — コピーして使う
-│       ├── SKILL.md        # 入口 — 発動条件・手順・出力契約
-│       ├── agents/         # 表示情報
-│       ├── references/     # 詳細な分析方法
-│       ├── assets/         # テンプレート類
-│       ├── candidates/     # 仕様が未安定な再利用候補
-│       └── scripts/        # 固定化した検証・実行処理
+│   ├── README.md
+│   └── _template/
 ├── projects/
-│   ├── README.md           # プロジェクト運用の正本
-│   └── _template/          # 新規プロジェクトの雛形
-│       ├── PROJECT.md      # 成果契約 — 種別・目的・ゴールまたは使命・判断原則・検証
-│       └── STATE.md        # 現在状態 — 現在の目標・合格条件・決定・次の一手・検証
+│   ├── README.md
+│   ├── LIFECYCLE.md              # 状態遷移時だけ読む
+│   ├── RECOVERY.md               # 目的不一致の復旧時だけ読む
+│   └── _template/
 ├── evals/
-│   ├── README.md           # 検証方法の正本
-│   ├── cases/              # 検証ケース — 1ケース1ファイル
-│   └── fixtures/           # ケース用の入力データ
+│   ├── README.md
+│   ├── cases/
+│   └── fixtures/
 └── tools/
-    ├── README.md           # 構造保守Toolの規約
-    └── validate-agent-directory.sh  # Project契約・STATE・Evals・秘密ファイル追跡の点検
+    ├── README.md
+    ├── build-context-cache.sh
+    ├── find-context.sh
+    ├── append-knowledge-log.sh
+    └── validate-agent-directory.sh
 ```
 
-## 役割
+## コンテキスト探索
 
-| 領域 | 役割 |
-|------|------|
-| `AGENTS.md` | 司令塔 — 依頼を正しい場所へ振り分ける |
-| `knowledge/` | 記憶 — 原資料の蓄積と知識化 |
-| `skills/` | 能力 — 分析方法と判定 |
-| `projects/` | 仕事 — 固有プロジェクトの入力・成果物・実行記録 |
-| `evals/` | 品質 — ルーティングと規約遵守の検証 |
-| `tools/` | 保守 — この構造自体の点検・自動化 |
-| `.tmp/` | 作業机 — 中間ファイル置き場 |
+```bash
+# active Knowledgeを最大5件
+tools/find-context.sh --route knowledge --limit 5 -- "資本配分"
 
-## 流れ
-
-```text
-知識を覚える依頼
-  AGENTS.md → KNOWLEDGE.md → raw / research → sources → topics
-
-分析の依頼
-  AGENTS.md → skills/README.md → SKILL.md →(必要なら Wiki・原資料へ遡る)
-
-データ・成果物の依頼
-  AGENTS.md → projects/README.md → PROJECT.mdの成果契約 → STATE.mdの現在目標
-  → 実行・検証 → STATE.md更新 → finiteなら完了判定、continuousなら次目標
-
-すべての作業に付随する一時ファイル
-  .tmp/ に隔離する → 正式コードから参照しない → 正式保存後または完了時に片付ける
-
-コードのライフサイクル
-  .tmp/ の一時コード → 2回目の利用で所有先の candidates/ → 3回目の利用前に固定化審査
-
-製品側AIメモリ（各作業に付随する規約 — 独立した分類ではない）
-  永続化すべき内容 → 先に上記の正本へ保存 → 必要なら製品側メモリへ写す
-  （製品側メモリは正本から派生する任意のキャッシュ。矛盾したらリポジトリを優先する）
+# 明示的な監査時だけ非activeも含める
+tools/find-context.sh --route project --include-inactive -- "site migration"
 ```
 
-## Projectの成果契約
+検索順位は、明示パス・正本の明示参照を最優先とし、Tool内ではname完全一致、alias完全一致、
+name/alias/description/path一致、本文一致の順に決定する。検索結果は候補であり、選択後に正本を読む。
 
-```text
-使命・ビジョン = エージェント全体の長期的な方向
-PROJECT.md       = Projectの目的、成果契約、固定された判断基準
-STATE.md         = 現在地、現在の目標、検証結果、次の一手
+`.agent-cache/catalog.tsv`と`manifest.tsv`はfrontmatterと実ファイルから生成される。
+欠損・stale時はToolが一度再生成する。生成不能時の正本検索fallbackも`AGENTS.md`で規定する。
+
+## Context Loading Contractの既定値
+
+- 候補: 1検索最大5件
+- Knowledge: 初回3ページ、追加後最大6ページ
+- Project Required参照: KnowledgeとSkillの合計6件
+- Skill Required Knowledge: 3件
+- 正本の合計: 32KiB・12ファイル、または16,000 token・モデル上限25%の小さい方
+- 24KiB超のファイル: 見出し・検索で範囲を絞って部分読込
+- log、closed logs、runs、Git履歴: 通常0件
+
+## 検証
+
+```bash
+bash tools/validate-agent-directory.sh
+bash tools/validate-agent-directory.sh --strict --full
+bash tools/validate-agent-directory.sh --full --base main
 ```
 
-`mode: finite` は検証可能な終了状態を達成したら `completed` にする。
-`mode: continuous` は現在の目標を更新しながら継続し、Project自体を完了扱いにしない。
-エージェントは両方を作業前に読み、完了条件または成功指標を前進させる作業だけを行う。
-完了報告前にProject固有の検証を実行し、状態が変わった同じ作業内で `STATE.md` を更新する。
-詳細は [projects/README.md](projects/README.md) を参照する。
+validatorは構造、frontmatter、Project契約、状態、参照上限、サイズ、index、log、eval schema、
+派生cacheの決定的再生成、禁止されたGit追跡を検査する。`--base`は不変原資料や閉鎖済みlogの変更も検査する。
 
-## 推奨実行環境
+## 規模拡大
 
-このテンプレート自体は、特定のモデルやクライアントに依存しない。
+通常はfrontmatter、TSV、`rg`/`grep`を使う。routeable Knowledgeが1,000件またはcatalogが5,000行へ
+達すると、cache生成ToolがSQLite FTS5 trigramを自動生成し、検索Toolが本文検索へ自動利用する。
+SQLite/FTS5を利用できない環境でも正本を失わず、警告して`rg`/`grep`へfallbackする。
+利用者が移行やDB管理を行う必要はない。生成DBは常にGit管理外で、正本から再生成できる。
 
-主な推奨環境は、ローカルのリポジトリフォルダを開いて利用する次の2つのデスクトップ環境。
+ベクトル検索は自動導入しない。決定的検索で品質不足が実測されない限り、依存関係を増やさない。
 
-- **OpenAI Codex** — ChatGPTデスクトップアプリ内のCodex（旧Codexアプリの利用者も同様）
-- **Anthropic Claude Code** — Claude DesktopのCodeタブ（Claude Code Desktop）
+## ライセンス
 
-想定する配置と操作方法は「アーキテクチャと利用例」のとおり。同一マシンでの利用も可能。
-
-推奨運用はデスクトップのローカルセッションだが、CLI・IDE拡張・クラウド環境でも、
-この規約を読める場合は利用できる。
-各製品側のメモリ機能は、このリポジトリが自動で有効化するものではなく、各製品側の設定に従う。
-
-## License
-
-[MIT](LICENSE)
+[MIT License](LICENSE)

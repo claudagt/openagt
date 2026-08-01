@@ -1,5 +1,6 @@
 ---
 name: <project-name>
+description: <このProjectの対象と成果を示す200文字以内の一行説明>
 status: active
 mode: finite
 ---
@@ -52,11 +53,25 @@ mode: finite
 
 ## 使用するKnowledge
 
-- [[関連トピック]]
+### Required
+
+- なし
+
+### Conditional
+
+- 条件: <追加の根拠が必要になる条件>
+  参照: `knowledge/wiki/topics/<topic-name>.md`
 
 ## 使用するSkill
 
-- `skills/<skill-name>/SKILL.md`
+### Required
+
+- なし
+
+### Conditional
+
+- 条件: <追加の手順が必要になる条件>
+  参照: `skills/<skill-name>/SKILL.md`
 
 ## 成果物
 

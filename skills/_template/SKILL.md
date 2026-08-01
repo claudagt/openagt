@@ -1,6 +1,8 @@
 ---
 name: <skill-name>
 description: <このスキルが何をするかの一行説明。どんな依頼で選ばれるかが分かるように書く。>
+status: active
+aliases: []
 ---
 
 # `<skill-name>` — <一行説明>
@@ -14,10 +16,21 @@ description: <このスキルが何をするかの一行説明。どんな依頼
 
 依頼された対象を、定義された手順で分析し、契約どおりの形式で結果を返す。
 
+## 使用するKnowledge
+
+### Required
+
+- なし
+
+### Conditional
+
+- 条件: <正確な原資料または追加根拠が必要になる条件>
+  参照: `knowledge/wiki/topics/<topic-name>.md`
+
 ## 手順
 
 1. 依頼から分析対象と前提条件を確認する。不明なら着手前に利用者へ確認する。
-2. 根拠が必要なら `knowledge/wiki/index.md` から該当ページ・原資料を参照する。
+2. Requiredと、条件が成立したConditionalだけを読む。追加探索は`tools/find-context.sh`で最大5候補へ絞る。
 3. 中間ファイルと一時コードは `.tmp/` に置いて分析する。
 4. 結果を「出力契約」の形式でまとめ、`.tmp/` を片付ける。
 

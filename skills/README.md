@@ -1,46 +1,61 @@
 # skills/ — 分析・判定手順の正本
 
-スキルの分類正本。スキルを使う依頼を受けたら、まずここで該当スキルを特定し、
-対象の `SKILL.md` を読んでから実行すること。
+Skill Routeを確定した後に読む。Knowledgeは「何が分かっているか」、Skillは「どう処理するか」、
+Projectは「何を作り残すか」を所有する。
 
-## KnowledgeとSkillの分離
+## 対象の選択
 
-```text
-Knowledge = 何が分かっているか（証拠・背景・仮説・反証）→ knowledge/
-Skill     = どう分析するか（手順・判定・出力契約）      → skills/
+1. 利用者がSkill名または`SKILL.md`のパスを明示したらそれを優先する。
+2. 未指定なら`tools/find-context.sh --route skill --limit 5 -- <query>`で候補を得る。
+3. 通常候補は`status: active`だけとし、`_template/`を候補にしない。
+4. 実行するSkillを1件に確定してから、その`SKILL.md`を最後まで読む。
+5. catalog、検索snippet、descriptionだけでSkillを実行しない。
+
+手動の全Skill一覧は持たない。各`SKILL.md`のfrontmatterが正本で、全件catalogはそこから再生成する。
+
+## frontmatterと状態
+
+```yaml
+---
+name: skill-name
+description: 発動条件が分かる200文字以内の一行説明
+status: active
+aliases: [別名]
+---
 ```
 
-スキル実行中に根拠が必要になったら、`knowledge/wiki/index.md` から遡る。
+- `name`はSkillディレクトリ名と一致させる。
+- `status`は`active | deprecated | retired`だけを使う。
+- deprecatedはactiveな後継`SKILL.md`への`replaced_by`を持たせる。
+- retiredは実行しない。deprecatedは明示的な互換性確認以外では後継を使う。
+- 状態変更のために物理移動せず、パスを維持する。
 
-## 新しいSkillの作成
+## Knowledge参照
 
-`_template/` をコピーして作成し、`SKILL.md` の発動条件・手順・出力契約を書き換える。
-`_template/` 自体はスキルではないため、実行対象にしない。
+`SKILL.md`の「使用するKnowledge」を次に分ける。
 
-## スキル一覧
+- **Required** — 実行時に必ず読む。最大3件。リポジトリ相対パスで指定する。
+- **Conditional** — `条件:`と`参照:`を組にし、条件成立時だけ読む。
 
-| スキル | 用途 |
-|--------|------|
-| `<skill-name>` | <一行の用途> |
+通常判断ではactive Knowledgeだけを使う。原資料へ遡る条件と総読込予算は
+`AGENTS.md#Context Loading Contract`に従う。
 
-スキルを追加したら、この表に1行登録する。
+## 新規作成・更新
 
-## 各スキルの基本構造
+- `_template/`をコピーし、frontmatter、発動条件、手順、出力契約、Knowledge参照を置換する。
+- `_template/`自体はSkillではない。
+- 利用者向け能力のコードはSkillの`candidates/`または`scripts/`が所有する。
+- 詳細方法は`references/`、再利用テンプレートは`assets/`へ委譲し、`SKILL.md`を入口として短く保つ。
+- `SKILL.md`は20KiBを超えない。超える詳細は明示参照された補助ファイルへ分ける。
+
+## 基本構造
 
 ```text
 skill-name/
-├── SKILL.md            # 入口 — 発動条件・目的・手順・出力契約・禁止事項
-├── agents/
-│   └── openai.yaml     # 表示情報 — 名前・説明・デフォルトプロンプト
-├── references/         # 詳細な分析方法 — 必要な場合のみ
-├── assets/             # 再利用テンプレート — 必要な場合のみ
-├── candidates/         # 仕様が未安定な再利用候補 — 必要な場合のみ
-└── scripts/            # 固定化した機械的処理 — 必要な場合のみ
+├── SKILL.md
+├── agents/       # 表示情報
+├── references/   # 必要時だけ読む詳細方法
+├── assets/       # 再利用テンプレート
+├── candidates/   # 未安定な再利用候補
+└── scripts/      # 固定した実行・検証処理
 ```
-
-すべてのスキルが全ディレクトリを持つ必要はない。必要なものだけを置く。
-
-## コードの扱い
-
-コードの段階と片付けは `AGENTS.md` に従う。このSkillの再利用候補は `candidates/`、
-固定コードは `scripts/` が所有する。

@@ -1,5 +1,6 @@
 ---
 name: market-scan
+description: 四半期の市場入力から経営判断に使える検証済みレポートを継続作成する。
 status: active
 mode: continuous
 ---
@@ -51,9 +52,21 @@ mode: continuous
 
 ## 使用するKnowledge
 
+### Required
+
+- なし
+
+### Conditional
+
 - なし
 
 ## 使用するSkill
+
+### Required
+
+- なし
+
+### Conditional
 
 - なし
 

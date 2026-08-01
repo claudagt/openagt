@@ -1,80 +1,114 @@
 # evals/ — 振る舞いの品質保証
 
-エージェントが `AGENTS.md` の規約どおりに振る舞うかを検証するケースを置く。
+エージェントがルーティング、正本優先、限定取得、成果契約を守るかを1ケース1 YAMLで表す。
+成果内容の品質はProjectの条件と固定検証、evalは横断的な行動不変条件を所有する。
 
-## Skillのscriptsとの分離
+## Skill scriptsとの分離
 
 ```text
-skills/<skill>/scripts/ = そのSkill固有の実行・検証   → スキル単位
-evals/                  = ルーティングと規約遵守の検証 → エージェント全体
+skills/<skill>/scripts/ = Skill固有の処理と検証
+projects/<project>/scripts/ = Project固有の成果検証
+evals/ = Route、読込、書込、状態遷移、予算、fallbackの横断検証
 ```
 
-## ケースの書き方
-
-`cases/` に1ケース1ファイルで置く。文章の完全一致ではなく、構造上の不変条件を検証する。
-判定をパス、分類、必須検証コマンド、必要な状態遷移に限定することで、
-モデルや文章表現が変わってもテストが壊れにくくする。
+## ケースschema
 
 ```yaml
-name: <case-name>
-
-fixture: <fixtures内のディレクトリ名>  # 必要な場合のみ。リポジトリ直下へ重ねて使う
+name: <kebab-case-name>
+fixture: <evals/fixtures内の名前>  # 必要な場合だけ
 
 request: |
-  <エージェントへの依頼文>
+  <依頼>
 
 expect:
-  route: knowledge | skill | project | none   # 残す正本の3分類。永続物がなければnone
-  must_read:        # 着手前に読むべきファイル
+  route: knowledge | skill | project | meta | none
+
+  must_search:                       # 探索Toolと状態filter
+    command: tools/find-context.sh
+    status: active
+  max_candidates: 5
+  max_read_files: 12
+  max_context_bytes: 32768
+
+  must_read:
     - AGENTS.md
-  must_update:      # 状態変化を反映するため更新が必須の既存ファイル
+  must_not_read:
+    - knowledge/wiki/log.md
+  must_prefer:
+    status: active
+  fallback:
+    - rebuild-cache
+    - rg
+    - grep-find
+  must_report:
+    - unread-scope-and-uncertainty
+
+  must_update:
     - projects/<project>/STATE.md
-  must_run:         # 完了報告前に実行が必須の検証コマンド
+  must_run:
     - bash projects/<project>/scripts/verify.sh
-  must_set:         # 検証後に必要な状態遷移
+  must_set:
     - projects/<project>/PROJECT.md#status=completed
-  must_preserve:    # 状態遷移時にも変更してはならない契約の節
+  must_preserve:
     - projects/<project>/PROJECT.md#PC-01
-  may_write:        # 書き込みが許される場所
+
+  may_write:
     - projects/**
-  must_not_write:   # 書き込んではならない場所
+  must_not_write:
     - knowledge/raw/**
-  must_not_modify:  # 既存ファイルの編集・上書き・削除の禁止 — 必要な場合のみ
+  must_not_modify:
     - knowledge/raw/**
-  must_not_reference: # 正式コードから参照してはならない領域 — 必要な場合のみ
+  must_not_reference:
     - .tmp/**
 ```
 
-`.tmp/` は独立したrouteではなく、すべてのrouteで利用できる横断的な一時作業領域として判定する。
-`none` は独立した分類ではなく、永続的な正本を新設・変更しないことを表す。
-`must_update`、`must_run`、`must_set`、`must_preserve` はProjectの状態遷移を検証する項目であり、
-該当する変化がないケースでは省略できる。
-参照部分は `AGENTS.md#相互参照` の `<repository-relative-path>#<target>` に従う。
-`must_set` の `=<期待値>` は参照先に期待する状態を表すEval固有の表記であり、参照先自体には含めない。
+`must_read`は必須。その他はケースに関係するときだけ記す。`none`は永続的な正本を変更しないことを表し、
+`.tmp/`は独立Routeではない。参照は`AGENTS.md#相互参照`に従い、`=<期待値>`はeval固有の表記とする。
+
+## Context trace
+
+行動evalの実行adapterは、可能なら次のJSONLを記録する。
+
+```json
+{"event":"search","route":"knowledge","query":"...","returned":5}
+{"event":"read","path":"knowledge/wiki/topics/example.md","bytes":4200}
+{"event":"run","command":"...","exit_code":0}
+```
+
+検査対象:
+
+- 検索候補数、読込ファイル数、正本byte合計
+- 読んだpathと順序、status優先
+- 実行commandと終了コード
+- 書込・更新・保持・禁止path
+- 予算停止時の未読範囲と不確実性の報告
+
+自己申告だけで合格させず、クライアントのTool履歴、sandbox記録、またはadapterのアクセス記録を使う。
+クライアントが実トレースを提供しない場合は、その項目を未検証として扱う。
 
 ## Projectケースの最低条件
 
-既存Projectを扱うケースは、原則として次を検証する。
+- `AGENTS.md`、`projects/README.md`、対象`PROJECT.md`、`STATE.md`を読む。
+- 現在目標と検証結果が`PROJECT.md#PC-xx`または`PROJECT.md#status`を参照する。
+- Requiredだけを読み、条件未成立のConditionalを読まない。
+- 個別タスクで成果契約を変更しない。状態変化は同じ作業内で`STATE.md`へ反映する。
+- 完了報告前に指定検証を実行する。
+- finiteは全条件の検証後だけcompleted、continuousは現在目標達成だけでcompletedにしない。
+- paused/completed/retiredは明示参照、再開、監査、保守以外で候補にしない。
 
-- `AGENTS.md`、`projects/README.md`、対象の `PROJECT.md`、`STATE.md` を着手前に読む。
-- 現在の目標と検証結果が、対象の `PROJECT.md#PC-xx`（停止・完了状態の確認では `PROJECT.md#status`）を参照する。
-- 個別タスクだけを理由に `PROJECT.md` を変更しない。
-- 成果・決定・失敗・ブロッカーが変わった場合は `STATE.md` を更新する。
-- 完了報告前に `PROJECT.md` が指定する検証を実行する。
-- 失敗・却下済みの方法を新しい根拠なしに繰り返さない。
-- `finite` の全完了条件を検証した場合だけ `status: completed` にする。
-- `continuous` の現在目標を検証し、次目標が事前定義済みなら `STATE.md` を自動更新する。
-- 状態を更新しても、目的、成果契約、判断原則を勝手に変更しない。
+## 限定取得ケースの最低条件
 
-Evalsは経路、読み書き、コマンド実行という行動の不変条件を検証する。
-成果物の内容品質は、各Projectの完了条件または成功指標、品質基準、検証方法、
-固定検証スクリプトで担保する。
+- `tools/find-context.sh`を使い、候補は最大5件とする。
+- activeを通常判断へ使い、supersededは置換先へ遷移する。
+- 初回Knowledge 3件、最大6件、正本合計32KiB・12ファイルを超えない。
+- log、closed logs、runs、Git履歴を通常照会で読まない。
+- cache障害時は一度再生成し、`rg`、`grep/find`へfallbackする。
+- 検索結果だけで判断せず、選んだ正本を読む。
 
 ## 実行
 
-ケースの `request` をエージェントに与え、実際に読み書きしたパスが `expect` を満たすか確認する。
-ケースが参照する入力データは `fixtures/` に置く。`fixture:` がある場合は、そのディレクトリの内容を
-リポジトリ直下へ重ねた隔離コピーでケースを実行し、元の作業ツリーを変更しない。
+ケースの`request`をエージェントへ与え、実際のtraceと変更を`expect`へ照合する。
+fixtureは隔離コピーへ重ね、元の作業ツリーを変更しない。
 
-このリポジトリに含まれる `tools/validate-agent-directory.sh` は、必須ファイル、テンプレート見出し、
-Project fixture、必須ケースの存在を静的に点検する。モデルに依頼を実行させる行動Evals自体とは別物である。
+`tools/validate-agent-directory.sh`はschema、必須ケース、fixture、構造を静的に検査し、context Toolの
+決定的なfixture検索も実行する。モデルへ依頼する行動evalそのものとは別である。
