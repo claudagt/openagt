@@ -34,5 +34,6 @@ bash tools/validate-agent-directory.sh
 
 終了コード0と `PASS: agent-directory structure is valid` が合格条件。
 Project内の未置換プレースホルダーは常に検査する。このテンプレートを実エージェント用にコピーした後は
-`--strict` を付け、`AGENTS.md` の自己定義も置換済みか確認する。
+`--strict` を付け、`AGENTS.md` の自己定義、`skills/README.md` のスキル一覧、
+Evalケースの `<skill-name>` も置換済みか確認する。
 Gitリポジトリのルートでない場合、Git追跡の点検だけは `SKIP` と明示される。

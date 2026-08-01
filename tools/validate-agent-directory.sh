@@ -277,9 +277,18 @@ for relative_path in "${required_root_files[@]}"; do
   require_file "$repo_root/$relative_path"
 done
 
-if [[ "$strict" == true ]] &&
-  grep -Eq '<agent-name>|<agent-role>|<agent-mission>|<agent-vision>|<project-dir>' "$repo_root/AGENTS.md"; then
-  fail 'AGENTS.md contains unresolved agent definition placeholders'
+if [[ "$strict" == true ]]; then
+  if grep -Eq '<agent-name>|<agent-role>|<agent-mission>|<agent-vision>|<project-dir>' "$repo_root/AGENTS.md"; then
+    fail 'AGENTS.md contains unresolved agent definition placeholders'
+  fi
+  if grep -Eq '<skill-name>|<一行の用途>' "$repo_root/skills/README.md"; then
+    fail 'skills/README.md contains an unresolved skill placeholder'
+  fi
+  while IFS= read -r -d '' case_file; do
+    if grep -Fq '<skill-name>' "$case_file"; then
+      fail "${case_file#"$repo_root"/} contains an unresolved skill placeholder"
+    fi
+  done < <(find "$repo_root/evals/cases" -type f -name '*.yaml' -print0)
 fi
 
 while IFS= read -r -d '' project_dir; do
@@ -299,11 +308,18 @@ done < <(
 )
 
 required_cases=(
+  'memory-canonical-first'
   'project-context-must-read'
-  'project-goal-change-protection'
-  'project-state-closeout'
   'project-correction-recovery'
   'project-finite-completion'
+  'project-goal-change-protection'
+  'project-state-closeout'
+  'protect-immutable-records'
+  'protect-paused-project'
+  'route-to-knowledge'
+  'route-to-project'
+  'route-to-skill'
+  'temporary-code-isolation'
 )
 
 for case_name in "${required_cases[@]}"; do

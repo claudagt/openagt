@@ -9,6 +9,10 @@ test -s "$report_path"
 grep -q '^## Summary$' "$report_path"
 grep -q '^## Evidence$' "$report_path"
 grep -q '^## Implications$' "$report_path"
-grep -Eq '100|120|150' "$report_path"
+
+while IFS=, read -r month revenue customers; do
+  [[ "$month" == 'month' || -z "$revenue" ]] && continue
+  grep -Eq "(^|[^0-9])${revenue}([^0-9]|\$)" "$report_path"
+done < "${project_dir}/inputs/quarter.csv"
 
 printf 'PASS: %s satisfies the report contract\n' "$report_path"
