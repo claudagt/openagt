@@ -16,16 +16,16 @@ updated_at: 2026-07-01
 
 ## 目標の合格条件
 
-- `outputs/migration-summary.md` が存在する。
-- `scripts/verify-migration.sh` が合格する。
-- `PROJECT.md` の全完了条件に検証証拠がある。
+- `outputs/migration-summary.md`が存在する。
+- `scripts/verify-migration.sh`が合格する。
+- `PROJECT.md`の全完了条件に検証証拠がある。
 
 ## 検証結果
 
 - 対象: `PROJECT.md#PC-01`
 - 確認日: 2026-07-01
 - 方法: ファイル内容の確認
-- 結果: 入力 `inputs/routes.txt` の内容を確認済み。移行サマリーは未検証。
+- 結果: 入力`inputs/routes.txt`の内容を確認済み。移行サマリーは未検証。
 
 ## 未完了・ブロッカー
 

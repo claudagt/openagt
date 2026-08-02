@@ -28,7 +28,7 @@ never the source of truth.
 4. `bash tools/validate-agent-directory.sh --strict --full`を実行する。
 5. `tools/find-context.sh --route <route> --limit 5 -- "検索語"`で対象候補を絞って運用する。
 
-テンプレートのままではプレースホルダーがあるため、通常validationは合格し、`--strict`は導入完了まで失敗する。
+テンプレートのままではプレースホルダーが残るため、通常の検証は合格し、`--strict`は導入完了まで失敗する。
 
 ## 基本原則
 

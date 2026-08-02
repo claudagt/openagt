@@ -1,4 +1,4 @@
-# Project lifecycle
+# LIFECYCLE.md — Projectの状態遷移と削除
 
 Projectの状態遷移、完了、停止、廃止、削除を扱うときだけ読む。通常のactive Project作業では読まない。
 

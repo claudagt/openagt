@@ -17,9 +17,9 @@ mode: finite
 
 ## 完了条件
 
-- **PC-01** `outputs/migration-summary.md` が存在する。
+- **PC-01** `outputs/migration-summary.md`が存在する。
 - **PC-02** サマリーに移行対象、検証結果、残課題が含まれる。
-- **PC-03** `scripts/verify-migration.sh` が合格する。
+- **PC-03** `scripts/verify-migration.sh`が合格する。
 
 ## 判断原則
 
@@ -32,7 +32,7 @@ mode: finite
 
 ## 制約・固定決定
 
-- `inputs/routes.txt` にないルートを対象へ加えない。
+- `inputs/routes.txt`にないルートを対象へ加えない。
 
 ## 品質基準
 
@@ -70,6 +70,6 @@ mode: finite
 
 - 実行手順: `bash scripts/verify-migration.sh`
 - 合格条件: 必須見出しと全入力ルートを含み、終了コードが0になる。
-- 不合格時の扱い: `status: active` のまま、理由と次の一手を `STATE.md` に残す。
+- 不合格時の扱い: `status: active`のまま、理由と次の一手を`STATE.md`に残す。
 - 必要な環境変数: なし
 - 使用した入力: `inputs/routes.txt`

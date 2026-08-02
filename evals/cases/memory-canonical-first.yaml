@@ -9,7 +9,7 @@ expect:
     - AGENTS.md
     - knowledge/KNOWLEDGE.md
   may_write:
-    - knowledge/raw/**      # ユーザーの判断・方針は原記録として正本へ保存する
+    - knowledge/raw/**      # 利用者の判断・方針は原記録として正本へ保存する
     - knowledge/wiki/**
     - .tmp/**
   must_not_write:

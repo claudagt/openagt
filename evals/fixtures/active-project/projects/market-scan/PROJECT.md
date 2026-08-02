@@ -18,8 +18,8 @@ mode: continuous
 ## 成功指標
 
 - **PC-01** 利用可能な四半期入力ごとに、意思決定前に検証済みレポートが存在する。
-- **PC-02** 各レポートに `## Summary`、`## Evidence`、`## Implications` が含まれる。
-- **PC-03** 各レポートで `scripts/verify-report.sh` が合格する。
+- **PC-02** 各レポートに`## Summary`、`## Evidence`、`## Implications`が含まれる。
+- **PC-03** 各レポートで`scripts/verify-report.sh`が合格する。
 
 ## 見直し・終了条件
 
@@ -38,7 +38,7 @@ mode: continuous
 
 ## 制約・固定決定
 
-- 入力は `inputs/quarter.csv` を正本とする。
+- 入力は`inputs/quarter.csv`を正本とする。
 - 外部公開は利用者の明示指示後に行う。
 
 ## 品質基準
@@ -78,6 +78,6 @@ mode: continuous
 
 - 実行手順: `bash scripts/verify-report.sh`
 - 合格条件: 現在の目標が指定するレポートに必須見出しと根拠データを含み、終了コードが0になる。
-- 不合格時の扱い: 完了扱いにせず、理由と次の一手を `STATE.md` に残す。
+- 不合格時の扱い: 完了扱いにせず、理由と次の一手を`STATE.md`に残す。
 - 必要な環境変数: なし
 - 使用した入力: `inputs/quarter.csv`

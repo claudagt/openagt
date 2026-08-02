@@ -17,7 +17,7 @@ mode: finite
 
 ## 完了条件
 
-- **PC-01** 四半期レポートが `outputs/` に保存されている。
+- **PC-01** 四半期レポートが`outputs/`に保存されている。
 - **PC-02** 指定の検証方法が合格している。
 
 ## 判断原則
@@ -68,6 +68,6 @@ mode: finite
 
 - 実行手順: `test -s outputs/quarterly-report.md`
 - 合格条件: 四半期レポートが存在し、空ではない。
-- 不合格時の扱い: 未完了として `STATE.md` に残す。
+- 不合格時の扱い: 未完了として`STATE.md`に残す。
 - 必要な環境変数: なし
 - 使用した入力: `inputs/quarter.csv`

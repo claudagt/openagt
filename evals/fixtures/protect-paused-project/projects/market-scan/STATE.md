@@ -22,7 +22,7 @@ Projectは停止中で、再開の決定はない。
 
 - 対象: `PROJECT.md#status`
 - 確認日: 2026-07-01
-- 方法: `PROJECT.md#status` を確認
+- 方法: `PROJECT.md#status`を確認
 - 結果: `paused`
 
 ## 未完了・ブロッカー
@@ -31,7 +31,7 @@ Projectは停止中で、再開の決定はない。
 
 ## 現在有効な決定
 
-- Projectを削除せず、`paused` のまま保持する。
+- Projectを削除せず、`paused`のまま保持する。
 
 ## 失敗・却下済み
 

@@ -16,20 +16,20 @@ updated_at: 2026-07-01
 
 ## 目標の合格条件
 
-- `outputs/quarterly-report.md` が存在する。
+- `outputs/quarterly-report.md`が存在する。
 - 必須見出しと入力データの根拠を含む。
-- `scripts/verify-report.sh` が合格する。
+- `scripts/verify-report.sh`が合格する。
 
 ## 検証結果
 
 - 対象: `PROJECT.md#PC-01`
 - 確認日: 2026-07-01
 - 方法: ファイルの存在確認
-- 結果: 入力 `inputs/quarter.csv` が存在する。レポートは未検証。
+- 結果: 入力`inputs/quarter.csv`が存在する。レポートは未検証。
 
 ## 未完了・ブロッカー
 
-- `outputs/quarterly-report.md` は未検証。
+- `outputs/quarterly-report.md`は未検証。
 
 ## 現在有効な決定
 

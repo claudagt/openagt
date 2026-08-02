@@ -1,4 +1,4 @@
-# Project recovery
+# RECOVERY.md — Projectの復旧手順
 
 利用者から間違い、重複、目的不一致、過去決定の見落としを指摘された場合だけ読む。
 
