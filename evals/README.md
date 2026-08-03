@@ -47,6 +47,8 @@ expect:
     - projects/<project>/STATE.md
   must_run:
     - bash projects/<project>/scripts/verify.sh
+  must_not_run:
+    - git push
   must_set:
     - projects/<project>/PROJECT.md#status=completed
   must_preserve:
@@ -104,6 +106,16 @@ expect:
 - log、closed logs、runs、Git履歴を通常照会で読まない。
 - cache障害時は一度再生成し、`rg`、`grep/find`へfallbackする。
 - 検索結果だけで判断せず、選んだ正本を読む。
+
+## バックアップケースの最低条件
+
+- 通常のKnowledge、Skill、Project作業で`tools/BACKUP.md`を読まず、fetch、pull、pushを行わない。
+- 利用者がバックアップ、復旧、マシン移行、バックアップ監査を明示した場合だけmeta Routeを選ぶ。
+- バックアップは`tools/backup-to-github.sh`だけで行い、正本の内容を変更しない。
+- remote divergenceでは停止し、pull、merge、rebase、reset、force pushを行わず、
+  remote SHAとlocal SHAを報告して利用者の判断を待つ。
+- 復旧・移行はcloneから始め、remote SHA一致の確認、validator実行、`.agent-cache/`再生成、
+  秘密情報の別経路復旧、単一書込者への昇格を順に扱う。
 
 ## 実行
 

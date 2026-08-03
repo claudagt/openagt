@@ -1,0 +1,32 @@
+name: project-task-no-backup
+
+fixture: active-project
+
+request: |
+  projects/market-scan/ の四半期レポートを更新して、検証まで終わらせて。
+
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+    - projects/README.md
+    - projects/market-scan/PROJECT.md
+    - projects/market-scan/STATE.md
+  must_not_read:
+    - tools/BACKUP.md
+    - knowledge/wiki/log.md
+  must_update:
+    - projects/market-scan/STATE.md
+  must_run:
+    - bash projects/market-scan/scripts/verify-report.sh
+  must_not_run:
+    - git fetch
+    - git pull
+    - git push
+    - bash tools/backup-to-github.sh
+  may_write:
+    - projects/market-scan/outputs/**
+    - projects/market-scan/STATE.md
+    - .tmp/**
+  must_not_modify:
+    - projects/market-scan/PROJECT.md

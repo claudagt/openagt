@@ -1,0 +1,34 @@
+name: backup-explicit-only
+
+request: |
+  現在の状態をGitHubのバックアップへ保存して。
+
+expect:
+  route: meta
+  must_read:
+    - AGENTS.md
+    - tools/README.md
+    - tools/BACKUP.md
+  must_not_read:
+    - knowledge/wiki/log.md
+    - knowledge/wiki/logs/**
+  must_run:
+    - bash tools/backup-to-github.sh --remote backup --branch main
+  must_not_run:
+    - git fetch
+    - git pull
+    - git merge
+    - git rebase
+    - git reset
+    - git push --force
+  must_report:
+    - backup-result-sha
+  must_not_write:
+    - knowledge/**
+    - skills/**
+    - projects/**
+    - tools/**
+  must_not_modify:
+    - AGENTS.md
+    - knowledge/raw/**
+    - knowledge/research/**

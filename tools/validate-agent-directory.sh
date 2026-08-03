@@ -524,7 +524,8 @@ required_files=(
   'AGENTS.md' 'README.md' 'knowledge/KNOWLEDGE.md' 'knowledge/wiki/index.md' 'knowledge/wiki/log.md'
   'skills/README.md' 'skills/_template/SKILL.md' 'projects/README.md' 'projects/LIFECYCLE.md' 'projects/RECOVERY.md'
   'projects/_template/PROJECT.md' 'projects/_template/STATE.md' 'evals/README.md' 'tools/README.md'
-  'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/append-knowledge-log.sh' 'tools/validate-agent-directory.sh'
+  'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/append-knowledge-log.sh'
+  'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
   'knowledge/wiki/_template/source.md' 'knowledge/wiki/_template/topic.md'
 )
 for path in "${required_files[@]}"; do require_file "$repo_root/$path"; done
@@ -536,6 +537,7 @@ check_size "$repo_root/skills/README.md" 12288 'skills README'
 check_size "$repo_root/projects/README.md" 20480 'projects README'
 check_size "$repo_root/evals/README.md" 24576 'evals README'
 check_size "$repo_root/tools/README.md" 20480 'tools README'
+check_size "$repo_root/tools/BACKUP.md" 20480 'tools BACKUP.md'
 check_size "$repo_root/knowledge/wiki/index.md" 8192 'Knowledge index'
 check_size "$repo_root/knowledge/wiki/log.md" 131072 'Knowledge log'
 check_heading_warning "$repo_root/AGENTS.md" 20
@@ -608,6 +610,7 @@ required_cases=(
   catalog-failure-fallback project-completed-not-default project-required-only context-budget-stop
   large-file-section-read ambiguous-target-no-broad-scan meta-route-validator-change
   knowledge-log-auto-rotation scale-sqlite-auto-enable
+  backup-explicit-only backup-divergence-refusal restore-single-writer project-task-no-backup
 )
 for case_name in "${required_cases[@]}"; do require_file "$repo_root/evals/cases/$case_name.yaml"; done
 
@@ -652,11 +655,69 @@ grep -Fq 'projects/site-migration/STATE.md#次の一手=なし（Project完了�
   "$repo_root/evals/cases/project-finite-completion.yaml" || \
   fail 'project-finite-completion does not close the next action'
 
+backup_tool="$repo_root/tools/backup-to-github.sh"
+if [[ -d "$repo_root/.github/workflows" ]]; then
+  fail '.github/workflows is forbidden; GitHub is a passive backup, not an execution platform'
+fi
+if [[ -f "$backup_tool" ]]; then
+  [[ -x "$backup_tool" ]] || fail 'tools/backup-to-github.sh is not executable'
+  bash -n "$backup_tool" 2>/dev/null || fail 'tools/backup-to-github.sh fails bash -n'
+
+  allowed_git_subcommands='cat-file config diff for-each-ref ls-files ls-remote merge-base push rev-list rev-parse symbolic-ref'
+  while IFS= read -r subcommand; do
+    [[ -n "$subcommand" ]] || continue
+    case " $allowed_git_subcommands " in
+      *" $subcommand "*) ;;
+      *) fail "tools/backup-to-github.sh uses a git subcommand outside the backup allowlist: $subcommand" ;;
+    esac
+  done < <(awk '
+    {
+      line = $0
+      sub(/(^|[[:space:]])#.*$/, "", line)
+      gsub(/[<>|&;]/, " SEP ", line)
+      gsub(/[^A-Za-z0-9_.-]/, " ", line)
+      n = split(line, token, /[[:space:]]+/)
+      for (i = 1; i <= n; i++) {
+        if (token[i] != "git") continue
+        j = i + 1
+        while (j <= n && (token[j] == "-C" || token[j] == "-c")) j += 2
+        while (j <= n && substr(token[j], 1, 1) == "-") j++
+        if (j <= n && token[j] != "" && token[j] != "SEP") print token[j]
+      }
+    }
+  ' "$backup_tool" | LC_ALL=C sort -u)
+
+  for forbidden_flag in --force --force-with-lease --mirror --prune --delete; do
+    if grep -Fq -- "$forbidden_flag" "$backup_tool"; then
+      fail "tools/backup-to-github.sh must not use $forbidden_flag"
+    fi
+  done
+
+  push_invocations="$(grep -Ec 'git[^#]*[[:space:]]push[[:space:]]' "$backup_tool" || true)"
+  if (( push_invocations != 1 )); then
+    fail "tools/backup-to-github.sh must contain exactly one git push invocation (found $push_invocations)"
+  fi
+  if ! grep -Eq 'git[^#]*[[:space:]]push[[:space:]]+--porcelain[[:space:]]+"\$remote"[[:space:]]+"HEAD:refs/heads/\$branch"' \
+    "$backup_tool"; then
+    fail 'tools/backup-to-github.sh must push only the explicit HEAD:refs/heads/$branch refspec'
+  fi
+fi
+
+grep -Fq 'tools/backup-to-github.sh' "$repo_root/README.md" || \
+  fail 'README.md does not register tools/backup-to-github.sh'
+grep -Fq 'tools/BACKUP.md' "$repo_root/README.md" || fail 'README.md does not register tools/BACKUP.md'
+grep -Fq 'backup-to-github.sh' "$repo_root/tools/README.md" || \
+  fail 'tools/README.md does not register backup-to-github.sh'
+grep -Fq 'BACKUP.md' "$repo_root/tools/README.md" || fail 'tools/README.md does not register BACKUP.md'
+grep -Fq 'tools/BACKUP.md' "$repo_root/AGENTS.md" || \
+  fail 'AGENTS.md does not delegate backup details to tools/BACKUP.md'
+
 cache_test_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-cache.XXXXXX")"
 fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-fixture.XXXXXX")"
 sqlite_fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-sqlite.XXXXXX")"
 log_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-log.XXXXXX")"
-trap 'rm -rf "$cache_test_dir" "$fixture_cache_dir" "$sqlite_fixture_cache_dir" "$log_fixture_dir"' EXIT
+backup_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-backup.XXXXXX")"
+trap 'rm -rf "$cache_test_dir" "$fixture_cache_dir" "$sqlite_fixture_cache_dir" "$log_fixture_dir" "$backup_fixture_dir"' EXIT
 if ! AGENT_CACHE_DIR="$cache_test_dir" bash "$repo_root/tools/build-context-cache.sh" >/dev/null; then
   fail 'build-context-cache.sh failed to generate a cache'
 elif ! AGENT_CACHE_DIR="$cache_test_dir" bash "$repo_root/tools/build-context-cache.sh" --check >/dev/null; then
@@ -716,6 +777,146 @@ if [[ -f "$cache_test_dir/catalog.tsv" ]]; then
     }
   ' "$cache_test_dir/catalog.tsv" | LC_ALL=C sort -u)"
   [[ -z "$alias_collisions" ]] || fail "active alias collision(s): $alias_collisions"
+fi
+
+if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
+  backup_work="$backup_fixture_dir/work"
+  backup_remote_dir="$backup_fixture_dir/remote.git"
+  backup_peer="$backup_fixture_dir/peer"
+  backup_env=(
+    HOME="$backup_fixture_dir" GIT_CONFIG_NOSYSTEM=1
+    GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
+    GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
+  )
+  backup_output=''
+  backup_status=0
+
+  backup_git() { env "${backup_env[@]}" git -C "$backup_work" "$@"; }
+  backup_run() {
+    set +e
+    backup_output="$(env "${backup_env[@]}" AGENT_DIRECTORY_ROOT="$backup_work" bash "$backup_tool" "$@" 2>&1)"
+    backup_status=$?
+    set -e
+  }
+  backup_expect_blocked() {
+    if (( backup_status == 0 )); then
+      fail "backup fixture: $2 unexpectedly succeeded"
+    elif ! printf '%s\n' "$backup_output" | grep -Fqx "BACKUP_BLOCKED reason=$1"; then
+      fail "backup fixture: $2 did not report reason=$1"
+    fi
+  }
+  backup_remote_sha() {
+    env "${backup_env[@]}" git -C "$backup_remote_dir" rev-parse --verify --quiet refs/heads/main || true
+  }
+
+  env "${backup_env[@]}" git init -q --bare "$backup_remote_dir"
+  env "${backup_env[@]}" git -C "$backup_remote_dir" symbolic-ref HEAD refs/heads/main
+  env "${backup_env[@]}" git init -q "$backup_work"
+  backup_git symbolic-ref HEAD refs/heads/main
+  mkdir -p "$backup_work/tools"
+  printf 'fixture agent directory\n' > "$backup_work/AGENTS.md"
+  printf '.tmp/\n.agent-cache/\n.env*\n!.env.example\n.DS_Store\n' > "$backup_work/.gitignore"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$backup_work/tools/validate-agent-directory.sh"
+  backup_git add -A
+  backup_git commit -q -m 'fixture: initial commit'
+  backup_git remote add backup "$backup_remote_dir"
+  backup_head="$(backup_git rev-parse HEAD)"
+
+  backup_run --remote backup --branch main --dry-run
+  if (( backup_status != 0 )); then
+    fail "backup fixture: dry run on a clean tree failed: $backup_output"
+  elif ! printf '%s\n' "$backup_output" | grep -Fqx "BACKUP_READY remote=backup branch=main sha=$backup_head"; then
+    fail 'backup fixture: dry run did not emit the BACKUP_READY result line'
+  fi
+  [[ -z "$(backup_remote_sha)" ]] || fail 'backup fixture: dry run wrote to the remote'
+
+  backup_run
+  if (( backup_status != 0 )); then
+    fail "backup fixture: initial push on a clean tree failed: $backup_output"
+  elif ! printf '%s\n' "$backup_output" | grep -Eq '^BACKUP_OK remote=backup branch=main sha=[0-9a-f]{40}$'; then
+    fail 'backup fixture: successful backup did not emit the BACKUP_OK result line'
+  elif ! printf '%s\n' "$backup_output" | grep -Fqx "BACKUP_OK remote=backup branch=main sha=$backup_head"; then
+    fail 'backup fixture: BACKUP_OK reported a SHA other than local HEAD'
+  fi
+  [[ "$(backup_remote_sha)" == "$backup_head" ]] || \
+    fail 'backup fixture: remote main does not match local HEAD after push'
+
+  printf 'dirty\n' >> "$backup_work/AGENTS.md"
+  backup_run
+  backup_expect_blocked 'dirty-working-tree' 'uncommitted tracked change'
+  backup_git checkout -q -- AGENTS.md
+
+  printf 'staged\n' >> "$backup_work/AGENTS.md"
+  backup_git add AGENTS.md
+  backup_run
+  backup_expect_blocked 'staged-changes' 'staged change'
+  backup_git reset -q --hard HEAD
+
+  printf 'stray\n' > "$backup_work/stray.md"
+  backup_run
+  backup_expect_blocked 'untracked-files' 'untracked non-ignored file'
+  rm -f "$backup_work/stray.md"
+
+  printf 'stashed\n' >> "$backup_work/AGENTS.md"
+  backup_git stash push -q
+  backup_run
+  backup_expect_blocked 'stash-present' 'stash entry'
+  backup_git stash drop -q
+
+  mkdir -p "$backup_work/.tmp"
+  printf 'scratch\n' > "$backup_work/.tmp/scratch"
+  backup_git add -f .tmp/scratch
+  backup_git commit -q -m 'fixture: forbidden path'
+  backup_run
+  backup_expect_blocked 'forbidden-tracked-file' 'tracked .tmp path'
+  backup_git reset -q --hard HEAD~1
+  rm -rf "$backup_work/.tmp"
+
+  backup_git checkout -q -b stray-branch
+  printf 'unreachable\n' > "$backup_work/unreachable.md"
+  backup_git add -A
+  backup_git commit -q -m 'fixture: unreachable commit'
+  backup_git checkout -q main
+  backup_run
+  backup_expect_blocked 'unreachable-local-branch' 'commit unreachable from the backup branch'
+  backup_git branch -q -D stray-branch
+
+  printf '%04096d' 0 > "$backup_work/oversized.bin"
+  backup_git add -A
+  backup_git commit -q -m 'fixture: oversized blob'
+  set +e
+  backup_output="$(env "${backup_env[@]}" AGENT_DIRECTORY_ROOT="$backup_work" \
+    AGENT_BACKUP_MAX_BLOB_BYTES=1024 bash "$backup_tool" 2>&1)"
+  backup_status=$?
+  set -e
+  backup_expect_blocked 'oversized-git-object' 'blob above the size limit'
+  printf '%s\n' "$backup_output" | grep -Fq 'oversized.bin' || \
+    fail 'backup fixture: oversized object report does not name the path'
+  backup_git reset -q --hard HEAD~1
+  rm -f "$backup_work/oversized.bin"
+
+  env "${backup_env[@]}" git clone -q "$backup_remote_dir" "$backup_peer"
+  printf 'peer\n' > "$backup_peer/peer.md"
+  env "${backup_env[@]}" git -C "$backup_peer" add -A
+  env "${backup_env[@]}" git -C "$backup_peer" commit -q -m 'fixture: peer commit'
+  env "${backup_env[@]}" git -C "$backup_peer" push -q origin main
+  printf 'local\n' > "$backup_work/local.md"
+  backup_git add -A
+  backup_git commit -q -m 'fixture: local commit'
+  backup_sha_before_divergence="$(backup_remote_sha)"
+  backup_run
+  backup_expect_blocked 'remote-diverged' 'diverged remote'
+  printf '%s\n' "$backup_output" | grep -Eq "remote=$backup_sha_before_divergence local=[0-9a-f]{40}" || \
+    fail 'backup fixture: divergence report does not name both the remote and local SHA'
+  [[ "$(backup_remote_sha)" == "$backup_sha_before_divergence" ]] || \
+    fail 'backup fixture: remote changed while divergence was reported'
+  backup_run --dry-run
+  backup_expect_blocked 'remote-diverged' 'diverged remote in dry run'
+  [[ "$(backup_remote_sha)" == "$backup_sha_before_divergence" ]] || \
+    fail 'backup fixture: dry run changed the remote'
+
+  [[ -z "$(backup_git status --porcelain)" ]] || \
+    fail 'backup fixture: the backup tool left the working tree modified'
 fi
 
 if [[ "$full" == true ]]; then

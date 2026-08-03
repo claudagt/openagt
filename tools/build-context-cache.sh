@@ -131,6 +131,7 @@ meta_files=(
   'projects/RECOVERY.md|project-recovery|Projectの目的不一致からの復旧'
   'evals/README.md|eval-policy|振る舞いEvalの規約'
   'tools/README.md|tool-policy|構造保守Toolの規約'
+  'tools/BACKUP.md|backup-policy|遠隔バックアップ、復旧、マシン移行の規約'
 )
 
 for entry in "${meta_files[@]}"; do

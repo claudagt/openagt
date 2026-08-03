@@ -55,6 +55,35 @@ Knowledge変更履歴はこのToolだけで追記する。追記後に1,000記�
 `logs/YYYY-QN[-NN].md`へ自動ローテーションし、現在の`log.md`をヘッダーだけに戻す。
 閉鎖済みlogは以後変更しない。`AGENT_DIRECTORY_ROOT`を使った隔離fixtureでも同じ挙動を検証できる。
 
+## backup-to-github.sh
+
+```bash
+bash tools/backup-to-github.sh
+bash tools/backup-to-github.sh --remote backup --branch main
+bash tools/backup-to-github.sh --remote backup --branch main --dry-run
+```
+
+meta層のToolであり、通常のKnowledge、Skill、Project作業から自動実行しない。利用者がバックアップ、
+マシン移行、破壊的変更前の復旧点作成、チェックポイント保存を明示した場合だけ実行する。
+規約と手順は[BACKUP.md](BACKUP.md)が所有し、バックアップ・復旧・移行時だけ読む。
+
+- 入力: `--remote`（既定`backup`）、`--branch`（既定`main`）、`--dry-run`。
+  `AGENT_DIRECTORY_ROOT`で対象root、`AGENT_BACKUP_MAX_BLOB_BYTES`でblob上限を差し替えられる。
+  上限の差し替えは隔離fixture検証だけで使う。
+- 前提条件: リポジトリroot、非detached HEAD、branch一致、remote設定済み、index・作業ツリー・
+  未追跡ファイルが空、stashなし、branch外のローカルcommitなし、`.tmp`/`.agent-cache`/`.env`実値/
+  `.DS_Store`が未追跡、submodule・Git LFSなし、100MiB以上のobjectなし、remoteがdivergeしていない。
+- 出力: 成功`BACKUP_OK remote=<name> branch=<name> sha=<40文字SHA>`、
+  dry-run成功`BACKUP_READY ...`をstdoutへ1行。停止時は`BACKUP_BLOCKED reason=<reason>`をstderrへ出し、
+  終了コードを非0にする。補足はstderrの`DETAIL:`行に出す。
+- 失敗条件のreasonは`BACKUP.md#backup Tool`に一覧を持つ。
+- remoteへpushする唯一の標準経路であり、pushは`HEAD:refs/heads/<branch>`の明示refspecによる
+  通常のfast-forward pushだけとする。push後に`git ls-remote`で一致を再確認する。
+- コミットを作らない。`git add`、`git commit`、`git stash push`を行わない。
+- remote divergenceを修正しない。検出時は何も変更せず停止し、remote SHAとlocal SHAを報告する。
+- force push、force-with-lease、mirror push、prune、remote branch削除、一括pushを行わない。
+- `--dry-run`はremoteへ一切書き込まない。
+
 ## validate-agent-directory.sh
 
 ```bash
@@ -69,6 +98,10 @@ bash tools/validate-agent-directory.sh --full --base main
 - `--base <ref>`: Git差分からraw/research、閉鎖済みlog、Project物理移動の禁止を検査
 
 終了コード0と`PASS: agent-directory structure is valid`が合格条件である。
+
+既定でも`--full`でも、実GitHub接続、`gh` CLI、GitHub API、認証情報、Private可視性照会を必要としない。
+backup Toolの検査は、静的な禁止操作検査と、一時ディレクトリのローカルbare remoteを使う隔離fixtureだけで行う。
+Private可視性はセットアップ契約であり、利用者が確認する。
 
 ## サイズ予算
 
@@ -85,6 +118,7 @@ bash tools/validate-agent-directory.sh --full --base main
 | `knowledge/wiki/index.md` | 8KiB・50項目 |
 | active Wiki | 64KiB。24KiB超はRetrieval Map必須 |
 | `knowledge/wiki/log.md` | 128KiB・1,000記録 |
+| `tools/BACKUP.md` | 20KiB |
 
 token数はモデル差があるためvalidatorのhard failには使わない。実行時の読込予算は`AGENTS.md`が所有する。
 

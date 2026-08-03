@@ -84,9 +84,11 @@ agent-directory/
 │   └── fixtures/
 └── tools/
     ├── README.md
+    ├── BACKUP.md                  # バックアップ・復旧・移行時だけ読む
     ├── build-context-cache.sh
     ├── find-context.sh
     ├── append-knowledge-log.sh
+    ├── backup-to-github.sh
     └── validate-agent-directory.sh
 ```
 
@@ -126,6 +128,62 @@ bash tools/validate-agent-directory.sh --full --base main
 
 validatorは構造、frontmatter、Project契約、状態、参照上限、サイズ、index、log、eval schema、
 派生cacheの決定的再生成、禁止されたGit追跡を検査する。`--base`は不変原資料や閉鎖済みlogの変更も検査する。
+
+## ローカル正本とGitHubバックアップ
+
+ローカルの作業コピーが唯一の書込可能な稼働正本であり、GitHubは最後に確定したコミットの受動的な
+遠隔復旧コピーである。GitHubは必須の実行基盤ではなく、通常タスクはネットワークなしで完結する。
+GitHub Actions、CI、定期同期、自動commit、自動pushは使用しない。
+
+- エージェント1体につきGitHub Privateリポジトリを1つ用意し、共用しない。
+- 公開スケルトンと実運用データを分離する。スケルトンへ実運用データをpushしない。
+- remote名は`backup`、branchは`main`を既定とする。
+- GitHub上で直接編集しない。remoteは常にpush先であり編集先ではない。
+- 書込可能な稼働マシンは常に1台だけとする（Single Writer）。
+
+### セットアップ
+
+GitHubで空のPrivateリポジトリを作成してから、次を実行する。`<owner>`と
+`<private-agent-repository>`は利用者が置換する。
+
+```bash
+git remote rename origin template
+git remote add backup git@github.com:<owner>/<private-agent-repository>.git
+git config remote.pushDefault backup
+bash tools/backup-to-github.sh --remote backup --branch main
+```
+
+スケルトンの更新を追う必要がなければ`git remote remove template`で`template` remoteを削除してよい。
+実在するPrivate URLや認証情報はこのリポジトリへ保存しない。
+
+### バックアップ
+
+```bash
+bash tools/backup-to-github.sh --dry-run
+bash tools/backup-to-github.sh
+```
+
+利用者がバックアップ、マシン移行、破壊的変更前の復旧点作成、チェックポイント保存を明示した場合だけ
+実行する。通常タスクの完了条件ではない。成功時は`BACKUP_OK ... sha=<40文字SHA>`を出力し、
+未コミット変更、秘密情報の追跡、remoteの分岐、100MiB以上のobjectがあれば何も変更せず停止する。
+
+### 復旧・移行
+
+```bash
+git clone git@github.com:<owner>/<private-agent-repository>.git <new-directory>
+git -C <new-directory> remote rename origin backup
+git -C <new-directory> rev-parse HEAD
+git -C <new-directory> ls-remote --heads backup main
+bash <new-directory>/tools/validate-agent-directory.sh
+bash <new-directory>/tools/build-context-cache.sh
+```
+
+remote SHAとローカルHEADの一致を確認し、validatorを実行し、`.agent-cache/`を正本から再生成する。
+`.env`などの秘密情報はバックアップ対象外なので、パスワードマネージャー等の別経路から復旧する。
+新マシンを唯一の書込者へ昇格するまで、旧マシンから書き込まない。
+
+条件、対象範囲、divergence時の停止、禁止コマンドの詳細は[tools/BACKUP.md](tools/BACKUP.md)が所有する。
+バックアップ・復旧・移行を扱うときだけ読む。
 
 ## 規模拡大
 
