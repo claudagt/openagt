@@ -140,8 +140,11 @@ GitHub Actions、CI、定期同期、自動commit、自動pushは使用しない
 - remote名は`backup`、branchは`main`を既定とする。
 - GitHub上で直接編集しない。remoteは常にpush先であり編集先ではない。
 - 書込可能な稼働マシンは常に1台だけとする（Single Writer）。
-- Projectは既定でバックアップに含まれる。成果物を固有リポジトリで管理するProjectだけ、
-  [projects/README.md](projects/README.md)の「外部リポジトリを持つProject」に従い宣言して対象外にする。
+- Projectは`repository_mode: embedded`で開始し、ルートGitとPrivate backupへ含める。外部の人または
+  システムが独立repo identityを必要とする場合だけ、[projects/README.md](projects/README.md)の
+  「Repository mode」に従って`satellite`へ昇格する。
+- Satellite本体はHub backupの対象外だが、Hubの`STATE.md`が採用commit SHAを固定参照する。
+  backup ToolはそのSHAをSatellite remoteから取得できることを確認してからHubをpushする。
 
 ### セットアップ
 
@@ -168,6 +171,7 @@ bash tools/backup-to-github.sh
 利用者がバックアップ、マシン移行、破壊的変更前の復旧点作成、チェックポイント保存を明示した場合だけ
 実行する。通常タスクの完了条件ではない。成功時は`BACKUP_OK ... sha=<40文字SHA>`を出力し、
 未コミット変更、秘密情報の追跡、remoteの分岐、100MiB以上のobjectがあれば何も変更せず停止する。
+ignore済みを含むnested `.git`、不完全なSatellite宣言、remoteから取得できない採用SHAでも停止する。
 
 ### 復旧・移行
 

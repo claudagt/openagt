@@ -26,9 +26,13 @@
   `git ls-remote`のremote refから再確認する。
 - **Single Writer** — エージェント1体につき、書込可能な稼働マシンは常に1台だけ。他マシンのcloneは
   復旧または移行が完了するまで書込禁止とする。
-- **Satellite Repository** — `PROJECT.md`で宣言された外部リポジトリ。hub（agent-directory本体）の
-  バックアップ対象外であり、バックアップはそのリポジトリ側が持つ。分割の許可条件と宣言書式は
-  `projects/README.md#外部リポジトリを持つProject`が所有する。
+- **Hub** — agent-directory本体。Embedded Projectの履歴と、Satellite Projectの契約・採用revisionを持つ。
+- **Embedded Project** — `repository_mode: embedded`の通常Project。正本と履歴はHubのルートGitが持つ。
+- **Satellite Repository** — `repository_mode: satellite`で宣言された独立リポジトリ。Hub backupの対象外で、
+  コード、tests、Workflow、release、Git履歴はSatellite側が持つ。昇格条件と宣言形式は
+  `projects/README.md#repository-mode`が所有する。
+- **Workspace Recovery Tuple** — HubのRecovery Pointと、各SatelliteのURL・branch・採用commit SHAの組。
+  `BACKUP_OK`はHub backupの成功だけを表し、Satellite本体のバックアップ成功を表さない。
 
 ## バックアップ対象
 
@@ -46,13 +50,14 @@
 - `.tmp/`、`.agent-cache/`、`.DS_Store`、製品側AIメモリ
 - 未コミット変更、未追跡ファイル、`git stash`
 - `main`から到達できないローカルbranch、reflogだけに存在するコミット
-- `PROJECT.md`で宣言された外部リポジトリの本体。作業cloneはagent-directoryの外へ置き、
-  バックアップはそのリポジトリ側が持つ。宣言方法は`projects/README.md#外部リポジトリを持つProject`が所有する。
+- Satellite本体。作業cloneはagent-directoryの外へ置き、バックアップはSatellite側が持つ。
+  Hubは`PROJECT.md`のremote宣言と`STATE.md`の採用commit SHAだけを保全する。
 
 永続正本を`.gitignore`へ追加してバックアップ対象外にすることは禁止する。対象外にしたい情報は、
 そもそも正本として置かない。
 
-宣言のないネストGitリポジトリは`untracked-files`、submoduleは`unsupported-submodule`でToolが停止する。
+宣言の有無やignore状態にかかわらず、ネストGitリポジトリは`nested-git-repository`、submoduleは
+`unsupported-submodule`でToolが停止する。
 エージェントは追加、削除、ignore、submodule化のいずれでも回避せず、外部リポジトリとして宣言するか
 どうかを利用者へ確認する。
 
@@ -84,7 +89,9 @@ bash tools/backup-to-github.sh --remote backup --branch main --dry-run
 8. `.tmp/`、`.agent-cache/`、`.env`実値、`.DS_Store`がGit追跡されていない。
 9. submoduleとGit LFSを検出しない。
 10. 100MiB以上の到達可能blobがない。
-11. remote branchが未作成であるか、remote SHAがローカルHEADのancestorである。
+11. Satelliteの宣言とRepository Stateが整合し、Hub側に重複sourceがない。
+12. 各Satelliteの採用commit SHAを宣言remoteから隔離一時repoへ取得できる。
+13. Hubのremote branchが未作成であるか、remote SHAがローカルHEADのancestorである。
 
 出力はstdoutの1行が機械可読な結果、stderrの`DETAIL:`が人間向け補足である。
 
@@ -96,15 +103,18 @@ bash tools/backup-to-github.sh --remote backup --branch main --dry-run
 
 主なreason: `not-agent-directory-root`、`detached-head`、`branch-mismatch`、`missing-remote`、
 `staged-changes`、`dirty-working-tree`、`untracked-files`、`stash-present`、`unreachable-local-branch`、
-`forbidden-tracked-file`、`unsupported-submodule`、`unsupported-git-lfs`、`oversized-git-object`、
+`forbidden-tracked-file`、`nested-git-repository`、`unsupported-submodule`、`unsupported-git-lfs`、
+`oversized-git-object`、`invalid-project-repository-mode`、`invalid-satellite-declaration`、
+`invalid-satellite-state`、`satellite-hub-contents`、`satellite-revision-unavailable`、
 `remote-unreachable`、`remote-diverged`、`push-failed`、`remote-verification-mismatch`。
 
 Toolはfast-forward pushだけを`HEAD:refs/heads/<branch>`の明示refspecで行い、push後に`git ls-remote`で
 remote SHAを再取得してローカルHEADとの完全一致を確認する。`--dry-run`はremoteへ一切書き込まない。
 
-成功時とdry-run時は、宣言済みSatellite Repositoryの各宣言と件数を`DETAIL:`行へ列挙する。
-復旧時は、この出力だけで「hubは復旧できた、別途復旧するリポジトリがN件ある」ことが分かり、
-人間の記憶に依存しない。`BACKUP_OK`/`BACKUP_READY`の1行フォーマットは変更しない。
+ToolはHub remoteを確認・pushする前に、各Satelliteの宣言、STATEの復旧tuple、Hub側の二重正本不在、
+採用SHAのremote取得可能性を検証する。成功時とdry-run時は各`URL@SHA`と件数を`DETAIL:`へ列挙する。
+`remote_verified_at`は採用時の証拠日であり、Toolは保存値だけを信用せず毎回remoteを再確認する。
+`BACKUP_OK`/`BACKUP_READY`の1行フォーマットはHubの結果として変更しない。
 
 `AGENT_BACKUP_MAX_BLOB_BYTES`は隔離fixture検証だけで使う閾値上書きであり、通常運用では設定しない。
 
@@ -113,7 +123,7 @@ remote SHAを再取得してローカルHEADとの完全一致を確認する。
 `git add`、`git commit`、`git stash push`、`git pull`、`git merge`、`git rebase`、`git reset`、
 `git clean`、作業ツリーを変更する`git checkout`、force push、force-with-lease、mirror push、prune、
 remote branch削除、tagや全branchの一括push、remote側の競合自動解決、秘密情報の保存、
-GitHubリポジトリの作成・可視性変更、GitHub Actionsの実行。
+GitHubリポジトリの作成・可視性変更、GitHub Actionsの実行、Satellite remoteへの書込。
 
 Toolはコミットを作らない。バックアップ対象を確定するのは利用者のコミットであり、Toolではない。
 
@@ -154,6 +164,9 @@ remote SHAとlocal SHAを報告する。
 8. `.env`などの秘密情報をパスワードマネージャー等の別経路から復旧する。
 9. 新マシンを唯一の書込者へ昇格し、旧マシンのcloneを破棄するか読み取り専用のまま残す。
 
+Satelliteがある場合は、新マシンで各`PROJECT.md`のURLからagent-directory外へ別々にcloneし、
+`STATE.md`の採用SHAをcheckoutできることを確認する。Hub sessionとSatellite sessionは作業rootを共有しない。
+
 昇格が完了するまで新旧両方から書き込まない。並行編集はdivergenceを作り、自動解決しない。
 
 ## 障害復旧
@@ -165,6 +178,8 @@ remote SHAとlocal SHAを報告する。
   利用者へ明示する。
 - 秘密情報はリポジトリに存在しないため、必ず別経路から再設定する。
 - 復旧直後は`.agent-cache/`が存在しない。正本から再生成し、cacheを正本として扱わない。
+- Satelliteは`STATE.md`のURL・branch・採用SHAから復旧する。branchの現在tipではなく、まず採用SHAを
+  再現し、その後の更新採否は別のProject作業として扱う。
 
 復旧後、最初の書込前に`bash tools/validate-agent-directory.sh`で構造の健全性を確認する。
 

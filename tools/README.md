@@ -72,7 +72,8 @@ meta層のToolであり、通常のKnowledge、Skill、Project作業から自動
   上限の差し替えは隔離fixture検証だけで使う。
 - 前提条件: リポジトリroot、非detached HEAD、branch一致、remote設定済み、index・作業ツリー・
   未追跡ファイルが空、stashなし、branch外のローカルcommitなし、`.tmp`/`.agent-cache`/`.env`実値/
-  `.DS_Store`が未追跡、submodule・Git LFSなし、100MiB以上のobjectなし、remoteがdivergeしていない。
+  `.DS_Store`が未追跡、ignore済みを含むnested `.git`なし、submodule・Git LFSなし、100MiB以上のobjectなし、
+  Satelliteの宣言・Hub内容・採用SHAが検証済み、Hub remoteがdivergeしていない。
 - 出力: 成功`BACKUP_OK remote=<name> branch=<name> sha=<40文字SHA>`、
   dry-run成功`BACKUP_READY ...`をstdoutへ1行。停止時は`BACKUP_BLOCKED reason=<reason>`をstderrへ出し、
   終了コードを非0にする。補足はstderrの`DETAIL:`行に出す。
@@ -83,6 +84,8 @@ meta層のToolであり、通常のKnowledge、Skill、Project作業から自動
 - remote divergenceを修正しない。検出時は何も変更せず停止し、remote SHAとlocal SHAを報告する。
 - force push、force-with-lease、mirror push、prune、remote branch削除、一括pushを行わない。
 - `--dry-run`はremoteへ一切書き込まない。
+- Satelliteのremoteはread-onlyで検証し、`STATE.md`の採用SHAを隔離一時repoへ取得できない場合は停止する。
+  `BACKUP_OK`はHubの成功だけを表す。
 
 ## validate-agent-directory.sh
 

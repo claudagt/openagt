@@ -73,6 +73,38 @@ frontmatter_value() {
   ' "$1"
 }
 
+frontmatter_key_count() {
+  awk -v key="$2" '
+    NR == 1 && $0 != "---" { exit }
+    NR > 1 && $0 == "---" { exit }
+    index($0, key ":") == 1 { count++ }
+    END { print count + 0 }
+  ' "$1"
+}
+
+repository_state_value() {
+  awk -v key="$2" '
+    $0 == "## Repository State" { in_section = 1; next }
+    in_section && /^## / { exit }
+    in_section && index($0, "- " key ": `") == 1 {
+      value = $0
+      sub("^- " key ": `", "", value)
+      sub(/`$/, "", value)
+      print value
+      exit
+    }
+  ' "$1"
+}
+
+repository_state_key_count() {
+  awk -v key="$2" '
+    $0 == "## Repository State" { in_section = 1; next }
+    in_section && /^## / { exit }
+    in_section && index($0, "- " key ": `") == 1 { count++ }
+    END { print count + 0 }
+  ' "$1"
+}
+
 value_character_count() {
   printf '%s' "$1" | od -An -tu1 | awk '
     {
@@ -236,6 +268,7 @@ validate_required_reference_statuses() {
 validate_project_contract() {
   local project_file="$1"
   local criterion_heading mode name status description project_dir knowledge_required skill_required
+  local repository_mode repository_url repository_reason repository_default_branch unexpected_entry
   local headings=(
     '## 目的' '## 判断原則' '## 非ゴール' '## 制約・固定決定' '## 品質基準'
     '## 入力' '## 使用するKnowledge' '## 使用するSkill' '## 成果物' '## 検証方法'
@@ -253,6 +286,10 @@ validate_project_contract() {
   description="$(frontmatter_value "$project_file" 'description')"
   status="$(frontmatter_value "$project_file" 'status')"
   mode="$(frontmatter_value "$project_file" 'mode')"
+  repository_mode="$(frontmatter_value "$project_file" 'repository_mode')"
+  repository_url="$(frontmatter_value "$project_file" 'repository_url')"
+  repository_reason="$(frontmatter_value "$project_file" 'repository_reason')"
+  repository_default_branch="$(frontmatter_value "$project_file" 'repository_default_branch')"
   project_dir="$(basename "$(dirname "$project_file")")"
 
   [[ -n "$name" ]] || fail "$(relative_path "$project_file") has a missing name"
@@ -265,6 +302,41 @@ validate_project_contract() {
   fi
   case "$status" in active|paused|completed|retired) ;; *) fail "$(relative_path "$project_file") has an invalid status" ;; esac
   case "$mode" in finite|continuous) ;; *) fail "$(relative_path "$project_file") has an invalid mode" ;; esac
+  [[ "$(frontmatter_key_count "$project_file" 'repository_mode')" == '1' ]] || \
+    fail "$(relative_path "$project_file") must declare repository_mode exactly once"
+  case "$repository_mode" in
+    embedded)
+      if [[ -n "$repository_url$repository_reason$repository_default_branch" ]] || \
+        (( $(frontmatter_key_count "$project_file" 'repository_url') + \
+           $(frontmatter_key_count "$project_file" 'repository_reason') + \
+           $(frontmatter_key_count "$project_file" 'repository_default_branch') > 0 )); then
+        fail "$(relative_path "$project_file") embedded Project must not declare Satellite repository fields"
+      fi
+      ;;
+    satellite)
+      for repository_key in repository_url repository_reason repository_default_branch; do
+        [[ "$(frontmatter_key_count "$project_file" "$repository_key")" == '1' ]] || \
+          fail "$(relative_path "$project_file") must declare $repository_key exactly once for Satellite mode"
+      done
+      if [[ -z "$repository_url" || "$repository_url" =~ [[:space:]\`] || \
+            "$repository_url" =~ ^https?://[^/@]+@ ]]; then
+        fail "$(relative_path "$project_file") Satellite repository_url must be a non-empty, whitespace-free Git URL"
+      fi
+      case "$repository_reason" in
+        automation|distribution|collaboration|access|identity|upstream) ;;
+        *) fail "$(relative_path "$project_file") has an invalid repository_reason" ;;
+      esac
+      if [[ ! "$repository_default_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+        fail "$(relative_path "$project_file") has an invalid repository_default_branch"
+      fi
+      while IFS= read -r unexpected_entry; do
+        [[ -n "$unexpected_entry" ]] || continue
+        fail "$(relative_path "$project_file") Satellite Hub directory may contain only PROJECT.md and STATE.md: $unexpected_entry"
+      done < <(find "$(dirname "$project_file")" -mindepth 1 -maxdepth 1 \
+        ! -name PROJECT.md ! -name STATE.md -print 2>/dev/null)
+      ;;
+    *) fail "$(relative_path "$project_file") has an invalid repository_mode" ;;
+  esac
 
   if ! grep -Eq '^> .+' "$project_file"; then
     fail "$(relative_path "$project_file") is missing a one-line goal or mission"
@@ -304,19 +376,9 @@ validate_project_contract() {
     fail "$(relative_path "$project_file") has more than 6 combined Required Knowledge and Skill references"
   fi
 
-  local external_decl_regex='^- 外部リポジトリ: `[^`]+`（作業clone: `[^`]+`。バックアップはこのリポジトリ側が持つ）$'
-  local in_constraints decl_line
-  while IFS=$'\t' read -r in_constraints decl_line; do
-    [[ -n "$decl_line" ]] || continue
-    if [[ "$in_constraints" != '1' ]]; then
-      fail "$(relative_path "$project_file") declares an external repository outside ## 制約・固定決定"
-    elif ! printf '%s\n' "$decl_line" | grep -Eq "$external_decl_regex"; then
-      fail "$(relative_path "$project_file") has a malformed external repository declaration: $decl_line"
-    fi
-  done < <(awk '
-    /^## / { in_section = ($0 == "## 制約・固定決定") }
-    /^[[:space:]]*-/ && /外部リポジトリ/ { printf "%d\t%s\n", in_section, $0 }
-  ' "$project_file")
+  if grep -Eq '外部リポジトリ:|作業clone:' "$project_file"; then
+    fail "$(relative_path "$project_file") uses the retired prose repository declaration; use repository_mode frontmatter"
+  fi
 
   validate_declared_references "$project_file"
   validate_required_reference_statuses "$project_file"
@@ -328,6 +390,7 @@ validate_project_contract() {
 validate_project_state() {
   local state_file="$1"
   local contract_targets verification_targets project_file target updated_at project_status project_mode criterion
+  local repository_mode repository_url repository_default_branch state_repository state_revision state_branch remote_verified_at
   local headings=(
     '## 現在の到達点' '## 現在の目標' '## 目標の合格条件' '## 検証結果'
     '## 未完了・ブロッカー' '## 現在有効な決定' '## 失敗・却下済み' '## 次の一手'
@@ -351,6 +414,7 @@ validate_project_state() {
   project_file="$(dirname "$state_file")/PROJECT.md"
   project_status="$(frontmatter_value "$project_file" 'status')"
   project_mode="$(frontmatter_value "$project_file" 'mode')"
+  repository_mode="$(frontmatter_value "$project_file" 'repository_mode')"
   contract_targets="$(state_section_targets "$state_file" '## 現在の目標' '対象契約: `PROJECT.md#')"
   if [[ -z "$contract_targets" || "$(printf '%s\n' "$contract_targets" | wc -l | tr -d ' ')" != '1' ]]; then
     fail "$(relative_path "$state_file") must name one current PROJECT.md#PC-xx or #status target"
@@ -383,6 +447,34 @@ validate_project_state() {
       fi
     done < <(grep -Eo '\*\*PC-(0[1-9]|[1-9][0-9])\*\*' "$project_file" | tr -d '*' | LC_ALL=C sort -u)
   fi
+  case "$repository_mode" in
+    embedded)
+      if grep -Fqx '## Repository State' "$state_file"; then
+        fail "$(relative_path "$state_file") embedded Project must not declare Repository State"
+      fi
+      ;;
+    satellite)
+      require_fixed_line "$state_file" '## Repository State'
+      repository_url="$(frontmatter_value "$project_file" 'repository_url')"
+      repository_default_branch="$(frontmatter_value "$project_file" 'repository_default_branch')"
+      state_repository="$(repository_state_value "$state_file" 'repository')"
+      state_revision="$(repository_state_value "$state_file" 'revision')"
+      state_branch="$(repository_state_value "$state_file" 'branch')"
+      remote_verified_at="$(repository_state_value "$state_file" 'remote_verified_at')"
+      for repository_state_key in repository revision branch remote_verified_at; do
+        [[ "$(repository_state_key_count "$state_file" "$repository_state_key")" == '1' ]] || \
+          fail "$(relative_path "$state_file") must declare Repository State $repository_state_key exactly once"
+      done
+      [[ "$state_repository" == "$repository_url" ]] || \
+        fail "$(relative_path "$state_file") Repository State repository must match PROJECT.md repository_url"
+      [[ "$state_revision" =~ ^[0-9a-f]{40}$ ]] || \
+        fail "$(relative_path "$state_file") Repository State revision must be a 40-character commit SHA"
+      [[ "$state_branch" == "$repository_default_branch" ]] || \
+        fail "$(relative_path "$state_file") Repository State branch must match PROJECT.md repository_default_branch"
+      [[ "$remote_verified_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
+        fail "$(relative_path "$state_file") Repository State remote_verified_at must be YYYY-MM-DD"
+      ;;
+  esac
   if [[ "$state_file" != "$repo_root/projects/_template/STATE.md" ]] && contains_template_placeholder "$state_file"; then
     fail "$(relative_path "$state_file") contains an unresolved placeholder"
   fi
@@ -574,6 +666,11 @@ if [[ -d "$repo_root/projects/_archive" ]]; then
   fail 'projects/_archive is forbidden; use Project status without physical moves'
 fi
 
+while IFS= read -r -d '' nested_git; do
+  fail "nested Git repository is forbidden even when ignored: $(relative_path "$nested_git")"
+done < <(find "$repo_root" -path "$repo_root/.git" -prune -o \
+  -mindepth 2 \( -type d -o -type f \) -name .git -print0)
+
 validate_project_contract "$repo_root/projects/_template/PROJECT.md"
 validate_project_state "$repo_root/projects/_template/STATE.md"
 while IFS= read -r -d '' project_file; do
@@ -625,7 +722,7 @@ required_cases=(
   large-file-section-read ambiguous-target-no-broad-scan meta-route-validator-change
   knowledge-log-auto-rotation scale-sqlite-auto-enable
   backup-explicit-only backup-divergence-refusal restore-single-writer project-task-no-backup
-  backup-external-repo-boundary external-repo-consolidation-default
+  backup-external-repo-boundary satellite-consolidation-audit satellite-promotion-session-boundary
 )
 for case_name in "${required_cases[@]}"; do require_file "$repo_root/evals/cases/$case_name.yaml"; done
 
@@ -678,7 +775,7 @@ if [[ -f "$backup_tool" ]]; then
   [[ -x "$backup_tool" ]] || fail 'tools/backup-to-github.sh is not executable'
   bash -n "$backup_tool" 2>/dev/null || fail 'tools/backup-to-github.sh fails bash -n'
 
-  allowed_git_subcommands='cat-file config diff for-each-ref ls-files ls-remote merge-base push rev-list rev-parse symbolic-ref'
+  allowed_git_subcommands='cat-file config diff fetch for-each-ref init ls-files ls-remote merge-base push rev-list rev-parse symbolic-ref'
   while IFS= read -r subcommand; do
     [[ -n "$subcommand" ]] || continue
     case " $allowed_git_subcommands " in
@@ -798,6 +895,8 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_work="$backup_fixture_dir/work"
   backup_remote_dir="$backup_fixture_dir/remote.git"
   backup_peer="$backup_fixture_dir/peer"
+  satellite_work="$backup_fixture_dir/satellite-work"
+  satellite_remote_dir="$backup_fixture_dir/satellite.git"
   backup_env=(
     HOME="$backup_fixture_dir" GIT_CONFIG_NOSYSTEM=1
     GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
@@ -826,12 +925,33 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
 
   env "${backup_env[@]}" git init -q --bare "$backup_remote_dir"
   env "${backup_env[@]}" git -C "$backup_remote_dir" symbolic-ref HEAD refs/heads/main
+  env "${backup_env[@]}" git init -q --bare "$satellite_remote_dir"
+  env "${backup_env[@]}" git -C "$satellite_remote_dir" symbolic-ref HEAD refs/heads/main
+  env "${backup_env[@]}" git init -q "$satellite_work"
+  env "${backup_env[@]}" git -C "$satellite_work" symbolic-ref HEAD refs/heads/main
+  printf 'verified Satellite revision\n' > "$satellite_work/source.txt"
+  env "${backup_env[@]}" git -C "$satellite_work" add source.txt
+  env "${backup_env[@]}" git -C "$satellite_work" commit -q -m 'fixture: satellite revision'
+  env "${backup_env[@]}" git -C "$satellite_work" remote add origin "$satellite_remote_dir"
+  env "${backup_env[@]}" git -C "$satellite_work" push -q origin main
+  satellite_revision="$(env "${backup_env[@]}" git -C "$satellite_work" rev-parse HEAD)"
   env "${backup_env[@]}" git init -q "$backup_work"
   backup_git symbolic-ref HEAD refs/heads/main
-  mkdir -p "$backup_work/tools"
+  mkdir -p "$backup_work/tools" "$backup_work/projects/data-pipeline"
   printf 'fixture agent directory\n' > "$backup_work/AGENTS.md"
-  printf '.tmp/\n.agent-cache/\n.env*\n!.env.example\n.DS_Store\n' > "$backup_work/.gitignore"
+  printf '.tmp/\n.agent-cache/\n.env*\n!.env.example\n.DS_Store\nignored-dir/\n' > "$backup_work/.gitignore"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$backup_work/tools/validate-agent-directory.sh"
+  {
+    printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
+    printf '%s\n' 'repository_mode: satellite' "repository_url: $satellite_remote_dir"
+    printf '%s\n' 'repository_reason: automation' 'repository_default_branch: main' '---'
+  } > "$backup_work/projects/data-pipeline/PROJECT.md"
+  {
+    printf '%s\n\n' '---' 'updated_at: 2026-08-03' '---' '## Repository State'
+    printf -- '- repository: `%s`\n' "$satellite_remote_dir"
+    printf -- '- revision: `%s`\n' "$satellite_revision"
+    printf '%s\n' '- branch: `main`' '- remote_verified_at: `2026-08-03`'
+  } > "$backup_work/projects/data-pipeline/STATE.md"
   backup_git add -A
   backup_git commit -q -m 'fixture: initial commit'
   backup_git remote add backup "$backup_remote_dir"
@@ -842,6 +962,8 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
     fail "backup fixture: dry run on a clean tree failed: $backup_output"
   elif ! printf '%s\n' "$backup_output" | grep -Fqx "BACKUP_READY remote=backup branch=main sha=$backup_head"; then
     fail 'backup fixture: dry run did not emit the BACKUP_READY result line'
+  elif ! printf '%s\n' "$backup_output" | grep -Fq "satellite recovery point verified: $satellite_remote_dir@$satellite_revision"; then
+    fail 'backup fixture: dry run did not verify and report the Satellite recovery point'
   fi
   [[ -z "$(backup_remote_sha)" ]] || fail 'backup fixture: dry run wrote to the remote'
 
@@ -855,6 +977,20 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   fi
   [[ "$(backup_remote_sha)" == "$backup_head" ]] || \
     fail 'backup fixture: remote main does not match local HEAD after push'
+
+  sed -i.bak "s/$satellite_revision/0000000000000000000000000000000000000000/" \
+    "$backup_work/projects/data-pipeline/STATE.md"
+  rm -f "$backup_work/projects/data-pipeline/STATE.md.bak"
+  backup_git add projects/data-pipeline/STATE.md
+  backup_git commit -q -m 'fixture: unavailable Satellite revision'
+  backup_run
+  backup_expect_blocked 'satellite-revision-unavailable' 'Satellite revision absent from the declared remote'
+  backup_git reset -q --hard HEAD~1
+
+  mkdir -p "$backup_work/ignored-dir/nested/.git"
+  backup_run
+  backup_expect_blocked 'nested-git-repository' 'ignored nested Git repository'
+  rm -rf "$backup_work/ignored-dir"
 
   printf 'dirty\n' >> "$backup_work/AGENTS.md"
   backup_run

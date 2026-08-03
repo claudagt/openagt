@@ -3,6 +3,7 @@ name: market-scan
 description: 四半期の市場入力から経営判断に使える検証済みレポートを継続作成する。
 status: active
 mode: continuous
+repository_mode: embedded
 ---
 
 # `market-scan`

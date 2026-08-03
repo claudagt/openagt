@@ -3,6 +3,7 @@ name: <project-name>
 description: <このProjectの対象と成果を示す200文字以内の一行説明>
 status: active
 mode: finite
+repository_mode: embedded
 ---
 
 # `<project-name>`

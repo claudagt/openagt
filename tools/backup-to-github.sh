@@ -7,6 +7,7 @@ max_blob_bytes="${AGENT_BACKUP_MAX_BLOB_BYTES:-104857600}"
 remote='backup'
 branch='main'
 dry_run=false
+satellite_verify_root=''
 
 usage() {
   printf 'Usage: %s [--remote <name>] [--branch <name>] [--dry-run]\n' "${0##*/}" >&2
@@ -27,6 +28,57 @@ blocked() {
 note() {
   printf 'DETAIL: %s\n' "$1" >&2
 }
+
+frontmatter_value() {
+  awk -v key="$2" '
+    NR == 1 && $0 != "---" { exit }
+    NR > 1 && $0 == "---" { exit }
+    index($0, key ":") == 1 {
+      sub(/^[^:]+:[[:space:]]*/, "")
+      print
+      exit
+    }
+  ' "$1"
+}
+
+frontmatter_key_count() {
+  awk -v key="$2" '
+    NR == 1 && $0 != "---" { exit }
+    NR > 1 && $0 == "---" { exit }
+    index($0, key ":") == 1 { count++ }
+    END { print count + 0 }
+  ' "$1"
+}
+
+repository_state_value() {
+  awk -v key="$2" '
+    $0 == "## Repository State" { in_section = 1; next }
+    in_section && /^## / { exit }
+    in_section && index($0, "- " key ": `") == 1 {
+      value = $0
+      sub("^- " key ": `", "", value)
+      sub(/`$/, "", value)
+      print value
+      exit
+    }
+  ' "$1"
+}
+
+repository_state_key_count() {
+  awk -v key="$2" '
+    $0 == "## Repository State" { in_section = 1; next }
+    in_section && /^## / { exit }
+    in_section && index($0, "- " key ": `") == 1 { count++ }
+    END { print count + 0 }
+  ' "$1"
+}
+
+cleanup() {
+  if [[ -n "$satellite_verify_root" && -d "$satellite_verify_root" ]]; then
+    rm -rf -- "$satellite_verify_root"
+  fi
+}
+trap cleanup EXIT
 
 while (( $# > 0 )); do
   case "$1" in
@@ -96,6 +148,12 @@ git -C "$repo_root" diff --cached --quiet -- || \
 git -C "$repo_root" diff --quiet -- || \
   blocked 'dirty-working-tree' 'tracked files hold uncommitted changes; commit them first'
 
+nested_git="$(find "$repo_root" -path "$repo_root/.git" -prune -o \
+  -mindepth 2 \( -type d -o -type f \) -name .git -print | head -n 10)"
+if [[ -n "$nested_git" ]]; then
+  blocked 'nested-git-repository' 'nested .git entries are forbidden even when ignored' "$nested_git"
+fi
+
 untracked="$(git -C "$repo_root" ls-files --others --exclude-standard)"
 if [[ -n "$untracked" ]]; then
   blocked 'untracked-files' 'untracked non-ignored files would not be backed up' \
@@ -159,6 +217,79 @@ if [[ -n "$oversized" ]]; then
     "$(printf '%s\n' "$oversized" | head -n 10)"
 fi
 
+satellite_count=0
+while IFS= read -r project_md; do
+  [[ -n "$project_md" && -f "$repo_root/$project_md" ]] || continue
+  repository_mode="$(frontmatter_value "$repo_root/$project_md" 'repository_mode')"
+  [[ "$(frontmatter_key_count "$repo_root/$project_md" 'repository_mode')" == '1' ]] || \
+    blocked 'invalid-project-repository-mode' "$project_md must declare repository_mode exactly once"
+  case "$repository_mode" in
+    embedded) continue ;;
+    satellite) ;;
+    *) blocked 'invalid-project-repository-mode' \
+      "$project_md must declare repository_mode: embedded or repository_mode: satellite" ;;
+  esac
+
+  repository_url="$(frontmatter_value "$repo_root/$project_md" 'repository_url')"
+  repository_reason="$(frontmatter_value "$repo_root/$project_md" 'repository_reason')"
+  repository_branch="$(frontmatter_value "$repo_root/$project_md" 'repository_default_branch')"
+  for repository_key in repository_url repository_reason repository_default_branch; do
+    [[ "$(frontmatter_key_count "$repo_root/$project_md" "$repository_key")" == '1' ]] || \
+      blocked 'invalid-satellite-declaration' "$project_md must declare $repository_key exactly once"
+  done
+  case "$repository_reason" in
+    automation|distribution|collaboration|access|identity|upstream) ;;
+    *) blocked 'invalid-satellite-declaration' "$project_md has an invalid repository_reason" ;;
+  esac
+  if [[ -z "$repository_url" || "$repository_url" =~ [[:space:]] || \
+        "$repository_url" =~ ^https?://[^/@]+@ || \
+        ! "$repository_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+    blocked 'invalid-satellite-declaration' "$project_md has an invalid repository_url or repository_default_branch"
+  fi
+
+  project_dir="${project_md%/PROJECT.md}"
+  state_md="$project_dir/STATE.md"
+  [[ -f "$repo_root/$state_md" ]] || blocked 'invalid-satellite-state' "$state_md is required"
+  unexpected_hub_contents="$(git -C "$repo_root" ls-files -- "$project_dir" |
+    awk -v project_md="$project_md" -v state_md="$state_md" '$0 != project_md && $0 != state_md')"
+  [[ -z "$unexpected_hub_contents" ]] || blocked 'satellite-hub-contents' \
+    "$project_dir may contain only PROJECT.md and STATE.md" "$unexpected_hub_contents"
+
+  state_repository="$(repository_state_value "$repo_root/$state_md" 'repository')"
+  state_revision="$(repository_state_value "$repo_root/$state_md" 'revision')"
+  state_branch="$(repository_state_value "$repo_root/$state_md" 'branch')"
+  remote_verified_at="$(repository_state_value "$repo_root/$state_md" 'remote_verified_at')"
+  for repository_state_key in repository revision branch remote_verified_at; do
+    [[ "$(repository_state_key_count "$repo_root/$state_md" "$repository_state_key")" == '1' ]] || \
+      blocked 'invalid-satellite-state' "$state_md must declare Repository State $repository_state_key exactly once"
+  done
+  if [[ "$state_repository" != "$repository_url" || "$state_branch" != "$repository_branch" || \
+        ! "$state_revision" =~ ^[0-9a-f]{40}$ || \
+        ! "$remote_verified_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    blocked 'invalid-satellite-state' "$state_md must match the declared repository and branch and pin a verified 40-character SHA"
+  fi
+
+  if [[ -z "$satellite_verify_root" ]]; then
+    satellite_verify_root="$(mktemp -d "${TMPDIR:-/tmp}/agent-satellite-verify.XXXXXX")" || \
+      blocked 'satellite-verification-failed' 'could not create an isolated Satellite verification directory'
+  fi
+  satellite_count=$((satellite_count + 1))
+  verify_repo="$satellite_verify_root/$satellite_count.git"
+  git init --bare -q "$verify_repo" || \
+    blocked 'satellite-verification-failed' "could not initialize verification repository for $project_md"
+  satellite_fetch_output=''
+  if ! satellite_fetch_output="$(GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never \
+    git -C "$verify_repo" fetch --quiet --no-tags --depth=1 --filter=blob:none \
+    "$repository_url" "$state_revision" 2>&1)"; then
+    blocked 'satellite-revision-unavailable' \
+      "$project_md revision is not fetchable from its declared remote: $state_revision" "$satellite_fetch_output"
+  fi
+  git -C "$verify_repo" cat-file -e "${state_revision}^{commit}" 2>/dev/null || \
+    blocked 'satellite-revision-unavailable' "$project_md revision did not resolve to a commit: $state_revision"
+  note "satellite recovery point verified: $repository_url@$state_revision declared in $project_md"
+done < <(git -C "$repo_root" ls-files -- 'projects/*/PROJECT.md')
+note "declared Satellite repositories: $satellite_count (excluded from Hub backup; each pinned revision was verified remotely)"
+
 remote_listing=''
 if ! remote_listing="$(git -C "$repo_root" ls-remote --heads "$remote" "refs/heads/$branch" 2>&1)"; then
   blocked 'remote-unreachable' "cannot read refs/heads/$branch from $remote" "$remote_listing"
@@ -177,19 +308,6 @@ else
       'the remote branch is ahead of or diverged from local HEAD; resolve with the user before backing up'
   fi
 fi
-
-external_decl_regex='^- 外部リポジトリ: `[^`]+`（作業clone: `[^`]+`。バックアップはこのリポジトリ側が持つ）$'
-satellite_count=0
-while IFS= read -r project_md; do
-  [[ -n "$project_md" && -f "$repo_root/$project_md" ]] || continue
-  while IFS= read -r satellite_url; do
-    [[ -n "$satellite_url" ]] || continue
-    satellite_count=$((satellite_count + 1))
-    note "satellite repository (out of backup scope): $satellite_url declared in $project_md"
-  done < <(grep -E "$external_decl_regex" "$repo_root/$project_md" 2>/dev/null |
-    sed 's/^- 外部リポジトリ: `\([^`]*\)`.*$/\1/')
-done < <(git -C "$repo_root" ls-files -- 'projects/*/PROJECT.md')
-note "declared external repositories: $satellite_count (excluded from this backup; restore each from its own remote)"
 
 if [[ "$dry_run" == true ]]; then
   note 'dry run performed no remote write'

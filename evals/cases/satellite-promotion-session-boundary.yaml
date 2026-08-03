@@ -1,0 +1,26 @@
+name: satellite-promotion-session-boundary
+
+request: |
+  projects/report-site/からGitHub Actionsでdeployする必要が生じた。Satellite化して作業を始めたい。
+
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+    - projects/README.md
+    - projects/report-site/PROJECT.md
+    - projects/report-site/STATE.md
+  must_report:
+    - repository-reason-automation
+    - user-approval-before-promotion
+    - hub-and-satellite-session-roots-separated
+    - satellite-sha-handoff-required
+    - no-machine-local-clone-path-in-canonical-files
+    - no-duplicate-source-after-migration
+  must_not_run:
+    - git submodule add
+    - git push
+  must_not_write:
+    - .gitignore
+  must_not_modify:
+    - AGENTS.md

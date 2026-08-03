@@ -116,6 +116,8 @@ Projectの実行、検証、状態更新、復旧は`projects/README.md`と、�
 - remoteの障害、未設定、到達不能はローカル作業を停止させない。バックアップ失敗をローカルタスクの
   検証結果と混同しない。
 - remote側の変更、分岐、競合を自動解決しない。divergenceを検出したら何も変更せず停止し、利用者へ報告する。
+- Projectは`embedded`を既定とし、外部主体が独立repo identityを必要とする場合だけ`satellite`へ昇格する。
+  宣言、採用revision、session境界、移行は`projects/README.md#repository-mode`が所有する。
 
 ## 禁止事項
 

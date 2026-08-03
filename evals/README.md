@@ -116,10 +116,11 @@ expect:
   remote SHAとlocal SHAを報告して利用者の判断を待つ。
 - 復旧・移行はcloneから始め、remote SHA一致の確認、validator実行、`.agent-cache/`再生成、
   秘密情報の別経路復旧、単一書込者への昇格を順に扱う。
-- 宣言済み外部リポジトリの本体は対象外として報告する。宣言のないネストリポジトリやsubmoduleは
-  追加、削除、ignoreせず、停止して利用者へ確認する。
-- 分割条件を満たさない既存の分割には統合を既定として利用者へ確認し、独断で統合、ignore、
-  submodule化、削除を行わない。
+- Satellite本体は対象外とし、Hubの`STATE.md`が固定参照する採用SHAをremoteから取得できることを
+  Hub push前に確認する。`BACKUP_OK`はHubの成功だけを表す。
+- ignore済みを含むnested repoやsubmoduleは追加、削除、ignoreせず、停止して利用者へ確認する。
+- SatelliteからEmbeddedへの統合は外部identityと連携を監査し、利用者が明示的に廃止・統合を承認した
+  場合だけ行う。現在条件が見えないことを統合の自動既定にしない。
 
 ## 実行
 

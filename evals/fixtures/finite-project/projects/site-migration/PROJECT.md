@@ -3,6 +3,7 @@ name: site-migration
 description: 旧ルートから新ルートへの移行結果と検証証拠を一度だけ引き渡す。
 status: active
 mode: finite
+repository_mode: embedded
 ---
 
 # `site-migration`

@@ -36,36 +36,90 @@ project-name/
 全Projectに`PROJECT.md`と`STATE.md`を必須とする。新規作成は利用者の明示依頼後に
 `_template/`をコピーし、すべてのプレースホルダーを書き換える。
 
-## 外部リポジトリを持つProject
+## Repository mode
 
-既定では、Projectの正本と成果物はすべてこのリポジトリ内にあり、遠隔バックアップへ自動的に含まれる。
-成果物を別リポジトリへ分割しないことを既定とする。リポジトリを増やすことはバックアップの検証点を
-増やし、復旧の信頼性を下げるためである。
+Projectは成果、目的、状態の境界であり、Gitリポジトリは変更権限、自動化、配布、外部接続の境界である。
+両者を1対1にしない。すべてのProjectは`embedded`で開始し、外部の人またはシステムがProjectを独立した
+Gitリポジトリとして識別・操作する必要が生じた場合だけ`satellite`へ昇格する。
 
-分割してよいのは、利用者の確認を得たうえで、次のいずれかを満たす場合だけとする。
+### Embedded Project
 
-- agent-directory外の他者がそのリポジトリを共同編集する。
-- そのリポジトリ自体から公開、デプロイ、配布が行われる。
-- agent-directoryと異なるアクセス権限が必要である。
+`repository_mode: embedded`では、Projectの正本、コード、軽量成果物を`projects/<name>/`に置く。
+ルートGitがProject単位の履歴、差分、復元を持ち、Private backupへまとめて保全する。Project内の`.git`、
+submodule、固有remote、GitHub Actionsは禁止する。Project単位の履歴は次のようにパスで取得できる。
 
-サイズ、ファイル種類、整理上の都合、既に別のGitリポジトリで管理されているという事実は、
-分割の理由にしない。既存の分割が上の条件を満たさない場合は統合を既定とし、統合するかどうかを
-利用者へ確認する。エージェントは独断で統合、ignore、submodule化、削除を行わない。
+```bash
+git log -- projects/<name>
+git diff <old-sha>..<new-sha> -- projects/<name>
+git restore --source=<sha> -- projects/<name>
+```
 
-分割を認めたProjectは次を守る。
+無関係な複数Projectを同じcommitへ混ぜず、`project(<name>): ...`のように変更単位を分ける。
+コード量、ファイル数、言語、重要度、期間、整理上の都合、個別履歴の希望、既存ローカルrepoという事実は
+Satellite化の理由にしない。大容量artifactはrepo分割ではなく、Projectが外部保管先とchecksumを定義する。
 
-- `PROJECT.md`の`## 制約・固定決定`へ一度だけ次の書式で宣言する。
+### Satellite Repository
 
-  ```markdown
-  - 外部リポジトリ: `<git-url>`（作業clone: `<agent-directory外のパス>`。バックアップはこのリポジトリ側が持つ）
-  ```
+利用者の承認を得たうえで、次のいずれかを満たす場合だけ`repository_mode: satellite`へ昇格する。
 
-- 作業cloneはこのリポジトリの外へ置く。内部にネストさせない。ネストrepoとsubmoduleは
-  backup Toolが停止する。
-- このリポジトリ側の`projects/<name>/`には`PROJECT.md`、`STATE.md`、参照だけを置く。これらは
-  遠隔バックアップに含まれ、外部リポジトリへの入口として機能する。
-- 宣言のないネストリポジトリやsubmoduleを検出した場合は、追加、削除、ignore、submodule化の
-  いずれも行わず、宣言するかどうかを利用者へ確認する。
+| `repository_reason` | 独立repoが必要になる境界 |
+|---|---|
+| `automation` | Actions、Pages、Packages、Dependabot、Webhook、外部デプロイ |
+| `distribution` | OSS公開、tag、Release、packageやbinaryの配布 |
+| `collaboration` | 外部共同編集、Pull Request、Issue運用 |
+| `access` | 異なるvisibility、権限、Secrets、branch protection |
+| `identity` | 外部サービスや利用者が固定repo URLを参照 |
+| `upstream` | fork、upstream追従、他システムからの依存 |
+
+Satelliteの`PROJECT.md`は次をfrontmatterへ各1回だけ宣言する。マシン固有のclone pathや認証情報を含むURLは
+正本へ保存しない。
+
+```yaml
+repository_mode: satellite
+repository_url: git@github.com:<owner>/<repository>.git
+repository_reason: automation
+repository_default_branch: main
+```
+
+Hub側の`projects/<name>/`は`PROJECT.md`と`STATE.md`だけを持つ。目的、成果契約、固定判断は
+`PROJECT.md`、現在目標、採用revision、検証結果は`STATE.md`が所有する。コード、tests、Workflow、release、
+deploy設定、Git履歴はSatelliteだけが所有し、同じsourceをHubへ複製しない。
+
+Satelliteの`STATE.md`は次の復旧tupleを持つ。`revision`はremoteへpush済みの完全な40文字commit SHAとし、
+`repository`と`branch`は`PROJECT.md`の宣言に一致させる。
+
+```markdown
+## Repository State
+
+- repository: `git@github.com:<owner>/<repository>.git`
+- revision: `<40-character-commit-sha>`
+- branch: `main`
+- remote_verified_at: `YYYY-MM-DD`
+```
+
+agent-directoryをrootにしたHub sessionはこの2ファイルだけを変更し、Satellite本体を変更しない。
+Satelliteの作業は、そのcloneを唯一のrootとする別sessionで行う。Satellite sessionはcommit SHA、検証結果、
+未完了事項を返し、Hub sessionが採用するSHAと状態を`STATE.md`へ反映する。cloneの配置は環境側で決め、
+agent-directory内へネストしない。
+
+### 昇格と統合
+
+EmbeddedからSatelliteへの昇格は、次の順序で行う。
+
+1. 利用者がSatellite化を承認する。
+2. ルートGitで移行前checkpointを確定する。
+3. Satellite repoを作成し、コード、tests、実行設定を移す。
+4. Satellite側で検証、commit、remote pushを完了する。
+5. Hubの`PROJECT.md`をSatellite宣言へ変更し、`STATE.md`へ初回SHAを記録する。
+6. Hubから重複sourceを除き、validatorで二重正本がないことを確認する。
+7. 利用者が明示した場合だけHubをバックアップする。
+
+履歴維持に実益がある場合だけ対象pathの履歴を抽出する。履歴抽出のために平常時からrepoを分けない。
+宣言のないnested repoまたはsubmoduleは追加、削除、ignore、submodule化せず、停止して利用者へ確認する。
+
+SatelliteからEmbeddedへの統合は自動既定にしない。外部共同編集、automation、release、Webhook、固定URL参照、
+配布、異なる権限、upstream関係がすべて存在しないことを監査し、利用者が明示的に廃止・統合を承認した場合だけ
+実行する。過去に外部identityを持ったrepoは、現在停止中という理由だけで統合しない。
 
 ## PROJECT.md
 
@@ -77,12 +131,15 @@ name: project-name
 description: 候補選択に使う一行説明
 status: active
 mode: finite
+repository_mode: embedded
 ---
 ```
 
 - `name`はディレクトリ名と一致させる。
 - `description`は200文字以内の一行とし、タブを含めない。
 - `mode`は`finite`または`continuous`だけを使う。
+- `repository_mode`は`embedded`または`satellite`だけを使う。Satellite追加項目は
+  `projects/README.md#repository-mode`に従う。
 - `status`は`active | paused | completed | retired`だけを使う。
 - パスが恒久IDである。別のID体系や物理archiveを作らない。
 
