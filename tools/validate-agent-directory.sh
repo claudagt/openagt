@@ -611,6 +611,7 @@ required_cases=(
   large-file-section-read ambiguous-target-no-broad-scan meta-route-validator-change
   knowledge-log-auto-rotation scale-sqlite-auto-enable
   backup-explicit-only backup-divergence-refusal restore-single-writer project-task-no-backup
+  backup-external-repo-boundary
 )
 for case_name in "${required_cases[@]}"; do require_file "$repo_root/evals/cases/$case_name.yaml"; done
 

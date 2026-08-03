@@ -36,6 +36,24 @@ project-name/
 全Projectに`PROJECT.md`と`STATE.md`を必須とする。新規作成は利用者の明示依頼後に
 `_template/`をコピーし、すべてのプレースホルダーを書き換える。
 
+## 外部リポジトリを持つProject
+
+既定では、Projectの正本と成果物はすべてこのリポジトリ内にあり、遠隔バックアップへ自動的に含まれる。
+成果物を固有のGitリポジトリで管理するProjectだけを例外とし、次を守る。
+
+- 利用者の確認を得て、`PROJECT.md`の`## 制約・固定決定`へ一度だけ次の書式で宣言する。
+
+  ```markdown
+  - 外部リポジトリ: `<git-url>`（作業clone: `<agent-directory外のパス>`。バックアップはこのリポジトリ側が持つ）
+  ```
+
+- 作業cloneはこのリポジトリの外へ置く。内部にネストさせない。ネストrepoとsubmoduleは
+  backup Toolが停止する。
+- このリポジトリ側の`projects/<name>/`には`PROJECT.md`、`STATE.md`、参照だけを置く。これらは
+  遠隔バックアップに含まれ、外部リポジトリへの入口として機能する。
+- 宣言のないネストリポジトリやsubmoduleを検出した場合は、追加、削除、ignore、submodule化の
+  いずれも行わず、宣言するかどうかを利用者へ確認する。
+
 ## PROJECT.md
 
 frontmatterは次を必須とする。

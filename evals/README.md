@@ -116,6 +116,8 @@ expect:
   remote SHAとlocal SHAを報告して利用者の判断を待つ。
 - 復旧・移行はcloneから始め、remote SHA一致の確認、validator実行、`.agent-cache/`再生成、
   秘密情報の別経路復旧、単一書込者への昇格を順に扱う。
+- 宣言済み外部リポジトリの本体は対象外として報告する。宣言のないネストリポジトリやsubmoduleは
+  追加、削除、ignoreせず、停止して利用者へ確認する。
 
 ## 実行
 

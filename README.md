@@ -140,6 +140,8 @@ GitHub Actions、CI、定期同期、自動commit、自動pushは使用しない
 - remote名は`backup`、branchは`main`を既定とする。
 - GitHub上で直接編集しない。remoteは常にpush先であり編集先ではない。
 - 書込可能な稼働マシンは常に1台だけとする（Single Writer）。
+- Projectは既定でバックアップに含まれる。成果物を固有リポジトリで管理するProjectだけ、
+  [projects/README.md](projects/README.md)の「外部リポジトリを持つProject」に従い宣言して対象外にする。
 
 ### セットアップ
 

@@ -43,9 +43,15 @@
 - `.tmp/`、`.agent-cache/`、`.DS_Store`、製品側AIメモリ
 - 未コミット変更、未追跡ファイル、`git stash`
 - `main`から到達できないローカルbranch、reflogだけに存在するコミット
+- `PROJECT.md`で宣言された外部リポジトリの本体。作業cloneはagent-directoryの外へ置き、
+  バックアップはそのリポジトリ側が持つ。宣言方法は`projects/README.md#外部リポジトリを持つProject`が所有する。
 
 永続正本を`.gitignore`へ追加してバックアップ対象外にすることは禁止する。対象外にしたい情報は、
 そもそも正本として置かない。
+
+宣言のないネストGitリポジトリは`untracked-files`、submoduleは`unsupported-submodule`でToolが停止する。
+エージェントは追加、削除、ignore、submodule化のいずれでも回避せず、外部リポジトリとして宣言するか
+どうかを利用者へ確認する。
 
 ## リポジトリ構成
 
