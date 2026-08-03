@@ -26,6 +26,9 @@
   `git ls-remote`のremote refから再確認する。
 - **Single Writer** — エージェント1体につき、書込可能な稼働マシンは常に1台だけ。他マシンのcloneは
   復旧または移行が完了するまで書込禁止とする。
+- **Satellite Repository** — `PROJECT.md`で宣言された外部リポジトリ。hub（agent-directory本体）の
+  バックアップ対象外であり、バックアップはそのリポジトリ側が持つ。分割の許可条件と宣言書式は
+  `projects/README.md#外部リポジトリを持つProject`が所有する。
 
 ## バックアップ対象
 
@@ -98,6 +101,10 @@ bash tools/backup-to-github.sh --remote backup --branch main --dry-run
 
 Toolはfast-forward pushだけを`HEAD:refs/heads/<branch>`の明示refspecで行い、push後に`git ls-remote`で
 remote SHAを再取得してローカルHEADとの完全一致を確認する。`--dry-run`はremoteへ一切書き込まない。
+
+成功時とdry-run時は、宣言済みSatellite Repositoryの各宣言と件数を`DETAIL:`行へ列挙する。
+復旧時は、この出力だけで「hubは復旧できた、別途復旧するリポジトリがN件ある」ことが分かり、
+人間の記憶に依存しない。`BACKUP_OK`/`BACKUP_READY`の1行フォーマットは変更しない。
 
 `AGENT_BACKUP_MAX_BLOB_BYTES`は隔離fixture検証だけで使う閾値上書きであり、通常運用では設定しない。
 

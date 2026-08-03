@@ -178,6 +178,19 @@ else
   fi
 fi
 
+external_decl_regex='^- 外部リポジトリ: `[^`]+`（作業clone: `[^`]+`。バックアップはこのリポジトリ側が持つ）$'
+satellite_count=0
+while IFS= read -r project_md; do
+  [[ -n "$project_md" && -f "$repo_root/$project_md" ]] || continue
+  while IFS= read -r satellite_url; do
+    [[ -n "$satellite_url" ]] || continue
+    satellite_count=$((satellite_count + 1))
+    note "satellite repository (out of backup scope): $satellite_url declared in $project_md"
+  done < <(grep -E "$external_decl_regex" "$repo_root/$project_md" 2>/dev/null |
+    sed 's/^- 外部リポジトリ: `\([^`]*\)`.*$/\1/')
+done < <(git -C "$repo_root" ls-files -- 'projects/*/PROJECT.md')
+note "declared external repositories: $satellite_count (excluded from this backup; restore each from its own remote)"
+
 if [[ "$dry_run" == true ]]; then
   note 'dry run performed no remote write'
   printf 'BACKUP_READY remote=%s branch=%s sha=%s\n' "$remote" "$branch" "$local_head"

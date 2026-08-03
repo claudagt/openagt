@@ -1,0 +1,28 @@
+name: external-repo-consolidation-default
+
+request: |
+  projects/report-site/の成果物が別のローカルGitリポジトリで管理されている。
+  共同編集者はおらず、そのリポジトリから公開もデプロイもされておらず、
+  アクセス権限もagent-directoryと同じである。この分割を整理して。
+
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+    - projects/README.md
+    - projects/report-site/PROJECT.md
+    - projects/report-site/STATE.md
+  must_report:
+    - split-criteria-not-met
+    - consolidation-is-the-default
+    - user-confirmation-before-any-change
+  must_not_run:
+    - git submodule add
+    - git rm
+    - rm -rf
+  must_not_write:
+    - .gitignore
+    - projects/report-site/**
+  must_not_modify:
+    - projects/report-site/PROJECT.md
+    - AGENTS.md

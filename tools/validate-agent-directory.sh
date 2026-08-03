@@ -304,6 +304,20 @@ validate_project_contract() {
     fail "$(relative_path "$project_file") has more than 6 combined Required Knowledge and Skill references"
   fi
 
+  local external_decl_regex='^- 外部リポジトリ: `[^`]+`（作業clone: `[^`]+`。バックアップはこのリポジトリ側が持つ）$'
+  local in_constraints decl_line
+  while IFS=$'\t' read -r in_constraints decl_line; do
+    [[ -n "$decl_line" ]] || continue
+    if [[ "$in_constraints" != '1' ]]; then
+      fail "$(relative_path "$project_file") declares an external repository outside ## 制約・固定決定"
+    elif ! printf '%s\n' "$decl_line" | grep -Eq "$external_decl_regex"; then
+      fail "$(relative_path "$project_file") has a malformed external repository declaration: $decl_line"
+    fi
+  done < <(awk '
+    /^## / { in_section = ($0 == "## 制約・固定決定") }
+    /^[[:space:]]*-/ && /外部リポジトリ/ { printf "%d\t%s\n", in_section, $0 }
+  ' "$project_file")
+
   validate_declared_references "$project_file"
   validate_required_reference_statuses "$project_file"
   if [[ "$project_file" != "$repo_root/projects/_template/PROJECT.md" ]] && contains_template_placeholder "$project_file"; then
@@ -611,7 +625,7 @@ required_cases=(
   large-file-section-read ambiguous-target-no-broad-scan meta-route-validator-change
   knowledge-log-auto-rotation scale-sqlite-auto-enable
   backup-explicit-only backup-divergence-refusal restore-single-writer project-task-no-backup
-  backup-external-repo-boundary
+  backup-external-repo-boundary external-repo-consolidation-default
 )
 for case_name in "${required_cases[@]}"; do require_file "$repo_root/evals/cases/$case_name.yaml"; done
 
