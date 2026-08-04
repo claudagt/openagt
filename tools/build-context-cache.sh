@@ -104,6 +104,7 @@ append_frontmatter_item() {
   local kind="$2"
   local file="$3"
   local name status aliases description item_mode
+  local missing=''
 
   name="$(frontmatter_value "$file" 'name')"
   status="$(frontmatter_value "$file" 'status')"
@@ -117,7 +118,14 @@ append_frontmatter_item() {
     description="$(frontmatter_value "$file" 'summary')"
   fi
 
-  [[ -n "$name" && -n "$status" ]] || return
+  [[ -n "$name" ]] || missing='name'
+  [[ -n "$status" ]] || missing="${missing:+$missing, }status"
+  if [[ -n "$missing" ]]; then
+    printf 'WARN: %s: missing %s; skipping catalog entry\n' \
+      "${file#"$repo_root"/}" "$missing" >&2
+    return 0
+  fi
+
   append_catalog "$area" "$kind" "$status" "$name" "$aliases" "$description" "$item_mode" "$file"
 }
 
