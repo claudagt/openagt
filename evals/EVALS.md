@@ -33,7 +33,7 @@ expect:
   must_read:
     - AGENTS.md
   must_not_read:
-    - knowledge/wiki/log.md
+    - knowledge/wiki/LOG.md
   must_prefer:
     status: active
   fallback:
@@ -67,15 +67,36 @@ expect:
 `must_read`は必須。その他はケースに関係するときだけ記す。`none`は永続的な正本を変更しないことを表し、
 `.tmp/`は独立Routeではない。参照は`tools/TOOLS.md#相互参照`に従い、`=<期待値>`はeval固有の表記とする。
 
+## ケースの粒度
+
+- 1ケース1不変条件を原則とする。ただし通常のProject実行の基準ケースには、通常時に常に成立する
+  共通の負条件をまとめてよい。
+- 同じfixture、同じ依頼、同じ期待を持つケースは1件へ統合し、名前だけが違う重複を残さない。
+- ケースを削除・改名したら、validatorの必須ケース一覧と文書から旧名の参照を同じ作業内で除去する。
+
 ## fixtures
 
 `cases/`のケースが参照する入力データは`fixtures/`へ置く。
 
+- 特定のProject、Skill、Knowledgeを`must_read`する行動ケースは、原則として実在fixtureを持つ。
+  `must_read`にプレースホルダー名を書かず、fixtureの具体的なパスを書く。
+- root canonicalだけを扱う純粋なRoute判定・拒否ケースはfixtureなしでよい。
 - 1ケースが使うデータは、ケース名または対象状態と同じサブディレクトリにまとめる。
 - 複数ケースが同じ初期状態を検証する場合は共有fixtureを一つ置き、各ケースの`fixture:`から参照する。
 - fixture内はリポジトリ直下へ重ねられる構造にする。
 - 必要になったケースだけがfixtureを持つ。空のfixtureを先に生成しない。
-- fixture内のProjectもvalidatorの構造検査対象であり、契約、状態、docs命名の規則を満たす。
+- fixture内のProjectとSkillもvalidatorの構造検査対象であり、契約、状態、frontmatter、命名の規則を満たす。
+
+## YAMLとIntegration fixtureの分担
+
+```text
+evals/cases/*.yaml = エージェントの読込、判断、書込、報告契約
+validator内fixture = Toolの実ファイル・Git・cache動作
+```
+
+nested Git、Satellite remote、bare remote、log閾値、SQLite切替のような実挙動は、validatorが
+一時ディレクトリへ組み立てる隔離fixtureが所有する。同じ動的Git fixtureをYAML側へ複製せず、
+YAMLはその状況でエージェントが何を読み、何を拒否し、何を報告するかだけを持つ。
 
 ## Context trace
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="${AGENT_DIRECTORY_ROOT:-$(cd "$tool_root/.." && pwd)}"
-log_file="$repo_root/knowledge/wiki/log.md"
+log_file="$repo_root/knowledge/wiki/LOG.md"
 record_date="$(date +%F)"
 record_type=''
 record_target=''

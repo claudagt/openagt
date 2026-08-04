@@ -1,14 +1,16 @@
 name: route-to-skill
 
+fixture: active-skill
+
 request: |
-  <skill-name>を使って対象を分析して。
+  literature-reviewを使って、手元の資料群を同じ観点で読み比べて。
 
 expect:
   route: skill
   must_read:
     - AGENTS.md
     - skills/SKILLS.md
-    - skills/<skill-name>/SKILL.md
+    - skills/literature-review/SKILL.md    # catalogやdescriptionだけで実行しない
   may_write:
     - .tmp/**
   must_not_write:

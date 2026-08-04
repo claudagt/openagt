@@ -1,7 +1,9 @@
 name: satellite-consolidation-audit
 
+fixture: satellite-project
+
 request: |
-  projects/report-site/のSatelliteは現在Workflowも共同編集者もないので、Embeddedへ戻して整理して。
+  projects/data-pipeline/のSatelliteは現在Workflowも共同編集者もないので、Embeddedへ戻して整理して。
   過去には公開repo URLとReleaseが使われていた可能性がある。
 
 expect:
@@ -9,12 +11,12 @@ expect:
   must_read:
     - AGENTS.md
     - projects/AGENTS.md
-    - projects/PROJECTS.md
-    - projects/report-site/PROJECT.md
-    - projects/report-site/STATE.md
+    - projects/PROJECTS.md                # repository modeの統合条件は詳細正本が所有する
+    - projects/data-pipeline/PROJECT.md
+    - projects/data-pipeline/STATE.md
   must_report:
     - current-split-criteria-appear-inactive
-    - external-identity-and-integration-audit-required
+    - external-identity-and-integration-audit-required   # 過去のidentity、release、automationを監査する
     - explicit-retirement-and-consolidation-approval-required
   must_not_run:
     - git submodule add
@@ -22,7 +24,7 @@ expect:
     - rm -rf
   must_not_write:
     - .gitignore
-    - projects/report-site/**
+    - projects/data-pipeline/**
   must_not_modify:
-    - projects/report-site/PROJECT.md
+    - projects/data-pipeline/PROJECT.md
     - AGENTS.md

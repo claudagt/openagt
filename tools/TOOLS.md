@@ -87,9 +87,12 @@ tools/find-context.sh --route project --include-inactive -- "監査対象"
 tools/append-knowledge-log.sh --type ingest --target knowledge/wiki/topics/example.md --summary "変更内容"
 ```
 
-Knowledge変更履歴はこのToolだけで追記する。追記後に1,000記録または128KiBへ達すると、
-`logs/YYYY-QN[-NN].md`へ自動ローテーションし、現在の`log.md`をヘッダーだけに戻す。
-閉鎖済みlogは以後変更しない。`AGENT_DIRECTORY_ROOT`を使った隔離fixtureでも同じ挙動を検証できる。
+- 入力: `--type`、`--target`、`--summary`、任意の`--date YYYY-MM-DD`。`AGENT_DIRECTORY_ROOT`で対象rootを差し替える。
+- 出力: `APPENDED: <date> <target>`、ローテーション時は`ROTATED: <path> (<記録数>, <byte数>)`を追加で出す。
+- 追記先は`knowledge/wiki/LOG.md`だけとし、1,000記録または128KiBで`logs/YYYY-QN[-NN].md`へ閉じ、
+  現在のLOGをヘッダーだけへ戻す。閉鎖済みlogは以後変更しない。
+- 記録の種別と意味的な運用規則は`knowledge/KNOWLEDGE.md#LOG`が所有する。
+- 検証: `AGENT_DIRECTORY_ROOT`を使った隔離fixtureで閾値挙動を再現できる。
 
 ## backup-to-github.sh
 
@@ -101,27 +104,18 @@ bash tools/backup-to-github.sh --remote backup --branch main --dry-run
 
 meta層のToolであり、通常のKnowledge、Skill、Project作業から自動実行しない。利用者がバックアップ、
 マシン移行、破壊的変更前の復旧点作成、チェックポイント保存を明示した場合だけ実行する。
-規約と手順は[BACKUP.md](BACKUP.md)が所有し、バックアップ・復旧・移行時だけ読む。
 
 - 入力: `--remote`（既定`backup`）、`--branch`（既定`main`）、`--dry-run`。
   `AGENT_DIRECTORY_ROOT`で対象root、`AGENT_BACKUP_MAX_BLOB_BYTES`でblob上限を差し替えられる。
   上限の差し替えは隔離fixture検証だけで使う。
-- 前提条件: リポジトリroot、非detached HEAD、branch一致、remote設定済み、index・作業ツリー・
-  未追跡ファイルが空、stashなし、branch外のローカルcommitなし、`.tmp`/`.agent-cache`/`.env`実値/
-  `.DS_Store`が未追跡、ignore済みを含むnested `.git`なし、submodule・Git LFSなし、100MiB以上のobjectなし、
-  Satelliteの宣言・Hub内容・採用SHAが検証済み、Hub remoteがdivergeしていない。
 - 出力: 成功`BACKUP_OK remote=<name> branch=<name> sha=<40文字SHA>`、
   dry-run成功`BACKUP_READY ...`をstdoutへ1行。停止時は`BACKUP_BLOCKED reason=<reason>`をstderrへ出し、
   終了コードを非0にする。補足はstderrの`DETAIL:`行に出す。
-- 失敗条件のreasonは`BACKUP.md#backup Tool`に一覧を持つ。
 - remoteへpushする唯一の標準経路であり、pushは`HEAD:refs/heads/<branch>`の明示refspecによる
-  通常のfast-forward pushだけとする。push後に`git ls-remote`で一致を再確認する。
-- コミットを作らない。`git add`、`git commit`、`git stash push`を行わない。
-- remote divergenceを修正しない。検出時は何も変更せず停止し、remote SHAとlocal SHAを報告する。
-- force push、force-with-lease、mirror push、prune、remote branch削除、一括pushを行わない。
-- `--dry-run`はremoteへ一切書き込まない。
-- Satelliteのremoteはread-onlyで検証し、`STATE.md`の採用SHAを隔離一時repoへ取得できない場合は停止する。
-  `BACKUP_OK`はHubの成功だけを表す。
+  通常のfast-forward pushだけとする。コミットを作らず、`--dry-run`はremoteへ一切書き込まない。
+- 前提条件、停止reasonの一覧、divergence時の禁止操作、Satellite採用SHAの扱い、復旧・移行手順は
+  `tools/BACKUP.md`が所有し、バックアップ・復旧・移行を扱うときだけ読む。
+- 検証: 一時ディレクトリのローカルbare remoteを使う隔離fixtureで、実GitHub接続なしに再現できる。
 
 ## validate-agent-directory.sh
 
@@ -132,32 +126,22 @@ bash tools/validate-agent-directory.sh --full --base main
 ```
 
 - 通常: 必須構造、`AGENTS.md`/`CLAUDE.md`の階層、metadata、Project契約、STATE、Project docs境界、
-  サイズ、index/log、eval schema、cache再生成を検査
+  サイズ、INDEX/LOG、eval schema、cache再生成を検査
 - `--strict`: 導入後に残してはいけない自己定義・Skillプレースホルダーも失敗にする
 - `--full`: 全参照、全Knowledge/Skill/Project、context Tool fixtureを検査
 - `--base <ref>`: Git差分から`knowledge/raw/`、閉鎖済みlog、Project物理移動の禁止を検査
+- 終了コード0と`PASS: agent-directory structure is valid`が合格条件である。
 
-構造境界として少なくとも次を機械検査する。
+機械検査する境界には少なくとも次が含まれる。
 
-- `knowledge/research/`が存在せず、`knowledge/raw/internal/`と`knowledge/raw/external/`が存在し、
-  どちらもimmutableとして扱われる。
-- 領域正本が`skills/SKILLS.md`、`projects/PROJECTS.md`、`evals/EVALS.md`、`tools/TOOLS.md`であり、
-  対応する旧`README.md`が存在しない。ルート`README.md`は外部向け入口として存在する。
-- Project docsに`docs/README.md`が存在しない。この禁止はProjectの`docs/`だけへ適用し、`knowledge/raw/`の
-  外部原資料とProjectの`inputs/`が持つ資料側のファイル名は対象にしない。
-- Embedded Projectの`docs/`直下Markdownが大文字Domain Canon形式であり、内容を持つ`docs/`が最低1件の
-  Domain Canonを持ち、`docs/`直下の各フォルダがいずれかのDomain Canonから参照されている。
-- `docs/`または`ARCHITECTURE.md`を持つEmbedded Projectが個別`AGENTS.md`と`CLAUDE.md`を持ち、
-  `CLAUDE.md`が`@AGENTS.md`だけである。
-- 個別`AGENTS.md`が`PROJECT.md`と`STATE.md`を正本として参照し、`## Project Docs Route`見出しを持ち、
-  存在する`ARCHITECTURE.md`と各Domain Canonをその節の条件付き項目として参照し、`docs/**`の一括読込を
-  命じない。本文中の言及や禁止文への登場は条件付き参照として数えない。
-- Satellite Hubが`PROJECT.md`と`STATE.md`以外を持たない。
-- `projects/_template/`が`docs/`、`ARCHITECTURE.md`、`AGENTS.md`を持たない。
+- `knowledge/research/`と旧領域`README.md`が存在せず、`knowledge/raw/`の二領域がimmutableである。
+- 固定Wiki Markdownが`INDEX.md`、`LOG.md`、`_template/SOURCE.md`、`_template/TOPIC.md`の大文字名だけであり、
+  旧小文字パスがGit indexにも実ファイル名にも戻っていない。
+- 利用者が作る`knowledge/wiki/sources/`と`knowledge/wiki/topics/`のページが小文字ケバブケースである。
 - frontmatterを欠く正本があってもcache生成が停止せず、対象パスと欠落キーを警告して候補から外す。
 
-`docs/`より下のフォルダ名と見出し構成はProjectが決める。validatorは境界とサイズだけを固定し、
-下位構造を固定しない。終了コード0と`PASS: agent-directory structure is valid`が合格条件である。
+AGENTS三層とProject docsの完全な構造規則は`projects/PROJECTS.md`が所有する。validatorはその境界と
+サイズだけを固定し、`docs/`より下のフォルダ名と見出し構成はProjectが決める。
 
 既定でも`--full`でも、実GitHub接続、`gh` CLI、GitHub API、認証情報、Private可視性照会を必要としない。
 backup Toolの検査は、静的な禁止操作検査と、一時ディレクトリのローカルbare remoteを使う隔離fixtureだけで行う。
@@ -181,9 +165,9 @@ Private可視性はセットアップ契約であり、利用者が確認する�
 | `PROJECT.md` / `SKILL.md` | 20KiB |
 | `projects/<name>/ARCHITECTURE.md` | 24KiB |
 | `projects/<name>/docs/<DOMAIN>.md` | 24KiB |
-| `knowledge/wiki/index.md` | 8KiB・50項目 |
+| `knowledge/wiki/INDEX.md` | 8KiB・50項目 |
 | active Wiki | 64KiB。24KiB超はRetrieval Map必須 |
-| `knowledge/wiki/log.md` | 128KiB・1,000記録 |
+| `knowledge/wiki/LOG.md` | 128KiB・1,000記録 |
 | `tools/BACKUP.md` | 20KiB |
 
 token数はモデル差があるためvalidatorのhard failには使わない。実行時の読込予算は`AGENTS.md`が所有する。

@@ -8,6 +8,16 @@ strict=false
 full=false
 base_ref=''
 
+# 固定Wiki Markdownは大文字名を正本とする。利用者が作るsources/topicsページは対象外。
+knowledge_index_path='knowledge/wiki/INDEX.md'
+knowledge_log_path='knowledge/wiki/LOG.md'
+knowledge_source_template_path='knowledge/wiki/_template/SOURCE.md'
+knowledge_topic_template_path='knowledge/wiki/_template/TOPIC.md'
+knowledge_index_file="$repo_root/$knowledge_index_path"
+knowledge_log_file="$repo_root/$knowledge_log_path"
+knowledge_source_template="$repo_root/$knowledge_source_template_path"
+knowledge_topic_template="$repo_root/$knowledge_topic_template_path"
+
 usage() {
   printf 'Usage: %s [--strict] [--full] [--base <git-ref>]\n' "${0##*/}" >&2
 }
@@ -744,9 +754,14 @@ validate_knowledge_page() {
   elif [[ "$status" == 'active' && $bytes -gt 24576 ]] && ! grep -Fqx '## Retrieval Map' "$page"; then
     fail "$(relative_path "$page") exceeds 24KiB and requires ## Retrieval Map"
   fi
-  case "$filename" in
-    README.md) ;;
-    *[!a-z0-9.-]*|_*|*[A-Z]*) fail "$(relative_path "$page") filename must use lowercase kebab-case" ;;
+  # 大文字名を許すのはテンプレート固定ファイルの2パスだけで、利用者Knowledgeへは広げない。
+  case "$(relative_path "$page")" in
+    "$knowledge_source_template_path"|"$knowledge_topic_template_path") ;;
+    *)
+      case "$filename" in
+        *[!a-z0-9.-]*|_*|*[A-Z]*) fail "$(relative_path "$page") filename must use lowercase kebab-case" ;;
+      esac
+      ;;
   esac
   validate_declared_references "$page"
 }
@@ -810,12 +825,12 @@ validate_deleted_project() {
 
 required_files=(
   'AGENTS.md' 'CLAUDE.md' 'projects/AGENTS.md' 'projects/CLAUDE.md'
-  'README.md' 'knowledge/KNOWLEDGE.md' 'knowledge/wiki/index.md' 'knowledge/wiki/log.md'
+  'README.md' 'knowledge/KNOWLEDGE.md' "$knowledge_index_path" "$knowledge_log_path"
   'skills/SKILLS.md' 'skills/_template/SKILL.md' 'projects/PROJECTS.md' 'projects/LIFECYCLE.md' 'projects/RECOVERY.md'
   'projects/_template/PROJECT.md' 'projects/_template/STATE.md' 'evals/EVALS.md' 'tools/TOOLS.md'
   'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/append-knowledge-log.sh'
   'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
-  'knowledge/wiki/_template/source.md' 'knowledge/wiki/_template/topic.md'
+  "$knowledge_source_template_path" "$knowledge_topic_template_path"
 )
 for path in "${required_files[@]}"; do require_file "$repo_root/$path"; done
 
@@ -843,6 +858,30 @@ for entry in "${retired_paths[@]}"; do
     fail "retired path must not exist: $retired_path — $retired_hint (git rm it; do not keep a compatibility copy)"
 done
 
+# 固定Wiki Markdownは大文字名だけを正本とする。case-insensitive filesystemでは -e が
+# 大文字の正本にも一致するため、Git indexと実ディレクトリエントリの完全一致だけで旧caseを検出する。
+tracked_files_snapshot=''
+if git -C "$repo_root" rev-parse --show-toplevel >/dev/null 2>&1; then
+  tracked_files_snapshot="$(git -C "$repo_root" ls-files 2>/dev/null || true)"
+fi
+for entry in \
+  "knowledge/wiki/index.md|$knowledge_index_path" \
+  "knowledge/wiki/log.md|$knowledge_log_path" \
+  "knowledge/wiki/_template/source.md|$knowledge_source_template_path" \
+  "knowledge/wiki/_template/topic.md|$knowledge_topic_template_path"; do
+  retired_path="${entry%%|*}"
+  canonical_path="${entry#*|}"
+  if [[ -n "$tracked_files_snapshot" ]] && \
+    printf '%s\n' "$tracked_files_snapshot" | grep -Fqx -- "$retired_path"; then
+    fail "retired lowercase Knowledge path is tracked in the Git index: $retired_path — the canonical name is $canonical_path"
+  fi
+  # readdirは実際に保存された名前を返すため、findの -name は case-exact に働く。
+  if [[ -d "$repo_root/${retired_path%/*}" ]] && \
+    [[ -n "$(find "$repo_root/${retired_path%/*}" -maxdepth 1 -type f -name "${retired_path##*/}" -print -quit)" ]]; then
+    fail "retired lowercase Knowledge file exists on disk: $retired_path — the canonical name is $canonical_path"
+  fi
+done
+
 # Project docsは大文字Domain Canonから入る。外部原資料とinputsの命名は対象外とする。
 while IFS= read -r -d '' docs_readme; do
   fail "$(relative_path "$docs_readme") is forbidden; enter docs/ through an uppercase Domain Canon such as docs/DESIGN.md"
@@ -867,8 +906,8 @@ check_size "$repo_root/projects/PROJECTS.md" 24576 'projects PROJECTS.md'
 check_size "$repo_root/evals/EVALS.md" 24576 'evals EVALS.md'
 check_size "$repo_root/tools/TOOLS.md" 20480 'tools TOOLS.md'
 check_size "$repo_root/tools/BACKUP.md" 20480 'tools BACKUP.md'
-check_size "$repo_root/knowledge/wiki/index.md" 8192 'Knowledge index'
-check_size "$repo_root/knowledge/wiki/log.md" 131072 'Knowledge log'
+check_size "$knowledge_index_file" 8192 'Knowledge index'
+check_size "$knowledge_log_file" 131072 'Knowledge log'
 check_heading_warning "$repo_root/AGENTS.md" 20
 check_heading_warning "$repo_root/knowledge/KNOWLEDGE.md" 30
 check_heading_warning "$repo_root/skills/SKILLS.md" 30
@@ -954,17 +993,17 @@ done < <(find \
   "$repo_root/knowledge/wiki/sources" "$repo_root/knowledge/wiki/topics" \
   "$repo_root/evals/fixtures" -type f -name '*.md' \
   \( -path '*/knowledge/wiki/sources/*' -o -path '*/knowledge/wiki/topics/*' \) -print0)
-validate_knowledge_page "$repo_root/knowledge/wiki/_template/source.md"
-validate_knowledge_page "$repo_root/knowledge/wiki/_template/topic.md"
+validate_knowledge_page "$knowledge_source_template"
+validate_knowledge_page "$knowledge_topic_template"
 
-index_items="$(grep -Ec '^- ' "$repo_root/knowledge/wiki/index.md" || true)"
-(( index_items <= 50 )) || fail 'knowledge/wiki/index.md has more than 50 route-map items'
-if grep -Eq '^- .*knowledge/raw/|^## raw/' "$repo_root/knowledge/wiki/index.md"; then
-  fail 'knowledge/wiki/index.md must not register knowledge/raw/ as an itemized global ledger'
+index_items="$(grep -Ec '^- ' "$knowledge_index_file" || true)"
+(( index_items <= 50 )) || fail "$knowledge_index_path has more than 50 route-map items"
+if grep -Eq '^- .*knowledge/raw/|^## raw/' "$knowledge_index_file"; then
+  fail "$knowledge_index_path must not register knowledge/raw/ as an itemized global ledger"
 fi
 
-log_records="$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+' "$repo_root/knowledge/wiki/log.md" || true)"
-(( log_records <= 1000 )) || fail 'knowledge/wiki/log.md has more than 1,000 records and must rotate'
+log_records="$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+' "$knowledge_log_file" || true)"
+(( log_records <= 1000 )) || fail "$knowledge_log_path has more than 1,000 records and must rotate"
 if [[ -d "$repo_root/knowledge/wiki/logs" ]]; then
   while IFS= read -r -d '' log_file; do
     filename="${log_file##*/}"
@@ -976,21 +1015,21 @@ if [[ -d "$repo_root/knowledge/wiki/logs" ]]; then
 fi
 
 required_cases=(
-  memory-canonical-first project-context-must-read project-correction-recovery project-finite-completion
+  project-correction-recovery project-finite-completion
   project-goal-change-protection project-state-closeout protect-immutable-records protect-paused-project
   route-to-knowledge route-to-project route-to-skill temporary-code-isolation project-delete-requires-retired
   knowledge-bounded-retrieval knowledge-superseded-redirect knowledge-original-escalation
   catalog-failure-fallback project-completed-not-default project-required-only context-budget-stop
   large-file-section-read ambiguous-target-no-broad-scan meta-route-validator-change
   knowledge-log-auto-rotation scale-sqlite-auto-enable
-  backup-explicit-only backup-divergence-refusal restore-single-writer project-task-no-backup
+  backup-explicit-only backup-divergence-refusal restore-single-writer
   backup-external-repo-boundary satellite-consolidation-audit satellite-promotion-session-boundary
-  root-agents-router-scope project-layered-entry project-agents-optional project-agents-diff-only
-  project-agents-no-contract-copy project-agents-claude-bridge satellite-hub-agents-forbidden
+  root-agents-router-scope project-agents-optional project-agents-diff-only
+  project-agents-no-contract-copy project-agents-claude-bridge
   knowledge-internal-record-storage knowledge-external-source-storage
   research-question-to-project research-method-to-skill project-research-knowledge-promotion
   project-docs-route-required project-docs-design-entry project-architecture-entry
-  project-domain-sense-not-spec project-docs-readme-forbidden satellite-hub-docs-forbidden
+  project-domain-sense-not-spec project-docs-readme-forbidden satellite-hub-content-boundary
   canonical-area-entry-names
 )
 for case_name in "${required_cases[@]}"; do require_file "$repo_root/evals/cases/$case_name.yaml"; done
@@ -1124,19 +1163,19 @@ fi
 
 mkdir -p "$log_fixture_dir/knowledge/wiki"
 {
-  printf '# log — fixture\n\n---\n\n'
+  printf '# LOG — fixture\n\n---\n\n'
   i=1
   while (( i <= 999 )); do
     printf '2026-08-02  lint        fixture/%04d  threshold fixture\n' "$i"
     i=$((i + 1))
   done
-} > "$log_fixture_dir/knowledge/wiki/log.md"
+} > "$log_fixture_dir/$knowledge_log_path"
 if ! AGENT_DIRECTORY_ROOT="$log_fixture_dir" bash "$repo_root/tools/append-knowledge-log.sh" \
   --date 2026-08-02 --type lint --target fixture/1000 --summary 'threshold fixture' >/dev/null; then
   fail 'append-knowledge-log.sh failed at the 1,000-record threshold'
 elif [[ ! -f "$log_fixture_dir/knowledge/wiki/logs/2026-Q3.md" ]]; then
   fail 'append-knowledge-log.sh did not create the expected quarterly archive'
-elif [[ "$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+' "$log_fixture_dir/knowledge/wiki/log.md" || true)" != '0' ]]; then
+elif [[ "$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+' "$log_fixture_dir/$knowledge_log_path" || true)" != '0' ]]; then
   fail 'append-knowledge-log.sh did not reset the current log after rotation'
 elif [[ "$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+' "$log_fixture_dir/knowledge/wiki/logs/2026-Q3.md" || true)" != '1000' ]]; then
   fail 'append-knowledge-log.sh archive does not contain exactly 1,000 records'

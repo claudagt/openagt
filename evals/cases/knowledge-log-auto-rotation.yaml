@@ -14,6 +14,6 @@ expect:
     - tools/append-knowledge-log.sh --type lint --target fixture/1000 --summary "threshold fixture"
   must_set:
     - knowledge/wiki/logs/YYYY-QN.md#records=1000
-    - knowledge/wiki/log.md#records=0
+    - knowledge/wiki/LOG.md#records=0
   must_not_modify:
     - knowledge/wiki/logs/**

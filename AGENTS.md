@@ -1,7 +1,6 @@
 # AGENTS.md — 最上位ブートローダー
 
-着手前に共通規約として読む正本はこのファイルだけとする。
-ここはルーターと目次であり、詳細規則は各Routeの正本が所有する。
+着手前に共通規約として読む正本はこのファイルだけとする。ルーターと目次であり、詳細規則は各Routeの正本が所有する。
 
 ## 自己定義
 
@@ -31,20 +30,14 @@
 | `meta` | 構造、規約、eval、tool | 対象領域の正本と変更対象 |
 | `none` | 永続変更のない回答 | 追加ロードなし |
 
-Project Routeの通常読込順序は次とする。
-
-```text
-AGENTS.md → projects/AGENTS.md → 対象Project AGENTS.md（あれば）
-→ PROJECT.md → STATE.md → 条件に一致したDomain Canon
-→ Required参照 → 条件が成立したConditional参照
-```
+Project Routeの読込順序と条件は`projects/AGENTS.md`が所有する。
 
 ## Context Loading
 
 - 明示されたリポジトリ相対パスを検索より優先し、参照切れのときだけ検索へ戻る。
 - 候補探索は`tools/find-context.sh`で1回最大5件に絞る。
 - 検索結果とsnippetは候補であり根拠ではない。確定後に正本を読む。
-- index、log、履歴、`runs/`、`docs/**`、Knowledge・Skill・Projectの全件、`.agent-cache/`を一括読込しない。
+- INDEX、LOG、履歴、`runs/`、`docs/**`、Knowledge・Skill・Projectの全件、`.agent-cache/`を一括読込しない。
 - 24KiBを超える正本は見出しと検索で範囲を絞ってから必要部分だけ読む。
 - 読込予算は`min(16,000 tokens, モデル上限の25%)`、計測不能ならUTF-8計32KiBかつ12ファイル。
 - 追加読込は不足する根拠を言語化できる場合だけ行う。予算到達時は停止して報告する。

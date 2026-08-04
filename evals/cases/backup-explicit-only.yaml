@@ -10,7 +10,7 @@ expect:
     - tools/TOOLS.md
     - tools/BACKUP.md
   must_not_read:
-    - knowledge/wiki/log.md
+    - knowledge/wiki/LOG.md
     - knowledge/wiki/logs/**
   must_run:
     - bash tools/backup-to-github.sh --remote backup --branch main

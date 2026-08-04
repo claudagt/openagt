@@ -17,7 +17,7 @@ expect:
     - knowledge/KNOWLEDGE.md
     - knowledge/wiki/topics/capital-allocation-current.md
   must_not_read:
-    - knowledge/wiki/log.md
+    - knowledge/wiki/LOG.md
     - knowledge/wiki/logs/**
   must_prefer:
     status: active

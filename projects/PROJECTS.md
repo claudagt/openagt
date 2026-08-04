@@ -2,16 +2,35 @@
 
 固有のデータ、仕事、成果物を1 Project 1ディレクトリで保存する。
 
-## 二つの正本
+## 正本と責務
+
+Projectの正本は次の責務で分ける。
 
 ```text
-PROJECT.md = なぜ行い、何を実現するか。種別、成果契約、判断原則、固定制約
-STATE.md   = 今どこにいるか。現在目標、合格条件、検証結果、有効な決定、次の一手
+AGENTS.md              = 読込Route、固有コマンド、禁止事項、承認ゲート
+PROJECT.md             = なぜ行い、何を実現するか。種別、成果契約、判断原則、固定制約
+STATE.md               = 今どこにいるか。現在目標、合格条件、検証結果、有効な決定、次の一手
+ARCHITECTURE.md        = Project全体の構造地図、境界、不変条件
+docs/<DOMAIN>.md       = 分野ごとの現在有効な正本兼入口
+docs/<DOMAIN>_SENSE.md = 分野固有の定性的判断
+下位文書               = 詳細設計、仕様、研究、計画、証拠
+Root Knowledge         = Projectを越えて再利用する確定知識
 ```
 
 別の`GOAL.md`、`STATUS.md`、`TODO.md`を作らない。詳細履歴は`runs/`またはGit履歴へ置く。
 成果物は必ず一つのProjectが所有し、Knowledge、Skill、`.tmp/`へ残さない。
 再利用可能な知見だけを`knowledge/`へ同期する。
+
+### 作らない重複
+
+同じ情報のactive正本を二つ持たない。次はこの文書全体へ適用する。
+
+- `docs/**`の一括読込と、Domain Canon全件の無条件読込。
+- `AGENTS.md`へのDomain Canon、`PROJECT.md`、`STATE.md`本文の複製。
+- `PROJECT.md`や`STATE.md`へのDomain文書本文の複製。
+- Satellite Hub側への個別`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、コード、設計文書の複製。
+- `PROJECT.md`と`PRODUCT_SENSE.md`、`PROJECT.md`と`DESIGN.md`、`STATE.md`と`PLANS.md`、
+  `ARCHITECTURE.md`と詳細設計文書、Project ResearchとRoot Knowledge。
 
 ## 対象の選択
 
@@ -28,9 +47,6 @@ AGENTS.md → projects/AGENTS.md → 対象Project AGENTS.md（存在する場�
 → PROJECT.md → STATE.md → 条件に一致したDomain Canon
 → Required Knowledge / Skill → 必要な詳細文書とConditional参照
 ```
-
-次を禁止する。`docs/**`の一括読込、Domain Canon全件の無条件読込、`AGENTS.md`へのDomain Canon本文の複製、
-`PROJECT.md`や`STATE.md`へのDomain文書本文の複製、Satellite Hub側へのProject docs複製。
 
 ## 基本構造
 
@@ -106,7 +122,7 @@ docs/research/model-selection-study.md  docs/plans/database-migration.md
 ## ARCHITECTURE.md
 
 Projectルートに置く任意の全体地図である。Embedded Projectは`projects/<name>/ARCHITECTURE.md`、
-Satellite Projectは`<satellite-repository>/ARCHITECTURE.md`が所有し、Satellite Hub側へ複製しない。
+Satellite Projectは`<satellite-repository>/ARCHITECTURE.md`が所有する。
 
 | 所有する | 所有しない |
 |---|---|
@@ -152,8 +168,8 @@ Project固有の作業差分だけを持つ差分ファイルである。差分�
 
 - 目的、最終ゴール、継続的使命、完了条件、成功指標、Project Criterion
 - 現在目標、現在状態、検証結果、現在有効な決定
-- KnowledgeとSkillの参照一覧、`PROJECT.md`や`STATE.md`やDomain Canonの本文再掲
-- `docs/**`の一括読込指示
+- KnowledgeとSkillの参照一覧
+- `projects/PROJECTS.md#作らない重複`が禁じる本文の複製と一括読込指示
 
 ```markdown
 ## Project Docs Route
@@ -169,25 +185,9 @@ Project固有の作業差分だけを持つ差分ファイルである。差分�
 この節の条件付き項目として列挙する。項目は「条件」と「読む正本」を持つ表の行、または`条件:`と`参照:`の対と
 する。本文中の言及、単なるファイル一覧、禁止文への登場は条件付き参照として数えない。
 2,048 bytes以内とし、`PROJECT.md`と`STATE.md`を正本として参照する。同階層に`@AGENTS.md`だけを持つ`CLAUDE.md`を必ず置き、
-`CLAUDE.md`だけを単独で置かない。Embedded Projectだけに置ける。Satellite Hub側は従来どおり`PROJECT.md`と
-`STATE.md`以外を持たず、Satellite固有の`AGENTS.md`、`ARCHITECTURE.md`、`docs/`はSatelliteリポジトリ本体の
-ルートが所有する。サイズ制約を拡大せず、短いRoute表として収まる設計を優先する。
-
-## 各正本の責務
-
-```text
-AGENTS.md              = 読込Route、固有コマンド、禁止事項、承認ゲート
-PROJECT.md             = 目的、成果契約、固定制約、最低品質
-STATE.md               = 現在目標、最新証拠、ブロッカー、次の一手
-ARCHITECTURE.md        = Project全体の構造地図、境界、不変条件
-docs/<DOMAIN>.md       = 分野ごとの現在有効な正本兼入口
-docs/<DOMAIN>_SENSE.md = 分野固有の定性的判断
-下位文書               = 詳細設計、仕様、研究、計画、証拠
-Root Knowledge         = Projectを越えて再利用する確定知識
-```
-
-次の重複を作らない。`PROJECT.md`と`PRODUCT_SENSE.md`、`PROJECT.md`と`DESIGN.md`、`STATE.md`と`PLANS.md`、
-`ARCHITECTURE.md`と詳細設計文書、Project ResearchとRoot Knowledge、`AGENTS.md`とDomain Canon。
+`CLAUDE.md`だけを単独で置かない。Embedded Projectだけに置ける。Satellite側の所有は
+`projects/PROJECTS.md#repository-mode`が持つ。
+サイズ制約を拡大せず、短いRoute表として収まる設計を優先する。
 
 ## 研究文書とKnowledge昇格
 
@@ -258,7 +258,7 @@ repository_default_branch: main
 
 Hub側の`projects/<name>/`は`PROJECT.md`と`STATE.md`だけを持つ。目的、成果契約、固定判断は
 `PROJECT.md`、現在目標、採用revision、検証結果は`STATE.md`が所有する。コード、tests、Workflow、release、
-deploy設定、`ARCHITECTURE.md`、`docs/`、Git履歴はSatelliteだけが所有し、同じsourceをHubへ複製しない。
+deploy設定、`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、Git履歴はSatelliteリポジトリ本体のルートが所有する。
 
 Satelliteの`STATE.md`は次の復旧tupleを持つ。`revision`はremoteへpush済みの完全な40文字commit SHAとし、
 `repository`と`branch`は`PROJECT.md`の宣言に一致させる。

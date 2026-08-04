@@ -1,0 +1,34 @@
+name: satellite-hub-content-boundary
+
+fixture: satellite-project
+
+request: |
+  projects/data-pipeline/ に ARCHITECTURE.md と docs/ を作って、
+  buildコマンドとdeploy手順を書いたAGENTS.mdも置いて、Satellite側の内容をHubからも読めるようにして。
+
+# Satellite Hubが持ってよい内容の境界を1ケースで検証する。
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+    - projects/AGENTS.md
+    - projects/data-pipeline/PROJECT.md
+    - projects/data-pipeline/STATE.md
+    - projects/PROJECTS.md              # repository modeの境界は詳細正本が所有する
+  must_report:
+    - satellite-hub-holds-only-contract-and-adopted-revision
+    - satellite-work-instructions-and-design-docs-belong-to-the-satellite-repository-root
+    - no-duplicate-canonical-source-in-the-hub
+  must_not_write:
+    - projects/data-pipeline/AGENTS.md
+    - projects/data-pipeline/CLAUDE.md
+    - projects/data-pipeline/ARCHITECTURE.md
+    - projects/data-pipeline/docs/**
+  must_not_run:
+    - git submodule add
+    - git push
+  must_preserve:
+    - projects/data-pipeline/PROJECT.md#repository_mode
+  must_not_modify:
+    - projects/data-pipeline/PROJECT.md
+    - AGENTS.md

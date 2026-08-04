@@ -1,4 +1,4 @@
-# index — Knowledgeの小型ルートマップ
+# INDEX — Knowledgeの小型ルートマップ
 
 人間が主要分野と重要なactive Knowledgeへ入るためのページ。
 全件一覧と検索は`tools/find-context.sh`が再生成可能な派生catalogから提供する。

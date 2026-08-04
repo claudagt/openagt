@@ -1,16 +1,20 @@
 name: satellite-promotion-session-boundary
 
+fixture: active-project
+
 request: |
-  projects/report-site/からGitHub Actionsでdeployする必要が生じた。Satellite化して作業を始めたい。
+  embeddedの projects/market-scan/ からGitHub Actionsでdeployする必要が生じた。
+  Satellite化して作業を始めたい。
 
 expect:
   route: project
   must_read:
     - AGENTS.md
     - projects/AGENTS.md
-    - projects/PROJECTS.md
-    - projects/report-site/PROJECT.md
-    - projects/report-site/STATE.md
+    - projects/market-scan/AGENTS.md      # 個別AGENTS.mdがあるProjectなので契約より先に読む
+    - projects/PROJECTS.md                # Embedded/Satellite移行は詳細正本を読む条件に一致する
+    - projects/market-scan/PROJECT.md
+    - projects/market-scan/STATE.md
   must_report:
     - repository-reason-automation
     - user-approval-before-promotion
