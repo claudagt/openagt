@@ -78,6 +78,7 @@ docs/PLANS.md    docs/RESEARCH.md  docs/PRODUCT_SENSE.md  docs/QUALITY_SCORE.md
 ```
 
 - 命名は原則として`^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*\.md$`を満たす。
+- 内容を持つ`docs/`は最低1件のDomain Canonを直下に持つ。詳細文書だけを置いて入口を欠かない。
 - `docs/README.md`、`docs/NOTES.md`、`docs/MISC.md`のような汎用的・無責任な正本を作らない。
 - 単なるリンク一覧にしない。通常作業に必要な現在有効な原則、境界、決定を短く保持し、必要な詳細文書へ
   案内する正本兼入口とする。
@@ -94,7 +95,8 @@ docs/research/model-selection-study.md  docs/plans/database-migration.md
 
 - フォルダと詳細文書は原則として小文字ケバブケースとする。
 - `misc/`、`other/`、`notes/`のような総受けフォルダを作らない。
-- `docs/`直下の各フォルダは、少なくとも一つのDomain Canonから参照する。
+- `docs/`直下の各フォルダは、少なくとも一つのDomain Canonから参照する。`references/`と`generated/`も
+  同じ規則に従い、どのDomain Canonが管理するかを明示する。
 - 下位コレクションの局所地図として`index.md`を使ってよい。下位`README.md`を正本や入口として多用しない。
 - 空フォルダをテンプレート生成しない。
 - `docs/references/`と`docs/generated/`は予約された任意の慣例であり、必要な場合だけ作る。
@@ -163,8 +165,10 @@ Project固有の作業差分だけを持つ差分ファイルである。差分�
 | 定性的な製品判断を行う | `docs/PRODUCT_SENSE.md` |
 ```
 
-2,048 bytes以内とし、`PROJECT.md`と`STATE.md`を正本として参照する。存在する`ARCHITECTURE.md`と
-`docs/`直下の各Domain Canonを条件付きで参照する。同階層に`@AGENTS.md`だけを持つ`CLAUDE.md`を必ず置き、
+見出しは`## Project Docs Route`と正確に一致させ、存在する`ARCHITECTURE.md`と`docs/`直下の各Domain Canonを
+この節の条件付き項目として列挙する。項目は「条件」と「読む正本」を持つ表の行、または`条件:`と`参照:`の対と
+する。本文中の言及、単なるファイル一覧、禁止文への登場は条件付き参照として数えない。
+2,048 bytes以内とし、`PROJECT.md`と`STATE.md`を正本として参照する。同階層に`@AGENTS.md`だけを持つ`CLAUDE.md`を必ず置き、
 `CLAUDE.md`だけを単独で置かない。Embedded Projectだけに置ける。Satellite Hub側は従来どおり`PROJECT.md`と
 `STATE.md`以外を持たず、Satellite固有の`AGENTS.md`、`ARCHITECTURE.md`、`docs/`はSatelliteリポジトリ本体の
 ルートが所有する。サイズ制約を拡大せず、短いRoute表として収まる設計を優先する。

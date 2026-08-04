@@ -336,6 +336,37 @@ validate_project_agents_file() {
   validate_claude_bridge "$agents_file"
 }
 
+# Project Docs Routeの節から、条件付き参照として成立している読込先だけを抜き出す。
+# 本文・禁止文・単なる一覧への登場は条件付き参照として数えない。
+docs_route_targets() {
+  awk '
+    function trim(value) { gsub(/^[ \t]+|[ \t]+$/, "", value); return value }
+    $0 == "## Project Docs Route" { in_section = 1; next }
+    in_section && /^## / { exit }
+    !in_section { next }
+    /読まない|読み込まない|参照しない|禁止/ { next }
+    /^\|/ {
+      row = $0
+      sub(/^\|/, "", row)
+      sub(/\|[ \t]*$/, "", row)
+      count = split(row, cell, "|")
+      if (count < 2) next
+      condition = trim(cell[1])
+      target = trim(cell[count])
+      if (condition == "" || target == "") next
+      if (condition ~ /^:?-+:?$/ || target ~ /^:?-+:?$/) next
+      if (condition == "条件") next
+      print target
+      next
+    }
+    /^[ \t]*参照:/ {
+      value = $0
+      sub(/^[ \t]*参照:[ \t]*/, "", value)
+      print trim(value)
+    }
+  ' "$1"
+}
+
 # Project docsは大文字Domain Canonを入口とし、下位のフォルダ構造はProjectが決める。
 validate_project_docs() {
   local project_dir="$1"
@@ -343,7 +374,9 @@ validate_project_docs() {
   local agents_file="$project_dir/AGENTS.md"
   local docs_dir="$project_dir/docs"
   local architecture_file="$project_dir/ARCHITECTURE.md"
-  local rel_project canon canon_name catch_all has_docs='false'
+  local rel_project canon canon_name catch_all detail_dir detail_name
+  local has_docs='false' canon_count=0 route_targets=''
+  local canon_files=()
 
   [[ -f "$project_file" ]] || return 0
   [[ "$(frontmatter_value "$project_file" 'repository_mode')" == 'embedded' ]] || return 0
@@ -360,15 +393,32 @@ validate_project_docs() {
       case "$canon_name" in
         NOTES.md|MISC.md|OTHER.md|DOCS.md|SENSE.md|SCORE.md)
           fail "$(relative_path "$canon") is too generic to own a canon; name the domain it covers (e.g. DESIGN.md, PRODUCT_SENSE.md, QUALITY_SCORE.md)"
+          continue
           ;;
       esac
+      canon_files+=("$canon")
+      canon_count=$((canon_count + 1))
       check_size "$canon" 24576 'Domain Canon'
     done < <(find "$docs_dir" -mindepth 1 -maxdepth 1 -type f -name '*.md' -print0)
+
+    if (( canon_count == 0 )); then
+      fail "$rel_project/docs/ has no Domain Canon entry; add at least one uppercase docs/<DOMAIN>.md (e.g. docs/DESIGN.md) or remove the folder — detail documents must be reached through a canon"
+    fi
 
     while IFS= read -r -d '' catch_all; do
       fail "$(relative_path "$catch_all") is a catch-all docs folder; give it a responsibility-bearing lowercase kebab-case name"
     done < <(find "$docs_dir" -mindepth 1 -maxdepth 1 -type d \
       \( -name misc -o -name other -o -name notes -o -name tmp \) -print0)
+
+    # docs/直下の各詳細フォルダは、少なくとも一つのDomain Canonから案内される。
+    if (( canon_count > 0 )); then
+      while IFS= read -r -d '' detail_dir; do
+        detail_name="${detail_dir##*/}"
+        case "$detail_name" in misc|other|notes|tmp) continue ;; esac
+        grep -Fq -- "$detail_name/" "${canon_files[@]}" || \
+          fail "$(relative_path "$detail_dir") is not referenced by any Domain Canon; name it from the docs/<DOMAIN>.md that owns it (references/ and generated/ need an owning canon too)"
+      done < <(find "$docs_dir" -mindepth 1 -maxdepth 1 -type d -print0)
+    fi
   fi
 
   [[ ! -f "$architecture_file" ]] || check_size "$architecture_file" 24576 'ARCHITECTURE.md'
@@ -378,16 +428,21 @@ validate_project_docs() {
       fail "$rel_project has docs/ or ARCHITECTURE.md and therefore requires $rel_project/AGENTS.md carrying the conditional Project Docs Route (and a sibling CLAUDE.md containing only @AGENTS.md)"
       return 0
     fi
-    if [[ -f "$architecture_file" ]] && ! grep -Fq 'ARCHITECTURE.md' "$agents_file"; then
-      fail "$(relative_path "$agents_file") must route to ARCHITECTURE.md under a stated condition"
+    if ! grep -Fqx '## Project Docs Route' "$agents_file"; then
+      fail "$(relative_path "$agents_file") must carry the exact heading '## Project Docs Route' listing one condition per canon"
+      return 0
     fi
-    if [[ "$has_docs" == 'true' ]]; then
-      while IFS= read -r -d '' canon; do
+    route_targets="$(docs_route_targets "$agents_file")"
+    if [[ -f "$architecture_file" ]] && ! printf '%s\n' "$route_targets" | grep -Fq 'ARCHITECTURE.md'; then
+      fail "$(relative_path "$agents_file") must route to ARCHITECTURE.md from a '## Project Docs Route' entry (a '| 条件 | \`ARCHITECTURE.md\` |' table row, or a 条件:/参照: pair); naming it elsewhere in the file does not count"
+    fi
+    # bash 3.2では空配列の展開が set -u で落ちるため、件数で守る。
+    if (( canon_count > 0 )); then
+      for canon in "${canon_files[@]}"; do
         canon_name="${canon##*/}"
-        [[ "$canon_name" =~ ^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*\.md$ ]] || continue
-        grep -Fq "docs/$canon_name" "$agents_file" || \
-          fail "$(relative_path "$agents_file") must route to the Domain Canon docs/$canon_name under a stated condition"
-      done < <(find "$docs_dir" -mindepth 1 -maxdepth 1 -type f -name '*.md' -print0)
+        printf '%s\n' "$route_targets" | grep -Fq "docs/$canon_name" || \
+          fail "$(relative_path "$agents_file") must route to docs/$canon_name from a '## Project Docs Route' entry (a '| 条件 | \`docs/$canon_name\` |' table row, or a 条件:/参照: pair); naming it elsewhere in the file does not count"
+      done
     fi
   fi
 }
@@ -788,12 +843,13 @@ for entry in "${retired_paths[@]}"; do
     fail "retired path must not exist: $retired_path — $retired_hint (git rm it; do not keep a compatibility copy)"
 done
 
-# docs/ は大文字Domain Canonから入る。汎用READMEを入口にしない。
+# Project docsは大文字Domain Canonから入る。外部原資料とinputsの命名は対象外とする。
 while IFS= read -r -d '' docs_readme; do
   fail "$(relative_path "$docs_readme") is forbidden; enter docs/ through an uppercase Domain Canon such as docs/DESIGN.md"
 done < <(find "$repo_root" \
-  \( -type d \( -name '.git' -o -name '.agent-cache' -o -name '.tmp' \) \) -prune -o \
-  -type f -path '*/docs/README.md' -print0)
+  \( -type d \( -name '.git' -o -name '.agent-cache' -o -name '.tmp' -o -name 'inputs' \) \
+     -o -path "$repo_root/knowledge/raw" \) -prune -o \
+  -type f -path '*/projects/*/docs/README.md' -print0)
 
 # Project templateへ docs/、ARCHITECTURE.md、AGENTS.md を常設しない。
 for template_entry in AGENTS.md CLAUDE.md ARCHITECTURE.md docs; do
@@ -1042,7 +1098,9 @@ fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-fixture.XXXXXX")
 sqlite_fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-sqlite.XXXXXX")"
 log_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-log.XXXXXX")"
 backup_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-backup.XXXXXX")"
-trap 'rm -rf "$cache_test_dir" "$fixture_cache_dir" "$sqlite_fixture_cache_dir" "$log_fixture_dir" "$backup_fixture_dir"' EXIT
+malformed_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-malformed.XXXXXX")"
+malformed_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-malformed-cache.XXXXXX")"
+trap 'rm -rf "$cache_test_dir" "$fixture_cache_dir" "$sqlite_fixture_cache_dir" "$log_fixture_dir" "$backup_fixture_dir" "$malformed_fixture_dir" "$malformed_cache_dir"' EXIT
 if ! AGENT_CACHE_DIR="$cache_test_dir" bash "$repo_root/tools/build-context-cache.sh" >/dev/null; then
   fail 'build-context-cache.sh failed to generate a cache'
 elif ! AGENT_CACHE_DIR="$cache_test_dir" bash "$repo_root/tools/build-context-cache.sh" --check >/dev/null; then
@@ -1093,6 +1151,53 @@ elif grep -Fq 'nested/.tmp/' "$fixture_cache_dir/manifest.tsv"; then
   fail 'build-context-cache.sh manifest includes a nested .tmp file'
 elif ! grep -Fq $'nested/kept.txt\t' "$fixture_cache_dir/manifest.tsv"; then
   fail 'build-context-cache.sh nested .tmp test did not scan the adjacent durable file'
+fi
+
+# frontmatterを欠く正本があってもcache生成を止めず、対象を名指しして警告し、候補から外す。
+mkdir -p "$malformed_fixture_dir/projects/good-project" \
+  "$malformed_fixture_dir/projects/no-status" \
+  "$malformed_fixture_dir/skills/blank-status-skill" \
+  "$malformed_fixture_dir/knowledge/wiki/topics"
+{
+  printf '%s\n' '---' 'name: good-project' 'description: fixture' 'status: active'
+  printf '%s\n' 'mode: finite' 'repository_mode: embedded' '---'
+} > "$malformed_fixture_dir/projects/good-project/PROJECT.md"
+{
+  printf '%s\n' '---' 'name: no-status' 'description: fixture' '---'
+} > "$malformed_fixture_dir/projects/no-status/PROJECT.md"
+{
+  printf '%s\n' '---' 'name: blank-status-skill' 'description: fixture' 'status:' '---'
+} > "$malformed_fixture_dir/skills/blank-status-skill/SKILL.md"
+{
+  printf '%s\n' '---' 'summary: fixture' 'aliases: []' '---'
+} > "$malformed_fixture_dir/knowledge/wiki/topics/no-status.md"
+
+set +e
+malformed_output="$(AGENT_DIRECTORY_ROOT="$malformed_fixture_dir" AGENT_CACHE_DIR="$malformed_cache_dir" \
+  bash "$repo_root/tools/build-context-cache.sh" 2>&1)"
+malformed_status=$?
+set -e
+if (( malformed_status != 0 )); then
+  fail "build-context-cache.sh aborted on a malformed canon file instead of warning and skipping: $malformed_output"
+else
+  for malformed_target in \
+    'projects/no-status/PROJECT.md' \
+    'skills/blank-status-skill/SKILL.md' \
+    'knowledge/wiki/topics/no-status.md'; do
+    printf '%s\n' "$malformed_output" | grep -Eq "^WARN: $malformed_target: missing .*status" || \
+      fail "build-context-cache.sh did not name $malformed_target and its missing key in a WARN line"
+    if [[ -f "$malformed_cache_dir/catalog.tsv" ]] && \
+      grep -Fq "$malformed_target" "$malformed_cache_dir/catalog.tsv"; then
+      fail "build-context-cache.sh registered the malformed canon file in the catalog: $malformed_target"
+    fi
+  done
+  if printf '%s\n' "$malformed_output" | grep -Eq '^WARN: knowledge/wiki/topics/no-status\.md: missing name'; then
+    fail 'build-context-cache.sh reported a missing name for a knowledge page whose name comes from the filename'
+  fi
+  if [[ ! -f "$malformed_cache_dir/catalog.tsv" ]] || \
+    ! grep -Fq 'projects/good-project/PROJECT.md' "$malformed_cache_dir/catalog.tsv"; then
+    fail 'build-context-cache.sh dropped a well-formed canon file while skipping malformed ones'
+  fi
 fi
 if [[ -f "$cache_test_dir/catalog.tsv" ]]; then
   alias_collisions="$(awk -F '\t' '

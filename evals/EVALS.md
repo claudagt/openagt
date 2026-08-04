@@ -115,8 +115,9 @@ expect:
 
 ## Project docsケースの最低条件
 
-- `ARCHITECTURE.md`または`docs/`があるEmbedded Projectでは、個別`AGENTS.md`が条件付きDocs Routeを持ち、
-  そこを経由して正本へ進む。
+- `ARCHITECTURE.md`または`docs/`があるEmbedded Projectでは、個別`AGENTS.md`が`## Project Docs Route`節を
+  持ち、そこを経由して正本へ進む。Domain Canonを追加したら同じ作業内でこの節へ条件付き項目を1行足す。
+- 内容を持つ`docs/`へ、入口となるDomain Canonを置かずに詳細文書だけを追加しない。
 - 条件に一致したDomain Canonだけを初期入口として読む。Design作業では`docs/DESIGN.md`だけを読み、
   `docs/**`を一括読込せずDomain Canonを全件読まない。
 - モジュール、依存、データフロー、境界の変更では`ARCHITECTURE.md`を読む。

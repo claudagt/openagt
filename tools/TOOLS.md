@@ -2,6 +2,8 @@
 
 `tools/`は利用者の成果を作るSkillではなく、このディレクトリ自体を保守するmeta層である。
 固定Toolは依存関係を増やさず、入出力、fallback、検証方法を明記する。
+macOS標準のbash 3.2で動くことを最低条件とする。`set -u`下では空配列の展開が失敗するため、
+配列は件数で守ってから展開する。変更時は`/bin/bash tools/*.sh`でも検証する。
 
 ## 正本と派生物
 
@@ -141,13 +143,18 @@ bash tools/validate-agent-directory.sh --full --base main
   どちらもimmutableとして扱われる。
 - 領域正本が`skills/SKILLS.md`、`projects/PROJECTS.md`、`evals/EVALS.md`、`tools/TOOLS.md`であり、
   対応する旧`README.md`が存在しない。ルート`README.md`は外部向け入口として存在する。
-- `docs/README.md`が存在しない。Embedded Projectの`docs/`直下Markdownが大文字Domain Canon形式である。
+- Project docsに`docs/README.md`が存在しない。この禁止はProjectの`docs/`だけへ適用し、`knowledge/raw/`の
+  外部原資料とProjectの`inputs/`が持つ資料側のファイル名は対象にしない。
+- Embedded Projectの`docs/`直下Markdownが大文字Domain Canon形式であり、内容を持つ`docs/`が最低1件の
+  Domain Canonを持ち、`docs/`直下の各フォルダがいずれかのDomain Canonから参照されている。
 - `docs/`または`ARCHITECTURE.md`を持つEmbedded Projectが個別`AGENTS.md`と`CLAUDE.md`を持ち、
   `CLAUDE.md`が`@AGENTS.md`だけである。
-- 個別`AGENTS.md`が`PROJECT.md`と`STATE.md`を正本として参照し、存在する`ARCHITECTURE.md`と
-  各Domain Canonを参照し、`docs/**`の一括読込を命じない。
+- 個別`AGENTS.md`が`PROJECT.md`と`STATE.md`を正本として参照し、`## Project Docs Route`見出しを持ち、
+  存在する`ARCHITECTURE.md`と各Domain Canonをその節の条件付き項目として参照し、`docs/**`の一括読込を
+  命じない。本文中の言及や禁止文への登場は条件付き参照として数えない。
 - Satellite Hubが`PROJECT.md`と`STATE.md`以外を持たない。
 - `projects/_template/`が`docs/`、`ARCHITECTURE.md`、`AGENTS.md`を持たない。
+- frontmatterを欠く正本があってもcache生成が停止せず、対象パスと欠落キーを警告して候補から外す。
 
 `docs/`より下のフォルダ名と見出し構成はProjectが決める。validatorは境界とサイズだけを固定し、
 下位構造を固定しない。終了コード0と`PASS: agent-directory structure is valid`が合格条件である。
