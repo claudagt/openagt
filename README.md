@@ -76,7 +76,7 @@ agent-directory/
 │   ├── _template/                # PROJECT.mdとSTATE.mdだけ
 │   └── <project-name>/           # PROJECT.md、STATE.md、任意のAGENTS.md・docs/・inputs/・outputs/
 ├── evals/                        # EVALS.md、cases/、fixtures/
-└── tools/                        # TOOLS.md、BACKUP.md、4つのTool
+└── tools/                        # TOOLS.md、BACKUP.md、5つのTool
 ```
 
 ## コンテキスト探索
