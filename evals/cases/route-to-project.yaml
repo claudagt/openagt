@@ -25,8 +25,8 @@ expect:
     - projects/market-scan/STATE.md
     - .tmp/**
   must_not_write:
-    - knowledge/raw/**
-    - knowledge/research/**
+    - knowledge/raw/internal/**
+    - knowledge/raw/external/**
     - skills/**
   must_not_modify:
     - projects/market-scan/PROJECT.md

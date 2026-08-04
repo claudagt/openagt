@@ -29,8 +29,8 @@
 - **Hub** — agent-directory本体。Embedded Projectの履歴と、Satellite Projectの契約・採用revisionを持つ。
 - **Embedded Project** — `repository_mode: embedded`の通常Project。正本と履歴はHubのルートGitが持つ。
 - **Satellite Repository** — `repository_mode: satellite`で宣言された独立リポジトリ。Hub backupの対象外で、
-  コード、tests、Workflow、release、Git履歴はSatellite側が持つ。昇格条件と宣言形式は
-  `projects/README.md#repository-mode`が所有する。
+  コード、tests、Workflow、release、`ARCHITECTURE.md`、`docs/`、Git履歴はSatellite側が持つ。
+  昇格条件と宣言形式は`projects/PROJECTS.md#repository-mode`が所有する。
 - **Workspace Recovery Tuple** — HubのRecovery Pointと、各SatelliteのURL・branch・採用commit SHAの組。
   `BACKUP_OK`はHub backupの成功だけを表し、Satellite本体のバックアップ成功を表さない。
 
@@ -40,7 +40,7 @@
 
 - `AGENTS.md`、`README.md`、各領域の規約
 - `knowledge/`の正本、`skills/`の正本
-- `projects/`の契約、状態、入力、成果物、`runs/`、`scripts/`
+- `projects/`の契約、状態、`ARCHITECTURE.md`、`docs/`、入力、成果物、`runs/`、`scripts/`
 - `evals/`、`tools/`
 - その他、リポジトリ内で永続正本または永続成果物として分類されたファイル
 

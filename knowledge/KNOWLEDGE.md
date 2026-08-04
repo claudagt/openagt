@@ -7,36 +7,77 @@ Knowledge Routeを確定した後にこのファイルを最後まで読む。�
 ```text
 knowledge/
 ├── KNOWLEDGE.md
-├── raw/                    # 内部で生まれた不変の原記録
-├── research/               # 外部から取得した不変の原資料
+├── raw/
+│   ├── internal/          # 内部で生まれた不変の原記録
+│   └── external/          # 外部から取得した不変の原資料
 └── wiki/
-    ├── index.md            # 分野・主要hubへの小型ルートマップ
-    ├── guide.md            # 人間向け案内
-    ├── log.md              # 現在の変更履歴セグメント
-    ├── logs/               # 閉鎖済みの不変ログ
-    ├── _template/          # source/topicの雛形
-    ├── sources/            # 資料別Knowledge。1資料1ページ
-    └── topics/             # 複数資料・判断を統合したKnowledge
+    ├── index.md           # 分野・主要hubへの小型ルートマップ
+    ├── log.md             # 現在の変更履歴セグメント
+    ├── logs/              # 閉鎖済みの不変ログ
+    ├── _template/         # source/topicの雛形
+    ├── sources/           # 一つの原資料を解釈したKnowledge
+    └── topics/            # 複数の根拠や判断を統合したKnowledge
 ```
 
-`raw/`、`research/`、`sources/`、`topics/`はいずれも正本である。sources/topicsには要約、判断、推論が含まれ、
-原資料から同一内容を再生成できない。検索TSV、DB、snippet、製品側AIメモリだけが再生成可能な派生物である。
+四層の意味は次のとおり固定する。
+
+```text
+knowledge/raw/internal = 内部で生まれた不変原記録
+knowledge/raw/external = 外部から取得した不変原資料
+knowledge/wiki/sources = 一つの原資料を解釈したKnowledge
+knowledge/wiki/topics  = 複数の根拠や判断を統合したKnowledge
+```
+
+`raw/internal`、`raw/external`、`sources`、`topics`はいずれも正本である。sources/topicsには要約、判断、推論が
+含まれ、原資料から同一内容を再生成できない。検索TSV、DB、snippet、製品側AIメモリだけが再生成可能な派生物である。
+`knowledge/`直下と`wiki/`配下に領域説明用の`README.md`を置かない。構造の意味はこのファイルが所有する。
 
 ## 保存先
 
-1. 利用者や運用内部で生まれた原文、判断、決定、仮説、観測は`raw/`へ新規保存する。
-2. 論文、記事、契約、外部資料は取得元を記録し、内容を変えず`research/`へ新規保存する。
+1. 利用者や運用内部で生まれた原文、判断、決定、仮説、観測は`raw/internal/`へ新規保存する。
+2. 論文、記事、契約、外部資料は取得元を記録し、内容を変えず`raw/external/`へ新規保存する。
 3. 1資料を読み解いたKnowledgeは`sources/`、複数資料・内部経験を統合したKnowledgeは`topics/`へ置く。
 
+```text
+原資料が届く → raw/internal/ または raw/external/ へ保存
+→ sources/ に資料別Knowledgeを作成 → 根拠が揃ったら topics/ へ統合
+→ frontmatterへ状態を記録 → 必要ならindexの入口を更新 → append-knowledge-log.shで記録
+```
+
 成果物はProject、手順はSkillが所有する。製品側の永続メモリは正本から派生する任意のキャッシュであり、
-永続化する内容は先にこの判定でリポジトリへ保存する。両者が矛盾したらリポジトリを優先する。
-秘密情報はどちらにも保存しない。
+「メモリに覚えて」という依頼でも先にこの判定でリポジトリへ保存する。両者が矛盾したらリポジトリを優先する。
+リポジトリ内に製品側メモリ専用の並列記録領域を置かない。秘密情報はどちらにも保存しない。
+
+利用者は原文、判断、資料を提供し、知識の正しさを最終判断する。エージェントは分類、保存、ノート化、統合、
+状態管理、必要なindexとlogの更新を行う。
 
 ## 不変規則
 
-- `raw/`と`research/`の既存ファイルを編集、上書き、削除、改名しない。訂正・追記は新規原資料とWiki側で行う。
+- `raw/internal/`と`raw/external/`の既存ファイルを編集、上書き、削除、改名しない。両者を同じ強さで保護する。
+  訂正・追記は新規原資料とWiki側で行う。
 - 外部資料へ要約、翻訳、推論を混ぜない。
+- 移行や整理を理由に不変性を弱める恒久的な例外を作らない。一回限りの移行では移行前後のcontent hash一致を
+  検査し、原資料のバイト列を変更しない。
 - 秘密情報を保存しない。
+
+## Researchのライフサイクル
+
+Researchは独立したRouteでも独立したルートディレクトリでもない。SkillとProjectとKnowledgeの
+ライフサイクルとして扱う。
+
+```text
+再利用可能な研究方法        → Skill
+具体的な研究活動            → Project
+研究中の仮説・調査・実験    → Project docs
+研究の成果物                → Project outputs
+他Projectでも使える確定結論 → Knowledgeへ昇格
+```
+
+Knowledge Routeが扱うのは、原資料の取り込み、記憶、照会、統合、Knowledgeの更新である。
+「新しい問いへの答えを調査・実験によって見つける」依頼はProject Routeであり、研究方法そのものを
+再利用可能な手順として作る依頼はSkill Routeである。Project内の研究文書を、昇格条件を満たさないまま
+Root Knowledgeとして扱わない。昇格条件と昇格時の責務は`projects/PROJECTS.md#研究文書とKnowledge昇格`が
+所有する。
 
 ## 候補探索と読込
 
@@ -54,7 +95,7 @@ knowledge/
 
 ### 原資料へ遡る条件
 
-`raw/`、`research/`へ遡るのは次のいずれかがある場合だけとする。
+`raw/internal/`、`raw/external/`へ遡るのは次のいずれかがある場合だけとする。
 
 - 原資料そのものの確認
 - 正確な引用、数値、契約、仕様の確認
@@ -78,6 +119,7 @@ aliases: [別名, English alias]
 - statusは`active | superseded | archived | retired`だけを使う。
 - `superseded`は存在するactiveページへの`superseded_by`を必須とする。
 - `review_after`を使う場合は`YYYY-MM-DD`とする。日付到達は自動失効ではなく見直しの合図である。
+- sourcesの`source`は`knowledge/raw/internal/`または`knowledge/raw/external/`の相対パスとする。
 
 ## 情報の区別
 
@@ -109,7 +151,7 @@ Wikiでは次を混ぜずに書く。
 `wiki/index.md`は全件台帳ではなく、主要分野、hub、重要なactiveページへの人間向け入口である。
 
 - 1項目1行、最大50項目、8KiB以内とする。
-- raw/researchや全Wikiを個別登録しない。全件一覧は`.agent-cache/catalog.tsv`へ再生成する。
+- `raw/`配下や全Wikiを個別登録しない。全件一覧は`.agent-cache/catalog.tsv`へ再生成する。
 - 項目追加・削除は入口としての価値が変わる場合だけ行う。
 
 ## log
@@ -126,7 +168,7 @@ Wikiでは次を混ぜずに書く。
 
 - `archived`は歴史照会だけ、`retired`は判断利用禁止とする。状態変更のために物理移動しない。
 - 非activeページの削除は、参照ゼロ、代替または保持先確認、利用者の明示承認が揃った場合だけ行う。
-- raw/researchと閉鎖済みlogは削除しない。
+- `raw/`配下と閉鎖済みlogは削除しない。
 
 ## lint
 

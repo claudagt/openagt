@@ -7,12 +7,12 @@ expect:
   route: skill
   must_read:
     - AGENTS.md
-    - skills/README.md
+    - skills/SKILLS.md
     - skills/<skill-name>/SKILL.md
   may_write:
     - .tmp/**
   must_not_write:
-    - knowledge/raw/**
-    - knowledge/research/**
+    - knowledge/raw/internal/**
+    - knowledge/raw/external/**
     - projects/**
     - skills/_template/**

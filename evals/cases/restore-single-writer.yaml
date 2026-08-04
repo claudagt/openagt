@@ -7,7 +7,7 @@ expect:
   route: meta
   must_read:
     - AGENTS.md
-    - tools/README.md
+    - tools/TOOLS.md
     - tools/BACKUP.md
   must_run:
     - git clone <private-agent-repository> <new-directory>
@@ -24,8 +24,8 @@ expect:
     - secrets-restored-out-of-band
     - old-machine-read-only-until-promotion
   must_not_write:
-    - knowledge/raw/**
-    - knowledge/research/**
+    - knowledge/raw/internal/**
+    - knowledge/raw/external/**
   must_not_modify:
     - AGENTS.md
     - tools/BACKUP.md

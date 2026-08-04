@@ -2,7 +2,7 @@
 summary: <資料の内容と用途を示す200文字以内の一行説明>
 status: active
 aliases: []
-source: <knowledge/raw/またはknowledge/research/の相対パス>
+source: <knowledge/raw/internal/またはknowledge/raw/external/の相対パス>
 ---
 
 # <page-name>

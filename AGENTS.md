@@ -26,16 +26,17 @@
 | Route | 対象 | 入口 |
 |---|---|---|
 | `knowledge` | 記憶、調査、統合 | `knowledge/KNOWLEDGE.md` |
-| `skill` | 手順の実行と保守 | `skills/README.md`と対象`SKILL.md` |
+| `skill` | 手順の実行と保守 | `skills/SKILLS.md`と対象`SKILL.md` |
 | `project` | 固有の仕事と成果物 | `projects/AGENTS.md` |
-| `meta` | 構造、規約、`evals/`、`tools/` | 対象領域のREADMEと変更対象 |
+| `meta` | 構造、規約、`evals/`、`tools/` | 対象領域の正本と変更対象 |
 | `none` | 永続変更のない回答 | 追加ロードなし |
 
 Project Routeの通常読込順序は次とする。
 
 ```text
 AGENTS.md → projects/AGENTS.md → 対象Projectの AGENTS.md（存在する場合）
-→ PROJECT.md → STATE.md → Required参照 → 条件が成立したConditional参照
+→ PROJECT.md → STATE.md → 条件に一致したDomain Canon
+→ Required参照 → 条件が成立したConditional参照
 ```
 
 ## Context Loading
@@ -43,7 +44,7 @@ AGENTS.md → projects/AGENTS.md → 対象Projectの AGENTS.md（存在する�
 - 明示されたリポジトリ相対パスを検索より優先し、参照切れのときだけ検索へ戻る。
 - 候補探索は`tools/find-context.sh`で1回最大5件に絞る。
 - 検索結果とsnippetは候補であり根拠ではない。確定後にその正本を読む。
-- README、index、log、履歴、`runs/`、Knowledge・Skill・Projectの全件、`.agent-cache/`を一括読込しない。
+- index、log、履歴、`runs/`、`docs/**`、Knowledge・Skill・Projectの全件、`.agent-cache/`を一括読込しない。
 - 24KiBを超える正本は見出しと検索で範囲を絞ってから必要部分だけ読む。
 - 読込予算は`min(16,000 tokens, モデル上限の25%)`、計測不能ならUTF-8計32KiBかつ12ファイル。
 - 追加読込は不足する根拠を言語化できる場合だけ行う。予算到達時は停止して報告する。
@@ -64,11 +65,11 @@ AGENTS.md → projects/AGENTS.md → 対象Projectの AGENTS.md（存在する�
 
 ## 詳細正本
 
-- `projects/README.md` — Project構造、新設、成果契約、repository mode
+- `projects/PROJECTS.md` — Project構造、新設、成果契約、repository mode、docs
 - `projects/LIFECYCLE.md` / `projects/RECOVERY.md` — 状態遷移 / 復旧
-- `tools/README.md` — 探索、fallback、一時コード、相互参照、予算
+- `tools/TOOLS.md` — 探索、fallback、一時コード、相互参照、予算
 - `tools/BACKUP.md` — バックアップ、復旧、divergence、Single Writer
-- `evals/README.md` — 振る舞いevalの契約
+- `evals/EVALS.md` — 振る舞いevalの契約
 
 ## 参照順序
 

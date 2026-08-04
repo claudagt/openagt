@@ -13,7 +13,7 @@ expect:
     - projects/site-migration/PROJECT.md
     - projects/site-migration/STATE.md
   must_not_read:
-    - projects/README.md
+    - projects/PROJECTS.md
   must_update:
     - projects/site-migration/STATE.md
   must_run:

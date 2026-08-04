@@ -15,5 +15,5 @@ expect:
     - skills/**
     - projects/**
   must_not_modify:
-    - knowledge/raw/**
-    - knowledge/research/**
+    - knowledge/raw/internal/**
+    - knowledge/raw/external/**

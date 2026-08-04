@@ -125,13 +125,13 @@ meta_files=(
   'AGENTS.md|root-policy|最上位ブートローダー、Route判定、Context Loading'
   'README.md|overview|人間向けの導入と全体像'
   'knowledge/KNOWLEDGE.md|knowledge-policy|Knowledge運用規約'
-  'skills/README.md|skill-policy|Skill運用規約'
+  'skills/SKILLS.md|skill-policy|Skill運用規約'
   'projects/AGENTS.md|project-entry|Project作業共通の入口と読込順序'
-  'projects/README.md|project-policy|Project運用規約'
+  'projects/PROJECTS.md|project-policy|Project運用規約とProject docs契約'
   'projects/LIFECYCLE.md|project-lifecycle|Projectの状態遷移と削除条件'
   'projects/RECOVERY.md|project-recovery|Projectの目的不一致からの復旧'
-  'evals/README.md|eval-policy|振る舞いEvalの規約'
-  'tools/README.md|tool-policy|構造保守Toolの規約'
+  'evals/EVALS.md|eval-policy|振る舞いEvalの規約'
+  'tools/TOOLS.md|tool-policy|構造保守Toolの規約'
   'tools/BACKUP.md|backup-policy|遠隔バックアップ、復旧、マシン移行の規約'
 )
 
@@ -143,7 +143,6 @@ done
 for directory in "$repo_root/knowledge/wiki/sources" "$repo_root/knowledge/wiki/topics"; do
   [[ -d "$directory" ]] || continue
   while IFS= read -r -d '' file; do
-    [[ "${file##*/}" == 'README.md' ]] && continue
     append_frontmatter_item 'knowledge' 'wiki' "$file"
   done < <(find "$directory" -type f -name '*.md' -print0)
 done
@@ -234,13 +233,16 @@ while IFS= read -r -d '' file; do
   kind='file'
   immutable='false'
   case "$relative_path" in
-    knowledge/raw/*) kind='raw'; immutable='true' ;;
-    knowledge/research/*) kind='research'; immutable='true' ;;
+    knowledge/raw/internal/*) kind='internal-record'; immutable='true' ;;
+    knowledge/raw/external/*) kind='external-source'; immutable='true' ;;
+    knowledge/raw/*) kind='raw-record'; immutable='true' ;;
     knowledge/wiki/logs/*) kind='closed-log'; immutable='true' ;;
     knowledge/wiki/sources/*|knowledge/wiki/topics/*) kind='knowledge' ;;
     skills/*/SKILL.md) kind='skill' ;;
     projects/*/PROJECT.md) kind='project-contract' ;;
     projects/*/STATE.md) kind='project-state' ;;
+    projects/*/ARCHITECTURE.md) kind='project-architecture' ;;
+    projects/*/docs/*) kind='project-doc' ;;
     evals/cases/*.yaml) kind='eval' ;;
     tools/*) kind='tool' ;;
     *.md|*/*.md) kind='policy-or-document' ;;

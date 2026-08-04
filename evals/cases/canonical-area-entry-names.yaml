@@ -1,0 +1,22 @@
+name: canonical-area-entry-names
+
+request: |
+  Skillの運用規約を確認して、Skill追加時の禁止事項を1つ足しておいて。
+
+expect:
+  route: meta
+  must_read:
+    - AGENTS.md
+    - skills/SKILLS.md                  # 領域正本は大文字のSKILLS.md
+  must_not_read:
+    - skills/README.md                  # 旧入口は存在しない。互換コピーも作らない
+    - projects/README.md
+    - evals/README.md
+    - tools/README.md
+  must_run:
+    - bash tools/validate-agent-directory.sh
+  may_write:
+    - skills/SKILLS.md
+  must_not_write:
+    - skills/README.md
+    - AGENTS.md                         # ルートへ詳細規則を戻さない

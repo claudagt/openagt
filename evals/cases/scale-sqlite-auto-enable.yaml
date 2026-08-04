@@ -8,7 +8,7 @@ expect:
   route: meta
   must_read:
     - AGENTS.md
-    - tools/README.md
+    - tools/TOOLS.md
     - tools/build-context-cache.sh
     - tools/find-context.sh
   must_run:

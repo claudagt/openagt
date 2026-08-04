@@ -13,4 +13,4 @@
 tools/find-context.sh --route knowledge --limit 5 -- "検索語"
 ```
 
-raw/researchや全sources/topicsを個別登録しない。このページとcatalogは根拠ではなく入口である。
+`raw/`配下や全sources/topicsを個別登録しない。このページとcatalogは根拠ではなく入口である。

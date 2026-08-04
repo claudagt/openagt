@@ -10,7 +10,7 @@ expect:
   must_read:
     - AGENTS.md
     - projects/AGENTS.md
-    - projects/README.md
+    - projects/PROJECTS.md
     - projects/market-scan/PROJECT.md   # 状態を確認せずに削除してはならない
     - projects/market-scan/STATE.md
   must_not_modify:

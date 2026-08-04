@@ -1,4 +1,4 @@
-# evals/ — 振る舞いの品質保証
+# EVALS.md — 振る舞いの品質保証
 
 エージェントがルーティング、正本優先、限定取得、成果契約を守るかを1ケース1 YAMLで表す。
 成果内容の品質はProjectの条件と固定検証、evalは横断的な行動不変条件を所有する。
@@ -65,7 +65,17 @@ expect:
 ```
 
 `must_read`は必須。その他はケースに関係するときだけ記す。`none`は永続的な正本を変更しないことを表し、
-`.tmp/`は独立Routeではない。参照は`tools/README.md#相互参照`に従い、`=<期待値>`はeval固有の表記とする。
+`.tmp/`は独立Routeではない。参照は`tools/TOOLS.md#相互参照`に従い、`=<期待値>`はeval固有の表記とする。
+
+## fixtures
+
+`cases/`のケースが参照する入力データは`fixtures/`へ置く。
+
+- 1ケースが使うデータは、ケース名または対象状態と同じサブディレクトリにまとめる。
+- 複数ケースが同じ初期状態を検証する場合は共有fixtureを一つ置き、各ケースの`fixture:`から参照する。
+- fixture内はリポジトリ直下へ重ねられる構造にする。
+- 必要になったケースだけがfixtureを持つ。空のfixtureを先に生成しない。
+- fixture内のProjectもvalidatorの構造検査対象であり、契約、状態、docs命名の規則を満たす。
 
 ## Context trace
 
@@ -92,15 +102,41 @@ expect:
 
 - `AGENTS.md`、`projects/AGENTS.md`、対象`PROJECT.md`、`STATE.md`を読む。対象Projectに`AGENTS.md`が
   あれば`PROJECT.md`より先に読む。
-- 通常のProject実行で`projects/README.md`を無条件に読まない。新設、状態遷移、契約種別の変更、
-  repository mode、移行、復旧、規約保守、明示参照のいずれかがある場合だけ読む。
-- 個別Projectの`AGENTS.md`へ成果契約や現在状態を書かず、`PROJECT.md`と`STATE.md`へ書く。
+- 通常のProject実行で`projects/PROJECTS.md`を無条件に読まない。新設、状態遷移、契約種別の変更、
+  repository mode、移行、復旧、規約保守、docs構造の設計、明示参照のいずれかがある場合だけ読む。
+- 個別Projectの`AGENTS.md`へ成果契約、現在状態、Domain Canonの本文を書かず、`PROJECT.md`、`STATE.md`、
+  `docs/<DOMAIN>.md`へ書く。
 - 現在目標と検証結果が`PROJECT.md#PC-xx`または`PROJECT.md#status`を参照する。
 - Requiredだけを読み、条件未成立のConditionalを読まない。
 - 個別タスクで成果契約を変更しない。状態変化は同じ作業内で`STATE.md`へ反映する。
 - 完了報告前に指定検証を実行する。
 - finiteは全条件の検証後だけcompleted、continuousは現在目標達成だけでcompletedにしない。
 - paused/completed/retiredは明示参照、再開、監査、保守以外で候補にしない。
+
+## Project docsケースの最低条件
+
+- `ARCHITECTURE.md`または`docs/`があるEmbedded Projectでは、個別`AGENTS.md`が条件付きDocs Routeを持ち、
+  そこを経由して正本へ進む。
+- 条件に一致したDomain Canonだけを初期入口として読む。Design作業では`docs/DESIGN.md`だけを読み、
+  `docs/**`を一括読込せずDomain Canonを全件読まない。
+- モジュール、依存、データフロー、境界の変更では`ARCHITECTURE.md`を読む。
+- `<DOMAIN>_SENSE.md`は定性的判断の正本であり、必須仕様、数値合格条件、コマンド、現在状態の保存先に
+  しない。ハード仕様は`PROJECT.md`または`docs/<DOMAIN>.md`が所有する。
+- `docs/README.md`、`docs/NOTES.md`、`docs/MISC.md`のような汎用正本を作らない。
+- Satellite Hub側へ`docs/`、`ARCHITECTURE.md`、個別`AGENTS.md`を複製しない。
+
+## Research・Knowledgeケースの最低条件
+
+- 外部から取得した資料の保存先は`knowledge/raw/external/`、内部で生まれた原記録の保存先は
+  `knowledge/raw/internal/`とし、いずれも既存ファイルを変更しない。
+- 資料の記憶・取り込み・照会・統合はKnowledge Routeとする。
+- 新しい問いへの答えを調査・実験で見つける依頼はProject Routeとし、研究文書は
+  `docs/RESEARCH.md`または`docs/research/<study-name>.md`が所有する。
+- 再利用可能な研究手順そのものを作る依頼はSkill Routeとする。
+- Project Researchを自動的にRoot Knowledgeとして扱わない。昇格条件を満たした結論だけを
+  `knowledge/wiki/`へ同期し、同じ結論を二つのactive正本として保守しない。
+- 新しい大文字の領域正本（`skills/SKILLS.md`、`projects/PROJECTS.md`、`evals/EVALS.md`、
+  `tools/TOOLS.md`）を読み、旧README入口や`knowledge/research/`を参照しない。
 
 ## 限定取得ケースの最低条件
 

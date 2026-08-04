@@ -1,7 +1,8 @@
-# skills/ — 分析・判定手順の正本
+# SKILLS.md — 分析・判定手順の正本
 
 Skill Routeを確定した後に読む。Knowledgeは「何が分かっているか」、Skillは「どう処理するか」、
-Projectは「何を作り残すか」を所有する。
+Projectは「何を作り残すか」を所有する。再利用可能な研究方法そのものを手順として作る依頼はこのRouteであり、
+具体的な研究活動と研究中の仮説はProjectが所有する。
 
 ## 対象の選択
 
@@ -43,20 +44,23 @@ aliases: [別名]
 ## 新規作成・更新
 
 - `_template/`をコピーし、frontmatter、発動条件、手順、出力契約、Knowledge参照を置換する。
-- `_template/`自体はSkillではない。
+- `_template/`自体はSkillではない。`SKILL.md`と`agents/`だけを持ち、空の下位フォルダを常設しない。
 - 利用者向け能力のコードはSkillの`candidates/`または`scripts/`が所有する。
-  一時コードから固定コードへの段階は`tools/README.md#一時作業と固定化`に従う。
+  一時コードから固定コードへの段階は`tools/TOOLS.md#一時作業と固定化`に従う。
 - 詳細方法は`references/`、再利用テンプレートは`assets/`へ委譲し、`SKILL.md`を入口として短く保つ。
 - `SKILL.md`は20KiBを超えない。超える詳細は明示参照された補助ファイルへ分ける。
+- 下位フォルダへ`README.md`を置いて領域説明の正本にしない。各フォルダの責務はこの節が所有する。
 
 ## 基本構造
 
+必要になったSkillだけが下位フォルダを作る。空のフォルダを先に生成しない。
+
 ```text
 skill-name/
-├── SKILL.md
+├── SKILL.md      # 入口。発動条件、手順、出力契約、Knowledge参照
 ├── agents/       # 表示情報
-├── references/   # 必要時だけ読む詳細方法
-├── assets/       # 再利用テンプレート
-├── candidates/   # 未安定な再利用候補
-└── scripts/      # 固定した実行・検証処理
+├── references/   # SKILL.mdに収まらない詳細な分析方法。必要時だけ読む
+├── assets/       # 繰り返し使うテンプレートと出力雛形
+├── candidates/   # 同じ目的で2回目に使う未安定な再利用候補。3回目の前に固定化を判断する
+└── scripts/      # 入出力と検証方法が安定した固定処理
 ```

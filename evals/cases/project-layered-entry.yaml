@@ -16,7 +16,7 @@ expect:
     - projects/market-scan/PROJECT.md
     - projects/market-scan/STATE.md
   must_not_read:
-    - projects/README.md                # 新設・状態遷移・repository modeのいずれでもない
+    - projects/PROJECTS.md                # 新設・状態遷移・repository modeのいずれでもない
     - projects/LIFECYCLE.md
     - projects/RECOVERY.md
     - tools/BACKUP.md

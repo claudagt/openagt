@@ -1,4 +1,4 @@
-# tools/ — 構造保守と限定取得
+# TOOLS.md — 構造保守と限定取得
 
 `tools/`は利用者の成果を作るSkillではなく、このディレクトリ自体を保守するmeta層である。
 固定Toolは依存関係を増やさず、入出力、fallback、検証方法を明記する。
@@ -43,8 +43,22 @@ bash tools/build-context-cache.sh --check-routing
 - `search.sqlite` — 規模閾値到達後だけ自動生成するFTS5 trigram派生索引
 
 catalogはpath順で決定的に生成し、name、aliases、description、status、pathなど候補選択に必要な項目だけを持つ。
-raw/researchはmanifestへ登録するが、通常の意味検索catalogへ直接入れない。
-`--check-routing`はraw/researchを走査せずrouteable正本だけでcatalogの鮮度を確認し、検索ごとの全正本走査を避ける。
+`--check-routing`は不変原資料を走査せずrouteable正本だけでcatalogの鮮度を確認し、検索ごとの全正本走査を避ける。
+
+manifestは少なくとも次を区別する。
+
+| path | kind | immutable |
+|---|---|---|
+| `knowledge/raw/internal/**` | `internal-record` | true |
+| `knowledge/raw/external/**` | `external-source` | true |
+| `knowledge/wiki/logs/**` | `closed-log` | true |
+| `knowledge/wiki/sources/**`、`knowledge/wiki/topics/**` | `knowledge` | false |
+| `projects/*/ARCHITECTURE.md` | `project-architecture` | false |
+| `projects/*/docs/**` | `project-doc` | false |
+
+Project選択の単位は`PROJECT.md`である。`ARCHITECTURE.md`とProject docsはmanifestでは分類するが、
+routeable catalogへ入れず、通常検索結果へ全件投入しない。対象Projectを確定した後、個別`AGENTS.md`の
+Docs RouteからDomain Canonへ進む。`knowledge/raw/`配下もmanifestへ登録するが意味検索catalogへ入れない。
 
 環境変数`AGENT_DIRECTORY_ROOT`で検査対象root、`AGENT_CACHE_DIR`で出力先を差し替えられる。
 fixtureや隔離検証以外では既定値を使う。
@@ -115,13 +129,28 @@ bash tools/validate-agent-directory.sh --strict --full
 bash tools/validate-agent-directory.sh --full --base main
 ```
 
-- 通常: 必須構造、`AGENTS.md`/`CLAUDE.md`の階層、metadata、Project契約、STATE、サイズ、index/log、
-  eval schema、cache再生成を検査
+- 通常: 必須構造、`AGENTS.md`/`CLAUDE.md`の階層、metadata、Project契約、STATE、Project docs境界、
+  サイズ、index/log、eval schema、cache再生成を検査
 - `--strict`: 導入後に残してはいけない自己定義・Skillプレースホルダーも失敗にする
 - `--full`: 全参照、全Knowledge/Skill/Project、context Tool fixtureを検査
-- `--base <ref>`: Git差分からraw/research、閉鎖済みlog、Project物理移動の禁止を検査
+- `--base <ref>`: Git差分から`knowledge/raw/`、閉鎖済みlog、Project物理移動の禁止を検査
 
-終了コード0と`PASS: agent-directory structure is valid`が合格条件である。
+構造境界として少なくとも次を機械検査する。
+
+- `knowledge/research/`が存在せず、`knowledge/raw/internal/`と`knowledge/raw/external/`が存在し、
+  どちらもimmutableとして扱われる。
+- 領域正本が`skills/SKILLS.md`、`projects/PROJECTS.md`、`evals/EVALS.md`、`tools/TOOLS.md`であり、
+  対応する旧`README.md`が存在しない。ルート`README.md`は外部向け入口として存在する。
+- `docs/README.md`が存在しない。Embedded Projectの`docs/`直下Markdownが大文字Domain Canon形式である。
+- `docs/`または`ARCHITECTURE.md`を持つEmbedded Projectが個別`AGENTS.md`と`CLAUDE.md`を持ち、
+  `CLAUDE.md`が`@AGENTS.md`だけである。
+- 個別`AGENTS.md`が`PROJECT.md`と`STATE.md`を正本として参照し、存在する`ARCHITECTURE.md`と
+  各Domain Canonを参照し、`docs/**`の一括読込を命じない。
+- Satellite Hubが`PROJECT.md`と`STATE.md`以外を持たない。
+- `projects/_template/`が`docs/`、`ARCHITECTURE.md`、`AGENTS.md`を持たない。
+
+`docs/`より下のフォルダ名と見出し構成はProjectが決める。validatorは境界とサイズだけを固定し、
+下位構造を固定しない。終了コード0と`PASS: agent-directory structure is valid`が合格条件である。
 
 既定でも`--full`でも、実GitHub接続、`gh` CLI、GitHub API、認証情報、Private可視性照会を必要としない。
 backup Toolの検査は、静的な禁止操作検査と、一時ディレクトリのローカルbare remoteを使う隔離fixtureだけで行う。
@@ -137,10 +166,14 @@ Private可視性はセットアップ契約であり、利用者が確認する�
 | `projects/AGENTS.md` | 2KiB |
 | `projects/<name>/AGENTS.md` | 2KiB |
 | `knowledge/KNOWLEDGE.md` | 20KiB |
-| `skills/README.md` | 12KiB |
-| `projects/README.md` | 20KiB |
+| `skills/SKILLS.md` | 12KiB |
+| `projects/PROJECTS.md` | 24KiB |
+| `evals/EVALS.md` | 24KiB |
+| `tools/TOOLS.md` | 20KiB |
 | `STATE.md` | 8KiB |
 | `PROJECT.md` / `SKILL.md` | 20KiB |
+| `projects/<name>/ARCHITECTURE.md` | 24KiB |
+| `projects/<name>/docs/<DOMAIN>.md` | 24KiB |
 | `knowledge/wiki/index.md` | 8KiB・50項目 |
 | active Wiki | 64KiB。24KiB超はRetrieval Map必須 |
 | `knowledge/wiki/log.md` | 128KiB・1,000記録 |

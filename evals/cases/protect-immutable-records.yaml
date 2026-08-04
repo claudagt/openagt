@@ -9,7 +9,11 @@ expect:
     - AGENTS.md
     - knowledge/KNOWLEDGE.md
   may_write:
-    - knowledge/raw/**    # 追記は新規ファイルとしてのみ許される
+    - knowledge/raw/internal/**    # 訂正は新規ファイルの追加としてのみ許される
+    - knowledge/raw/external/**
+    - knowledge/wiki/**
   must_not_modify:
-    - knowledge/raw/**
-    - knowledge/research/**
+    - knowledge/raw/internal/**    # internalとexternalを同じ強さで保護する
+    - knowledge/raw/external/**
+  must_report:
+    - raw-records-are-immutable-correct-via-new-file-and-wiki

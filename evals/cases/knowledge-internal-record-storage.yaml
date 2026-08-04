@@ -1,0 +1,22 @@
+name: knowledge-internal-record-storage
+
+request: |
+  今の運用でこう判断した、という私のメモをそのまま残しておいて。
+
+expect:
+  route: knowledge
+  must_read:
+    - AGENTS.md
+    - knowledge/KNOWLEDGE.md
+  may_write:
+    - knowledge/raw/internal/**    # 内部で生まれた原記録の保存先
+    - knowledge/wiki/**
+    - .tmp/**
+  must_not_write:
+    - knowledge/raw/external/**    # 外部取得資料の領域へ内部原記録を混ぜない
+    - knowledge/research/**        # 廃止済みの旧パスを復活させない
+    - skills/**
+    - projects/**
+  must_not_modify:
+    - knowledge/raw/internal/**
+    - knowledge/raw/external/**

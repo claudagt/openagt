@@ -10,7 +10,7 @@ expect:
   must_read:
     - AGENTS.md
     - projects/AGENTS.md
-    - projects/README.md
+    - projects/PROJECTS.md
     - projects/LIFECYCLE.md
     - projects/market-scan/AGENTS.md
     - projects/market-scan/PROJECT.md

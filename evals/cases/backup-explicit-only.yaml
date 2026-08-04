@@ -7,7 +7,7 @@ expect:
   route: meta
   must_read:
     - AGENTS.md
-    - tools/README.md
+    - tools/TOOLS.md
     - tools/BACKUP.md
   must_not_read:
     - knowledge/wiki/log.md
@@ -30,5 +30,5 @@ expect:
     - tools/**
   must_not_modify:
     - AGENTS.md
-    - knowledge/raw/**
-    - knowledge/research/**
+    - knowledge/raw/internal/**
+    - knowledge/raw/external/**

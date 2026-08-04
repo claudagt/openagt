@@ -9,7 +9,7 @@ expect:
   must_read:
     - AGENTS.md
     - projects/AGENTS.md
-    - projects/README.md
+    - projects/PROJECTS.md
     - projects/report-site/PROJECT.md
     - projects/report-site/STATE.md
   must_report:

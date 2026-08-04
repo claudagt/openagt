@@ -324,8 +324,72 @@ validate_project_agents_file() {
     fail "$(relative_path "$agents_file") must name PROJECT.md as the contract canon"
   grep -Fq 'STATE.md' "$agents_file" || \
     fail "$(relative_path "$agents_file") must name STATE.md as the state canon"
+  if awk '
+      index($0, "docs/**") == 0 { next }
+      /しない|禁止|避ける|must not|do not|never/ { next }
+      { found = 1 }
+      END { exit !found }
+    ' "$agents_file"; then
+    fail "$(relative_path "$agents_file") must not order a bulk docs/** read; list one condition per Domain Canon instead"
+  fi
 
   validate_claude_bridge "$agents_file"
+}
+
+# Project docsは大文字Domain Canonを入口とし、下位のフォルダ構造はProjectが決める。
+validate_project_docs() {
+  local project_dir="$1"
+  local project_file="$project_dir/PROJECT.md"
+  local agents_file="$project_dir/AGENTS.md"
+  local docs_dir="$project_dir/docs"
+  local architecture_file="$project_dir/ARCHITECTURE.md"
+  local rel_project canon canon_name catch_all has_docs='false'
+
+  [[ -f "$project_file" ]] || return 0
+  [[ "$(frontmatter_value "$project_file" 'repository_mode')" == 'embedded' ]] || return 0
+  rel_project="$(relative_path "$project_dir")"
+
+  if [[ -d "$docs_dir" ]]; then
+    has_docs='true'
+    while IFS= read -r -d '' canon; do
+      canon_name="${canon##*/}"
+      if [[ ! "$canon_name" =~ ^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*\.md$ ]]; then
+        fail "$(relative_path "$canon") is not a Domain Canon; rename it to ^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*\.md\$ (e.g. DESIGN.md, PRODUCT_SENSE.md) or move it into a lowercase detail folder"
+        continue
+      fi
+      case "$canon_name" in
+        NOTES.md|MISC.md|OTHER.md|DOCS.md|SENSE.md|SCORE.md)
+          fail "$(relative_path "$canon") is too generic to own a canon; name the domain it covers (e.g. DESIGN.md, PRODUCT_SENSE.md, QUALITY_SCORE.md)"
+          ;;
+      esac
+      check_size "$canon" 24576 'Domain Canon'
+    done < <(find "$docs_dir" -mindepth 1 -maxdepth 1 -type f -name '*.md' -print0)
+
+    while IFS= read -r -d '' catch_all; do
+      fail "$(relative_path "$catch_all") is a catch-all docs folder; give it a responsibility-bearing lowercase kebab-case name"
+    done < <(find "$docs_dir" -mindepth 1 -maxdepth 1 -type d \
+      \( -name misc -o -name other -o -name notes -o -name tmp \) -print0)
+  fi
+
+  [[ ! -f "$architecture_file" ]] || check_size "$architecture_file" 24576 'ARCHITECTURE.md'
+
+  if [[ "$has_docs" == 'true' || -f "$architecture_file" ]]; then
+    if [[ ! -f "$agents_file" ]]; then
+      fail "$rel_project has docs/ or ARCHITECTURE.md and therefore requires $rel_project/AGENTS.md carrying the conditional Project Docs Route (and a sibling CLAUDE.md containing only @AGENTS.md)"
+      return 0
+    fi
+    if [[ -f "$architecture_file" ]] && ! grep -Fq 'ARCHITECTURE.md' "$agents_file"; then
+      fail "$(relative_path "$agents_file") must route to ARCHITECTURE.md under a stated condition"
+    fi
+    if [[ "$has_docs" == 'true' ]]; then
+      while IFS= read -r -d '' canon; do
+        canon_name="${canon##*/}"
+        [[ "$canon_name" =~ ^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*\.md$ ]] || continue
+        grep -Fq "docs/$canon_name" "$agents_file" || \
+          fail "$(relative_path "$agents_file") must route to the Domain Canon docs/$canon_name under a stated condition"
+      done < <(find "$docs_dir" -mindepth 1 -maxdepth 1 -type f -name '*.md' -print0)
+    fi
+  fi
 }
 
 validate_project_contract() {
@@ -692,30 +756,67 @@ validate_deleted_project() {
 required_files=(
   'AGENTS.md' 'CLAUDE.md' 'projects/AGENTS.md' 'projects/CLAUDE.md'
   'README.md' 'knowledge/KNOWLEDGE.md' 'knowledge/wiki/index.md' 'knowledge/wiki/log.md'
-  'skills/README.md' 'skills/_template/SKILL.md' 'projects/README.md' 'projects/LIFECYCLE.md' 'projects/RECOVERY.md'
-  'projects/_template/PROJECT.md' 'projects/_template/STATE.md' 'evals/README.md' 'tools/README.md'
+  'skills/SKILLS.md' 'skills/_template/SKILL.md' 'projects/PROJECTS.md' 'projects/LIFECYCLE.md' 'projects/RECOVERY.md'
+  'projects/_template/PROJECT.md' 'projects/_template/STATE.md' 'evals/EVALS.md' 'tools/TOOLS.md'
   'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/append-knowledge-log.sh'
   'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
   'knowledge/wiki/_template/source.md' 'knowledge/wiki/_template/topic.md'
 )
 for path in "${required_files[@]}"; do require_file "$repo_root/$path"; done
 
+# 不変原資料は internal/external の二領域だけを持ち、どちらも同じ強さで保護する。
+required_directories=(
+  'knowledge/raw/internal' 'knowledge/raw/external' 'knowledge/wiki/sources' 'knowledge/wiki/topics'
+)
+for path in "${required_directories[@]}"; do
+  [[ -d "$repo_root/$path" ]] || \
+    fail "missing directory: $path (create it and keep it tracked, e.g. touch $path/.gitkeep)"
+done
+
+# 旧構造・旧入口は互換コピーを残さず廃止する。
+retired_paths=(
+  'knowledge/research|外部原資料は knowledge/raw/external/ が所有する'
+  'skills/README.md|領域正本は skills/SKILLS.md である'
+  'projects/README.md|領域正本は projects/PROJECTS.md である'
+  'evals/README.md|領域正本は evals/EVALS.md である'
+  'tools/README.md|領域正本は tools/TOOLS.md である'
+)
+for entry in "${retired_paths[@]}"; do
+  retired_path="${entry%%|*}"
+  retired_hint="${entry#*|}"
+  [[ ! -e "$repo_root/$retired_path" ]] || \
+    fail "retired path must not exist: $retired_path — $retired_hint (git rm it; do not keep a compatibility copy)"
+done
+
+# docs/ は大文字Domain Canonから入る。汎用READMEを入口にしない。
+while IFS= read -r -d '' docs_readme; do
+  fail "$(relative_path "$docs_readme") is forbidden; enter docs/ through an uppercase Domain Canon such as docs/DESIGN.md"
+done < <(find "$repo_root" \
+  \( -type d \( -name '.git' -o -name '.agent-cache' -o -name '.tmp' \) \) -prune -o \
+  -type f -path '*/docs/README.md' -print0)
+
+# Project templateへ docs/、ARCHITECTURE.md、AGENTS.md を常設しない。
+for template_entry in AGENTS.md CLAUDE.md ARCHITECTURE.md docs; do
+  [[ ! -e "$repo_root/projects/_template/$template_entry" ]] || \
+    fail "projects/_template must not ship $template_entry; only the Project that needs it creates it"
+done
+
 check_size "$repo_root/AGENTS.md" 8192 'root AGENTS.md'
 check_size_warning "$repo_root/AGENTS.md" 4096 'root AGENTS.md router'
 check_size "$repo_root/projects/AGENTS.md" 2048 'projects AGENTS.md'
 check_size "$repo_root/README.md" 32768 'README.md'
 check_size "$repo_root/knowledge/KNOWLEDGE.md" 20480 'KNOWLEDGE.md'
-check_size "$repo_root/skills/README.md" 12288 'skills README'
-check_size "$repo_root/projects/README.md" 20480 'projects README'
-check_size "$repo_root/evals/README.md" 24576 'evals README'
-check_size "$repo_root/tools/README.md" 20480 'tools README'
+check_size "$repo_root/skills/SKILLS.md" 12288 'skills SKILLS.md'
+check_size "$repo_root/projects/PROJECTS.md" 24576 'projects PROJECTS.md'
+check_size "$repo_root/evals/EVALS.md" 24576 'evals EVALS.md'
+check_size "$repo_root/tools/TOOLS.md" 20480 'tools TOOLS.md'
 check_size "$repo_root/tools/BACKUP.md" 20480 'tools BACKUP.md'
 check_size "$repo_root/knowledge/wiki/index.md" 8192 'Knowledge index'
 check_size "$repo_root/knowledge/wiki/log.md" 131072 'Knowledge log'
 check_heading_warning "$repo_root/AGENTS.md" 20
 check_heading_warning "$repo_root/knowledge/KNOWLEDGE.md" 30
-check_heading_warning "$repo_root/skills/README.md" 30
-check_heading_warning "$repo_root/projects/README.md" 30
+check_heading_warning "$repo_root/skills/SKILLS.md" 30
+check_heading_warning "$repo_root/projects/PROJECTS.md" 30
 
 if [[ "$strict" == true ]]; then
   if grep -Eq '<agent-name>|<agent-role>|<agent-mission>|<agent-vision>|<project-dir>' "$repo_root/AGENTS.md"; then
@@ -740,7 +841,7 @@ if [[ -f "$repo_root/AGENTS.md" ]]; then
     grep -Eq "^\| *\`$route_token\` *\|" "$repo_root/AGENTS.md" || \
       fail "AGENTS.md is missing the Route table row for: $route_token"
   done
-  for route_entry in knowledge/KNOWLEDGE.md skills/README.md projects/AGENTS.md; do
+  for route_entry in knowledge/KNOWLEDGE.md skills/SKILLS.md projects/AGENTS.md; do
     grep -Fq "$route_entry" "$repo_root/AGENTS.md" || \
       fail "AGENTS.md does not name the Route entry file: $route_entry"
   done
@@ -752,7 +853,7 @@ if [[ -f "$repo_root/AGENTS.md" ]]; then
   done < <(grep -Eo '`[a-z][a-zA-Z0-9_./-]+\.(md|sh)`' "$repo_root/AGENTS.md" | tr -d '`' | LC_ALL=C sort -u)
 fi
 if [[ -f "$repo_root/projects/AGENTS.md" ]]; then
-  for project_entry in PROJECT.md STATE.md projects/README.md; do
+  for project_entry in PROJECT.md STATE.md projects/PROJECTS.md; do
     grep -Fq "$project_entry" "$repo_root/projects/AGENTS.md" || \
       fail "projects/AGENTS.md does not delegate to: $project_entry"
   done
@@ -781,6 +882,7 @@ while IFS= read -r -d '' project_file; do
   [[ "$project_file" == "$repo_root/projects/_template/PROJECT.md" ]] && continue
   validate_project_contract "$project_file"
   validate_project_state "$(dirname "$project_file")/STATE.md"
+  validate_project_docs "$(dirname "$project_file")"
 done < <(find "$repo_root/projects" "$repo_root/evals/fixtures" -type f -name 'PROJECT.md' -print0)
 
 validate_skill "$repo_root/skills/_template/SKILL.md"
@@ -801,8 +903,8 @@ validate_knowledge_page "$repo_root/knowledge/wiki/_template/topic.md"
 
 index_items="$(grep -Ec '^- ' "$repo_root/knowledge/wiki/index.md" || true)"
 (( index_items <= 50 )) || fail 'knowledge/wiki/index.md has more than 50 route-map items'
-if grep -Eq '^- .*knowledge/(raw|research)/|^## (raw|research)/' "$repo_root/knowledge/wiki/index.md"; then
-  fail 'knowledge/wiki/index.md must not register raw/research as an itemized global ledger'
+if grep -Eq '^- .*knowledge/raw/|^## raw/' "$repo_root/knowledge/wiki/index.md"; then
+  fail 'knowledge/wiki/index.md must not register knowledge/raw/ as an itemized global ledger'
 fi
 
 log_records="$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+' "$repo_root/knowledge/wiki/log.md" || true)"
@@ -829,6 +931,11 @@ required_cases=(
   backup-external-repo-boundary satellite-consolidation-audit satellite-promotion-session-boundary
   root-agents-router-scope project-layered-entry project-agents-optional project-agents-diff-only
   project-agents-no-contract-copy project-agents-claude-bridge satellite-hub-agents-forbidden
+  knowledge-internal-record-storage knowledge-external-source-storage
+  research-question-to-project research-method-to-skill project-research-knowledge-promotion
+  project-docs-route-required project-docs-design-entry project-architecture-entry
+  project-domain-sense-not-spec project-docs-readme-forbidden satellite-hub-docs-forbidden
+  canonical-area-entry-names
 )
 for case_name in "${required_cases[@]}"; do require_file "$repo_root/evals/cases/$case_name.yaml"; done
 
@@ -924,9 +1031,9 @@ fi
 grep -Fq 'tools/backup-to-github.sh' "$repo_root/README.md" || \
   fail 'README.md does not register tools/backup-to-github.sh'
 grep -Fq 'tools/BACKUP.md' "$repo_root/README.md" || fail 'README.md does not register tools/BACKUP.md'
-grep -Fq 'backup-to-github.sh' "$repo_root/tools/README.md" || \
-  fail 'tools/README.md does not register backup-to-github.sh'
-grep -Fq 'BACKUP.md' "$repo_root/tools/README.md" || fail 'tools/README.md does not register BACKUP.md'
+grep -Fq 'backup-to-github.sh' "$repo_root/tools/TOOLS.md" || \
+  fail 'tools/TOOLS.md does not register backup-to-github.sh'
+grep -Fq 'BACKUP.md' "$repo_root/tools/TOOLS.md" || fail 'tools/TOOLS.md does not register BACKUP.md'
 grep -Fq 'tools/BACKUP.md' "$repo_root/AGENTS.md" || \
   fail 'AGENTS.md does not delegate backup details to tools/BACKUP.md'
 
@@ -945,6 +1052,16 @@ elif ! AGENT_CACHE_DIR="$cache_test_dir" bash "$repo_root/tools/build-context-ca
 fi
 if grep -Eq '^head=' "$cache_test_dir/cache.meta"; then
   fail 'cache.meta must not use Git HEAD as a freshness input'
+fi
+if [[ -f "$cache_test_dir/manifest.tsv" ]]; then
+  for immutable_area in knowledge/raw/internal knowledge/raw/external; do
+    if awk -F '\t' -v area="$immutable_area/" '
+        index($1, area) == 1 && $6 != "true" { bad = 1 }
+        END { exit !bad }
+      ' "$cache_test_dir/manifest.tsv"; then
+      fail "build-context-cache.sh must mark every file under $immutable_area/ as immutable in manifest.tsv"
+    fi
+  done
 fi
 
 mkdir -p "$log_fixture_dir/knowledge/wiki"
@@ -1246,7 +1363,7 @@ if git_root="$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null)" && [[
           A) ;;
           *) fail "immutable source changed relative to $base_ref: $status $old_path ${new_path:-}" ;;
         esac
-      done < <(git -C "$repo_root" diff --name-status "$base_ref" -- knowledge/raw knowledge/research)
+      done < <(git -C "$repo_root" diff --name-status "$base_ref" -- knowledge/raw)
       while IFS=$'\t' read -r status old_path new_path; do
         [[ -n "$status" ]] || continue
         case "$status" in
