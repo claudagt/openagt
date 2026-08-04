@@ -10,7 +10,8 @@ expect:
   route: project
   must_read:
     - AGENTS.md
-    - projects/README.md
+    - projects/AGENTS.md
+    - projects/market-scan/AGENTS.md
     - projects/market-scan/PROJECT.md
     - projects/market-scan/STATE.md
     - projects/market-scan/outputs/quarterly-report.md

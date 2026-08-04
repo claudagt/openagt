@@ -121,7 +121,7 @@ check_size() {
   local hard_limit="$2"
   local label="$3"
   local bytes
-  [[ -f "$file" ]] || return
+  [[ -f "$file" ]] || return 0
   bytes="$(wc -c < "$file" | tr -d ' ')"
   if (( bytes > hard_limit )); then
     fail "$(relative_path "$file") exceeds $label hard limit: ${bytes}B > ${hard_limit}B"
@@ -263,6 +263,66 @@ validate_required_reference_statuses() {
         ;;
     esac
   done < <(required_references "$file")
+}
+
+check_size_warning() {
+  local file="$1"
+  local warning_limit="$2"
+  local label="$3"
+  local bytes
+  [[ -f "$file" ]] || return 0
+  bytes="$(wc -c < "$file" | tr -d ' ')"
+  if (( bytes > warning_limit )); then
+    warn "$(relative_path "$file") exceeds the $label soft budget: ${bytes}B > ${warning_limit}B"
+  fi
+}
+
+validate_claude_bridge() {
+  local agents_file="$1"
+  local claude_file="${agents_file%/AGENTS.md}/CLAUDE.md"
+  if [[ ! -f "$claude_file" ]]; then
+    fail "$(relative_path "$agents_file") requires a sibling CLAUDE.md importing @AGENTS.md"
+    return
+  fi
+  require_fixed_line "$claude_file" '@AGENTS.md'
+}
+
+# Project差分ファイルは成果契約と現在状態を所有してはならない。
+validate_project_agents_file() {
+  local agents_file="$1"
+  local project_dir repository_mode forbidden
+  local forbidden_headings=(
+    '## 目的' '## 最終ゴール' '## 完了条件' '## 継続的使命' '## 成功指標' '## 見直し・終了条件'
+    '## 現在の到達点' '## 現在の目標' '## 目標の合格条件' '## 検証結果' '## 現在有効な決定'
+    '## 未完了・ブロッカー' '## 失敗・却下済み' '## 次の一手' '## 使用するKnowledge' '## 使用するSkill'
+  )
+
+  [[ -f "$agents_file" ]] || return 0
+  project_dir="$(dirname "$agents_file")"
+  check_size "$agents_file" 2048 'Project AGENTS.md'
+
+  repository_mode="$(frontmatter_value "$project_dir/PROJECT.md" 'repository_mode')"
+  if [[ "$repository_mode" == 'satellite' ]]; then
+    fail "$(relative_path "$agents_file") is forbidden in a Satellite Hub directory; the Satellite repository root owns it"
+  fi
+  if [[ "$project_dir" == "$repo_root/projects/_template" ]]; then
+    fail 'projects/_template must not carry AGENTS.md; per-Project差分は自動複製しない'
+  fi
+
+  for forbidden in "${forbidden_headings[@]}"; do
+    if grep -Fqx -- "$forbidden" "$agents_file"; then
+      fail "$(relative_path "$agents_file") must not own the contract or state heading: $forbidden"
+    fi
+  done
+  if grep -Eq '^- \*\*PC-' "$agents_file"; then
+    fail "$(relative_path "$agents_file") must not restate Project Criterion bullets"
+  fi
+  grep -Fq 'PROJECT.md' "$agents_file" || \
+    fail "$(relative_path "$agents_file") must name PROJECT.md as the contract canon"
+  grep -Fq 'STATE.md' "$agents_file" || \
+    fail "$(relative_path "$agents_file") must name STATE.md as the state canon"
+
+  validate_claude_bridge "$agents_file"
 }
 
 validate_project_contract() {
@@ -627,7 +687,8 @@ validate_deleted_project() {
 }
 
 required_files=(
-  'AGENTS.md' 'README.md' 'knowledge/KNOWLEDGE.md' 'knowledge/wiki/index.md' 'knowledge/wiki/log.md'
+  'AGENTS.md' 'CLAUDE.md' 'projects/AGENTS.md' 'projects/CLAUDE.md'
+  'README.md' 'knowledge/KNOWLEDGE.md' 'knowledge/wiki/index.md' 'knowledge/wiki/log.md'
   'skills/README.md' 'skills/_template/SKILL.md' 'projects/README.md' 'projects/LIFECYCLE.md' 'projects/RECOVERY.md'
   'projects/_template/PROJECT.md' 'projects/_template/STATE.md' 'evals/README.md' 'tools/README.md'
   'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/append-knowledge-log.sh'
@@ -636,7 +697,9 @@ required_files=(
 )
 for path in "${required_files[@]}"; do require_file "$repo_root/$path"; done
 
-check_size "$repo_root/AGENTS.md" 12288 'AGENTS.md'
+check_size "$repo_root/AGENTS.md" 8192 'root AGENTS.md'
+check_size_warning "$repo_root/AGENTS.md" 4096 'root AGENTS.md router'
+check_size "$repo_root/projects/AGENTS.md" 2048 'projects AGENTS.md'
 check_size "$repo_root/README.md" 32768 'README.md'
 check_size "$repo_root/knowledge/KNOWLEDGE.md" 20480 'KNOWLEDGE.md'
 check_size "$repo_root/skills/README.md" 12288 'skills README'
@@ -665,6 +728,44 @@ fi
 if [[ -d "$repo_root/projects/_archive" ]]; then
   fail 'projects/_archive is forbidden; use Project status without physical moves'
 fi
+
+# ルートはブートローダー兼ルーターであり、Route表と入口ファイルを実在参照で持つ。
+validate_claude_bridge "$repo_root/AGENTS.md"
+validate_claude_bridge "$repo_root/projects/AGENTS.md"
+if [[ -f "$repo_root/AGENTS.md" ]]; then
+  for route_token in knowledge skill project meta none; do
+    grep -Eq "^\| *\`$route_token\` *\|" "$repo_root/AGENTS.md" || \
+      fail "AGENTS.md is missing the Route table row for: $route_token"
+  done
+  for route_entry in knowledge/KNOWLEDGE.md skills/README.md projects/AGENTS.md; do
+    grep -Fq "$route_entry" "$repo_root/AGENTS.md" || \
+      fail "AGENTS.md does not name the Route entry file: $route_entry"
+  done
+  while IFS= read -r referenced_path; do
+    [[ -n "$referenced_path" ]] || continue
+    case "$referenced_path" in */*) ;; *) continue ;; esac
+    [[ -e "$repo_root/$referenced_path" ]] || \
+      fail "AGENTS.md references a missing entry file: $referenced_path"
+  done < <(grep -Eo '`[a-z][a-zA-Z0-9_./-]+\.(md|sh)`' "$repo_root/AGENTS.md" | tr -d '`' | LC_ALL=C sort -u)
+fi
+if [[ -f "$repo_root/projects/AGENTS.md" ]]; then
+  for project_entry in PROJECT.md STATE.md projects/README.md; do
+    grep -Fq "$project_entry" "$repo_root/projects/AGENTS.md" || \
+      fail "projects/AGENTS.md does not delegate to: $project_entry"
+  done
+fi
+
+# 個別ProjectのAGENTS.mdは任意。存在する場合だけ差分ファイルとして検査する。
+while IFS= read -r -d '' project_agents_file; do
+  [[ -f "$(dirname "$project_agents_file")/PROJECT.md" ]] || continue
+  validate_project_agents_file "$project_agents_file"
+done < <(find "$repo_root/projects" "$repo_root/evals/fixtures" -type f -name 'AGENTS.md' -print0)
+
+while IFS= read -r -d '' orphan_claude_file; do
+  [[ -f "$(dirname "$orphan_claude_file")/PROJECT.md" ]] || continue
+  [[ -f "$(dirname "$orphan_claude_file")/AGENTS.md" ]] || \
+    fail "$(relative_path "$orphan_claude_file") exists without a sibling AGENTS.md to import"
+done < <(find "$repo_root/projects" "$repo_root/evals/fixtures" -type f -name 'CLAUDE.md' -print0)
 
 while IFS= read -r -d '' nested_git; do
   fail "nested Git repository is forbidden even when ignored: $(relative_path "$nested_git")"
@@ -723,6 +824,8 @@ required_cases=(
   knowledge-log-auto-rotation scale-sqlite-auto-enable
   backup-explicit-only backup-divergence-refusal restore-single-writer project-task-no-backup
   backup-external-repo-boundary satellite-consolidation-audit satellite-promotion-session-boundary
+  root-agents-router-scope project-layered-entry project-agents-optional project-agents-diff-only
+  project-agents-no-contract-copy project-agents-claude-bridge satellite-hub-agents-forbidden
 )
 for case_name in "${required_cases[@]}"; do require_file "$repo_root/evals/cases/$case_name.yaml"; done
 

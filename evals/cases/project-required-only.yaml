@@ -10,7 +10,7 @@ expect:
   max_context_bytes: 32768
   must_read:
     - AGENTS.md
-    - projects/README.md
+    - projects/AGENTS.md
     - projects/market-review/PROJECT.md
     - projects/market-review/STATE.md
     - knowledge/wiki/topics/capital-allocation-current.md

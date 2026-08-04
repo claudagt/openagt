@@ -28,7 +28,9 @@ knowledge/
 2. 論文、記事、契約、外部資料は取得元を記録し、内容を変えず`research/`へ新規保存する。
 3. 1資料を読み解いたKnowledgeは`sources/`、複数資料・内部経験を統合したKnowledgeは`topics/`へ置く。
 
-成果物はProject、手順はSkillが所有する。製品側メモリへ写す場合も先にこの判定で正本へ保存する。
+成果物はProject、手順はSkillが所有する。製品側の永続メモリは正本から派生する任意のキャッシュであり、
+永続化する内容は先にこの判定でリポジトリへ保存する。両者が矛盾したらリポジトリを優先する。
+秘密情報はどちらにも保存しない。
 
 ## 不変規則
 
@@ -40,9 +42,24 @@ knowledge/
 
 - 照会・取り込み前に`tools/find-context.sh --route knowledge --limit 5 -- <query>`で候補を得る。
 - 通常検索は`status: active`だけを対象にし、最初は上位3ページ、追加後も最大6ページまでとする。
+  追加は不足する根拠を具体化できる場合だけ1件ずつ行う。
+- 取り込みは既存候補を最大5件確認し、新規作成、既存更新、統合、supersedeのいずれかを選ぶ。
+  重複確認のための全件読込をしない。
 - `index.md`や派生catalogの全件読込を候補選択に使わない。
-- 原資料へ遡る条件、24KiB超の部分読込、履歴の既定除外は`AGENTS.md#Context Loading Contract`に従う。
-- 検索結果だけで回答せず、採用したKnowledge正本を読む。
+- `superseded`、`archived`、`retired`を通常判断に使わない。旧ページを明示された場合は
+  `superseded_by`が示すactiveページを優先する。
+- `log.md`、`logs/`、Git履歴は、監査、復旧、過去判断の確認、利用者の明示依頼を除き読まない。
+- 検索結果だけで回答せず、採用したKnowledge正本を読む。24KiB超の部分読込と総読込予算は
+  `AGENTS.md#Context Loading`に従う。
+
+### 原資料へ遡る条件
+
+`raw/`、`research/`へ遡るのは次のいずれかがある場合だけとする。
+
+- 原資料そのものの確認
+- 正確な引用、数値、契約、仕様の確認
+- Knowledge間の衝突、またはKnowledgeの根拠不足
+- ProjectまたはSkillからの明示参照
 
 ## Wiki frontmatter
 

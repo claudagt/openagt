@@ -6,7 +6,26 @@
 ## 正本と派生物
 
 Markdown、原資料、Project入出力、eval、Toolコードが正本である。`.agent-cache/`はGit管理外の派生物で、
-削除して正本から再生成できる。cacheだけに情報を保存せず、正本や成果物からcacheを恒久参照しない。
+削除して正本から再生成できる。cacheだけに情報を保存せず、正本や成果物からcacheを恒久参照せず、
+Git追跡対象にもしない。
+
+## 相互参照
+
+恒久参照は`<repository-relative-path>#<target>`を使う。
+
+- 見出し: `projects/AGENTS.md#着手`
+- Project条件: `projects/example/PROJECT.md#PC-01`
+- frontmatter: `projects/example/PROJECT.md#status`
+
+追加でずれる行番号は恒久参照に使わない。同じProject内でも対象ファイル名を省略しない。
+
+## 一時作業と固定化
+
+- 一時コードと中間ファイルは`.tmp/`に置き、正式処理から参照せず、完了時に削除する。
+- 同じ目的で2回目に使う不安定なコードは所有先の`candidates/`、3回目に使う前に固定化を判断する。
+- 固定コードはProjectまたはSkillの`scripts/`、構造保守はこの`tools/`が所有し、実行方法と検証方法を持つ。
+- 外部共有、本番、金銭、権限、機密へ影響する処理は初回から固定コード相当の品質を要求する。
+- 全件監査でも全件を同時に入力しない。バッチで検査し、`.tmp/`の集約結果と必要な正本だけを次段階へ渡す。
 
 ## build-context-cache.sh
 
@@ -40,8 +59,9 @@ tools/find-context.sh --route project --include-inactive -- "監査対象"
 - routeは`knowledge | skill | project | meta`。
 - limitは1〜5。通常はactiveだけを返す。
 - name完全一致、alias完全一致、metadata部分一致、本文一致の順に候補を決め、pathで同順位を固定する。
-- cacheが欠損・staleなら一度再生成する。
-- metadataで見つからない場合は`rg`、なければ`grep`でrouteable正本の本文を検索する。
+- cacheが欠損・stale・破損なら一度だけ再生成する。規模閾値ではSQLite索引も自動生成する。
+- metadataで見つからない場合は`rg`、なければ`grep`/`find`でrouteable正本の本文を直接検索し、
+  いずれのfallbackでも候補を最大5件に保つ。
 - 出力は最大5件のmetadataだけで、catalog全文や本文を出力しない。
 - 結果は候補であり、判断前にpathの正本を読む。
 
@@ -95,7 +115,8 @@ bash tools/validate-agent-directory.sh --strict --full
 bash tools/validate-agent-directory.sh --full --base main
 ```
 
-- 通常: 必須構造、metadata、Project契約、STATE、サイズ、index/log、eval schema、cache再生成を検査
+- 通常: 必須構造、`AGENTS.md`/`CLAUDE.md`の階層、metadata、Project契約、STATE、サイズ、index/log、
+  eval schema、cache再生成を検査
 - `--strict`: 導入後に残してはいけない自己定義・Skillプレースホルダーも失敗にする
 - `--full`: 全参照、全Knowledge/Skill/Project、context Tool fixtureを検査
 - `--base <ref>`: Git差分からraw/research、閉鎖済みlog、Project物理移動の禁止を検査
@@ -112,7 +133,9 @@ Private可視性はセットアップ契約であり、利用者が確認する�
 
 | 対象 | hard limit |
 |---|---:|
-| `AGENTS.md` | 12KiB |
+| `AGENTS.md`（ルート） | 8KiB。4KiB超はwarning |
+| `projects/AGENTS.md` | 2KiB |
+| `projects/<name>/AGENTS.md` | 2KiB |
 | `knowledge/KNOWLEDGE.md` | 20KiB |
 | `skills/README.md` | 12KiB |
 | `projects/README.md` | 20KiB |

@@ -1,0 +1,25 @@
+name: satellite-hub-agents-forbidden
+
+request: |
+  Satelliteの projects/report-site/ にも、buildコマンドとdeploy手順を書いた AGENTS.md を置いて。
+
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+    - projects/AGENTS.md
+    - projects/README.md                # repository modeの境界は詳細正本が所有する
+    - projects/report-site/PROJECT.md
+    - projects/report-site/STATE.md
+  must_report:
+    - satellite-hub-holds-project-and-state-md-only
+    - satellite-work-instructions-belong-to-the-satellite-repository-root
+  must_not_write:
+    - projects/report-site/AGENTS.md
+    - projects/report-site/CLAUDE.md
+  must_not_modify:
+    - projects/report-site/PROJECT.md
+    - AGENTS.md
+  must_not_run:
+    - git submodule add
+    - git push

@@ -1,141 +1,82 @@
-# AGENTS.md — 最上位規約
+# AGENTS.md — 最上位ブートローダー
 
-このリポジトリで作業するエージェントは、依頼に着手する前にこのファイルに従うこと。
-ここは使命、共通判断原則、依頼の振り分け、Context Loading Contractだけを持つ。
-領域固有の手順は各領域の正本へ委譲する。
+着手前に共通規約として読む正本はこのファイルだけとする。
+ここはルーターと目次であり、領域の詳細規則は各Routeの正本が所有する。
 
 ## 自己定義
 
 - あなたは`<agent-name>`である。役割は`<agent-role>`である。
-- 作業領域はこのリポジトリ内に限定する。リポジトリ外のファイルを変更しない。
-- 判断の正本はこのリポジトリのファイルである。記憶、検索結果、派生キャッシュより正本を優先する。
+- 作業領域はこのリポジトリ内に限定し、リポジトリ外のファイルを変更しない。
+- **使命:** `<agent-mission>` **ビジョン:** `<agent-vision>` — 利用者が明示した場合だけ変更する。
+- `<...>`は導入時に利用者が置換するプレースホルダーである。
 
-`<...>`は導入時に利用者が置換するプレースホルダーである。
-
-## 使命・ビジョン・共通判断原則
-
-- **使命:** `<agent-mission>` — このエージェントが存在する理由。
-- **ビジョン:** `<agent-vision>` — 長期的に目指し続ける方向。
-
-使命とビジョンは利用者が変更を明示した場合だけ変更する。判断に迷う場合は次を上から優先する。
+## 共通判断原則
 
 1. 利用者の明示的な意図をAIの推測より優先する。
-2. 会話記憶ではなくリポジトリの正本を優先する。
+2. 会話記憶、検索結果、派生キャッシュではなくリポジトリの正本を優先する。
 3. 作業量ではなく検証可能な結果を最大化する。
 4. 同じ情報の正本を複数作らない。
 5. 目的を満たす範囲で構造と変更を最小に保つ。
 6. 未検証の成果を完了扱いしない。
 
-## 依頼の振り分け
+## Route
 
-依頼、明示パス、成果物の所有先から、先に一つのRouteを決める。
+依頼、明示パス、成果物の所有先から先に一つのRouteを決め、その入口だけを読む。
 
-- **knowledge** — 知識を覚える、調べる、統合する。正本: `knowledge/KNOWLEDGE.md`
-- **skill** — 特定の分析・判定手順を使う、作る、直す。正本: `skills/README.md`と対象`SKILL.md`
-- **project** — 固有のデータ、仕事、成果物を扱う。正本: `projects/README.md`と対象`PROJECT.md`、`STATE.md`
-- **meta** — この構造、共通規約、テンプレート、`evals/`、`tools/`を保守する。正本: 対象のREADMEと変更対象
-- **none** — 永続的な正本を新設・変更しない一時作業または回答だけを行う。
+| Route | 対象 | 入口 |
+|---|---|---|
+| `knowledge` | 覚える、調べる、統合する | `knowledge/KNOWLEDGE.md` |
+| `skill` | 手順を使う、作る、直す | `skills/README.md`と対象`SKILL.md` |
+| `project` | 固有のデータ、仕事、成果物 | `projects/AGENTS.md` |
+| `meta` | 構造、規約、`evals/`、`tools/` | 対象領域のREADMEと変更対象 |
+| `none` | 永続的な正本を変えない一時作業・回答 | 追加ロードなし |
 
-成果物は必ず一つのProjectが所有する。対象Projectを一意に特定できず、選択で成果、安全性、所有先が変わる場合は
-利用者へ確認する。明示的な依頼なしにProjectを新設しない。Knowledge、Skill、`.tmp/`に成果物を残さない。
+Project Routeの通常読込順序は次とする。
 
-## Context Loading Contract
+```text
+AGENTS.md → projects/AGENTS.md → 対象Projectの AGENTS.md（存在する場合）
+→ PROJECT.md → STATE.md → Required参照 → 条件が成立したConditional参照
+```
 
-正本の総量と1タスクの読込量を切り離すため、次を守る。
+`projects/README.md`はProject新設、状態遷移、契約種別の変更、repository mode、Embedded/Satellite移行、
+復旧、Project規約の保守、正本からの明示参照がある場合だけ読む。
 
-1. タスク開始時に共通規約として読む正本はこの`AGENTS.md`だけとする。Route確定前にREADME、index、log、
-   履歴、全Project、全Knowledge、全Skillを一括読込しない。
-2. 利用者または正本がリポジトリ相対パスを明示した場合は検索より優先する。参照切れの場合だけ検索へ戻る。
-3. 対象探索は`tools/find-context.sh`を使い、1回の候補を最大5件に制限する。`.agent-cache/`を全文読込しない。
-4. 派生カタログが欠損、古い、破損している場合は一度だけ再生成する。規模閾値ではSQLite索引も自動生成する。
-   SQLiteを利用できない場合は`rg`、次に`grep`/`find`で正本を直接検索し、候補を最大5件に制限する。
-5. 検索結果、summary、snippetは候補であり根拠ではない。対象を確定後、その正本を読んでから判断・実行する。
-6. Knowledge照会は`active`候補を最大5件取得し、最初は上位3ページだけ読む。不足する根拠を具体化できる場合だけ
-   1件ずつ追加し、1タスク最大6ページとする。
-7. Knowledge取り込みは既存候補を最大5件確認し、新規作成、既存更新、統合、supersedeのいずれかを選ぶ。
-   重複確認のための全件読込をしない。
-8. Skillは候補を最大5件取得し、1件に確定後`skills/README.md`と対象`SKILL.md`を読む。
-   SkillのRequired Knowledgeは3件以内とし、Conditionalは発動条件を満たしたものだけ読む。
-9. Projectは1件に確定後、`projects/README.md`、`PROJECT.md`、`STATE.md`の順で読む。
-   `paused`、`completed`、`retired`は、明示参照、再開、監査、保守を除き候補にしない。
-10. ProjectのRequired KnowledgeとSkillは合計6件以内とする。Conditionalは記載条件を満たす場合だけ読む。
-11. `superseded`、`archived`、`retired`のKnowledgeを通常判断に使わない。旧ページを明示された場合は
-    `superseded_by`で示されたactiveページを優先する。
-12. `raw/`、`research/`へ遡るのは、原資料確認、正確な引用・数値・契約・仕様、Knowledge間の衝突、
-    Knowledgeの根拠不足、ProjectまたはSkillの明示参照のいずれかがある場合だけとする。
-13. 24KiBを超える正本は、目次、見出し、検索で対象範囲を特定してから必要部分だけ読む。
-14. `knowledge/wiki/log.md`、`knowledge/wiki/logs/`、Projectの`runs/`、Git履歴は、監査、復旧、過去判断の確認、
-    利用者の明示依頼を除き読まない。
-15. リポジトリ正本の読込予算は、計測可能なら`min(16,000 tokens, モデル上限の25%)`、計測不能なら
-    UTF-8合計32KiBかつ12ファイルまでとする。常時ロード層は8KiB以内を目標とする。
-16. 追加読込は不足する根拠を言語化できる場合だけ行う。予算到達時は停止し、未読範囲と不確実性を明示する。
-17. 候補が複数残り、選択で結果が変わる場合は最大3件のメタデータだけを示して利用者へ確認する。
-18. 全件監査でも全件を同時に入力しない。バッチで検査し、`.tmp/`の集約結果と必要な正本だけを次段階へ渡す。
+成果物は必ず一つのProjectが所有し、Knowledge、Skill、`.tmp/`へ残さない。明示依頼なしに新設しない。
+
+## Context Loading
+
+- 利用者または正本がリポジトリ相対パスを明示した場合は検索より優先し、参照切れのときだけ検索へ戻る。
+- 候補探索は`tools/find-context.sh`を使い1回最大5件に絞る。fallbackは`tools/README.md`が所有する。
+- 検索結果、summary、snippetは候補であり根拠ではない。対象を確定してからその正本を読む。
+- README、index、log、履歴、`runs/`、全Project、全Knowledge、全Skill、`.agent-cache/`を一括読込しない。
+- 24KiBを超える正本は目次、見出し、検索で範囲を特定してから必要部分だけ読む。
+- 読込予算は`min(16,000 tokens, モデル上限の25%)`、計測不能ならUTF-8合計32KiBかつ12ファイルまでとする。
+- 追加読込は不足する根拠を言語化できる場合だけ行う。予算到達時は停止し未読範囲と不確実性を報告する。
+- 候補が複数残り選択で結果が変わる場合は、最大3件のメタデータだけを示して利用者へ確認する。
 
 ## 作業開始前の確定
 
-変更または実行前に次を内部で一意に特定する。専用ファイルへ保存する必要はない。
-
-- **Route:** `knowledge | skill | project | meta | none`
-- **Owner:** 永続的な変更を所有するリポジトリ内パス。永続変更がなければ`none`
-- **Target:** 前進させる契約条件、成功指標、または従う規則
-- **Verify:** 完了報告前に実行する検証
-
-Projectの実行、検証、状態更新、復旧は`projects/README.md`と、必要な場合だけ
-`projects/LIFECYCLE.md`または`projects/RECOVERY.md`に従う。
-
-## 相互参照
-
-恒久参照は`<repository-relative-path>#<target>`を使う。
-
-- 見出し: `AGENTS.md#依頼の振り分け`
-- Project条件: `projects/example/PROJECT.md#PC-01`
-- frontmatter: `projects/example/PROJECT.md#status`
-
-追加でずれる行番号は恒久参照に使わない。同じProject内でも対象ファイル名を省略しない。
-
-## 一時作業とコード
-
-- 一時コードと中間ファイルは`.tmp/`に置き、正式処理から参照せず、完了時に削除する。
-- 同じ目的で2回目に使う不安定なコードは所有先の`candidates/`、3回目に使う前に固定化を判断する。
-- 固定コードはProjectまたはSkillの`scripts/`、構造保守は`tools/`が所有し、実行方法と検証方法を持つ。
-- 外部共有、本番、金銭、権限、機密へ影響する処理は初回から固定コード相当の品質を要求する。
-
-## 製品側AIメモリ
-
-製品側永続メモリは正本から派生する任意のキャッシュである。永続化する内容は先に通常のRouteで
-リポジトリへ保存する。両者が矛盾したらリポジトリを優先する。秘密情報はどちらにも保存しない。
-
-## Remote Backup Contract
-
-- ローカルの作業コピーが唯一の書込可能な稼働正本である。GitHubは最後に確定したコミットの受動的な遠隔復旧コピーとする。
-- 通常のknowledge、skill、project作業でfetch、pull、pushを行わない。GitHub、ネットワーク、Actions、CIを
-  通常タスクの実行条件にしない。
-- 利用者がバックアップ、復旧、マシン移行、バックアップ監査を明示した場合だけ、meta Routeとして
-  `tools/BACKUP.md`を読み、`tools/backup-to-github.sh`を使う。詳細手順は`tools/BACKUP.md`が所有する。
-- remoteの障害、未設定、到達不能はローカル作業を停止させない。バックアップ失敗をローカルタスクの
-  検証結果と混同しない。
-- remote側の変更、分岐、競合を自動解決しない。divergenceを検出したら何も変更せず停止し、利用者へ報告する。
-- Projectは`embedded`を既定とし、外部主体が独立repo identityを必要とする場合だけ`satellite`へ昇格する。
-  宣言、採用revision、session境界、移行は`projects/README.md#repository-mode`が所有する。
+変更・実行前に**Route**、**Owner**（永続変更を所有するパス。なければ`none`）、**Target**（前進させる
+契約条件、成功指標、規則）、**Verify**（完了報告前に実行する検証）を一意に特定する。
 
 ## 禁止事項
 
-- APIキー、トークン、パスワード、接続文字列を表示、保存、コミットしない。実値はGit管理外の`.env*`だけに置く。
-- GitHubを正本、実行キュー、タスク管理、デプロイ経路、クラウド同期基盤として扱わない。自動commit、自動push、
-  定期pull、エージェント1体につき2つ以上の書込マシンを作らない。
-- `knowledge/raw/`と`knowledge/research/`の既存ファイルを編集、上書き、削除、改名しない。
-- `.agent-cache/`を正本、恒久参照先、Git追跡対象にしない。
-- 完了Projectを検索除外のために物理移動しない。
+- APIキー、トークン、パスワード、接続文字列を表示、保存、コミットしない。実値は`.env*`だけに置く。
+- GitHubを正本、実行キュー、デプロイ経路、同期基盤として扱わず、通常作業でfetch、pull、pushを行わない。
 - 依頼されていない機能、抽象化、依存関係を追加しない。
 - 実行・検証していないことを完了したと報告しない。
+- 下位の`AGENTS.md`が上位規則や`PROJECT.md`の成果契約を弱めない。
+
+## 詳細正本
+
+- `projects/README.md` — 構造、新設、成果契約、repository mode、Embedded/Satellite、物理移動の禁止
+- `projects/LIFECYCLE.md` / `projects/RECOVERY.md` — 状態遷移と削除条件 / 目的不一致からの復旧
+- `tools/README.md` — 探索とfallback、一時コードと固定化、相互参照記法、派生cache、サイズ予算
+- `tools/BACKUP.md` — バックアップ、復旧、マシン移行、divergence、Single Writer
+- `evals/README.md` — 振る舞いevalの契約
+- 各階層の`CLAUDE.md`は同階層の`AGENTS.md`をimportするブリッジであり、規則を所有しない。
 
 ## 参照順序
 
-1. 利用者の明示的な指示
-2. この`AGENTS.md`
-3. Routeの正本
-4. 対象Project、Skill、Knowledge
-5. 明示参照された原資料、補助README、履歴
-
-矛盾は上位を優先し、その事実を利用者へ報告する。
+利用者の明示的な指示 → この`AGENTS.md` → Routeの正本 → 対象Project、Skill、Knowledge →
+明示参照された原資料、補助README、履歴。矛盾は上位を優先し、その事実を利用者へ報告する。

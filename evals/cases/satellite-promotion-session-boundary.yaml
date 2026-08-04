@@ -7,6 +7,7 @@ expect:
   route: project
   must_read:
     - AGENTS.md
+    - projects/AGENTS.md
     - projects/README.md
     - projects/report-site/PROJECT.md
     - projects/report-site/STATE.md

@@ -18,7 +18,9 @@ STATE.md   = 今どこにいるか。現在目標、合格条件、検証結果�
 2. 未指定なら`tools/find-context.sh --route project --limit 5 -- <query>`で候補を得る。
 3. 通常候補は`status: active`だけとする。`paused`、`completed`、`retired`は、明示参照、再開、監査、保守時だけ選ぶ。
 4. 候補メタデータだけで一意に選べず、選択で成果や安全性が変わる場合は利用者へ確認する。
-5. Projectを1件に確定してから、このREADME、`PROJECT.md`、`STATE.md`の順に読む。
+5. Projectを1件に確定してから、`projects/AGENTS.md`、対象Projectの`AGENTS.md`（存在する場合）、
+   `PROJECT.md`、`STATE.md`の順に読む。このREADMEは`projects/AGENTS.md`が列挙する条件に
+   該当する場合だけ読む。
 
 ## 基本構造
 
@@ -26,6 +28,8 @@ STATE.md   = 今どこにいるか。現在目標、合格条件、検証結果�
 project-name/
 ├── PROJECT.md
 ├── STATE.md
+├── AGENTS.md     # 任意。Project固有の作業差分がある場合だけ
+├── CLAUDE.md     # 上記AGENTS.mdがある場合のブリッジ。内容は @AGENTS.md
 ├── inputs/       # Project固有の入力。必要時のみ
 ├── outputs/      # 完成成果物。必要時のみ
 ├── runs/         # 保存価値のある詳細履歴。既定では読まない
@@ -34,7 +38,31 @@ project-name/
 ```
 
 全Projectに`PROJECT.md`と`STATE.md`を必須とする。新規作成は利用者の明示依頼後に
-`_template/`をコピーし、すべてのプレースホルダーを書き換える。
+`_template/`をコピーし、すべてのプレースホルダーを書き換える。`_template/`は`AGENTS.md`を持たず、
+新規Projectへ自動複製しない。
+
+## 個別ProjectのAGENTS.md
+
+任意の差分ファイルである。実際にProject固有の作業差分があるときだけ置き、全Projectへ一律生成しない。
+
+置いてよい内容:
+
+- Project固有のbuild、test、lintコマンドと検証順序
+- 特定パスの編集禁止、既存成果物の上書き禁止
+- 使用するランタイムやパッケージマネージャー
+- 本番送信、公開、課金、権限変更の承認ゲート
+- Project固有の生成物配置
+
+置いてはいけない内容:
+
+- 目的、最終ゴール、継続的使命、完了条件、成功指標、Project Criterion
+- 現在目標、現在状態、検証結果、現在有効な決定
+- KnowledgeとSkillの参照一覧、`PROJECT.md`や`STATE.md`の再掲
+
+2,048 bytes以内とし、`PROJECT.md`と`STATE.md`を正本として参照する。同階層に`@AGENTS.md`だけを持つ
+`CLAUDE.md`を必ず置き、`CLAUDE.md`だけを単独で置かない。Embedded Projectだけに置ける。
+Satellite Hub側は従来どおり`PROJECT.md`と`STATE.md`以外を持たず、Satellite固有の`AGENTS.md`は
+Satelliteリポジトリ本体のルートが所有する。
 
 ## Repository mode
 

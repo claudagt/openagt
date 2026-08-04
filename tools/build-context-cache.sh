@@ -122,10 +122,11 @@ append_frontmatter_item() {
 }
 
 meta_files=(
-  'AGENTS.md|root-policy|最上位規約とContext Loading Contract'
+  'AGENTS.md|root-policy|最上位ブートローダー、Route判定、Context Loading'
   'README.md|overview|人間向けの導入と全体像'
   'knowledge/KNOWLEDGE.md|knowledge-policy|Knowledge運用規約'
   'skills/README.md|skill-policy|Skill運用規約'
+  'projects/AGENTS.md|project-entry|Project作業共通の入口と読込順序'
   'projects/README.md|project-policy|Project運用規約'
   'projects/LIFECYCLE.md|project-lifecycle|Projectの状態遷移と削除条件'
   'projects/RECOVERY.md|project-recovery|Projectの目的不一致からの復旧'

@@ -65,7 +65,7 @@ expect:
 ```
 
 `must_read`は必須。その他はケースに関係するときだけ記す。`none`は永続的な正本を変更しないことを表し、
-`.tmp/`は独立Routeではない。参照は`AGENTS.md#相互参照`に従い、`=<期待値>`はeval固有の表記とする。
+`.tmp/`は独立Routeではない。参照は`tools/README.md#相互参照`に従い、`=<期待値>`はeval固有の表記とする。
 
 ## Context trace
 
@@ -90,7 +90,11 @@ expect:
 
 ## Projectケースの最低条件
 
-- `AGENTS.md`、`projects/README.md`、対象`PROJECT.md`、`STATE.md`を読む。
+- `AGENTS.md`、`projects/AGENTS.md`、対象`PROJECT.md`、`STATE.md`を読む。対象Projectに`AGENTS.md`が
+  あれば`PROJECT.md`より先に読む。
+- 通常のProject実行で`projects/README.md`を無条件に読まない。新設、状態遷移、契約種別の変更、
+  repository mode、移行、復旧、規約保守、明示参照のいずれかがある場合だけ読む。
+- 個別Projectの`AGENTS.md`へ成果契約や現在状態を書かず、`PROJECT.md`と`STATE.md`へ書く。
 - 現在目標と検証結果が`PROJECT.md#PC-xx`または`PROJECT.md#status`を参照する。
 - Requiredだけを読み、条件未成立のConditionalを読まない。
 - 個別タスクで成果契約を変更しない。状態変化は同じ作業内で`STATE.md`へ反映する。

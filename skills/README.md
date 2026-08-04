@@ -37,14 +37,15 @@ aliases: [別名]
 - **Required** — 実行時に必ず読む。最大3件。リポジトリ相対パスで指定する。
 - **Conditional** — `条件:`と`参照:`を組にし、条件成立時だけ読む。
 
-通常判断ではactive Knowledgeだけを使う。原資料へ遡る条件と総読込予算は
-`AGENTS.md#Context Loading Contract`に従う。
+通常判断ではactive Knowledgeだけを使う。原資料へ遡る条件は`knowledge/KNOWLEDGE.md#原資料へ遡る条件`、
+総読込予算は`AGENTS.md#Context Loading`が所有する。
 
 ## 新規作成・更新
 
 - `_template/`をコピーし、frontmatter、発動条件、手順、出力契約、Knowledge参照を置換する。
 - `_template/`自体はSkillではない。
 - 利用者向け能力のコードはSkillの`candidates/`または`scripts/`が所有する。
+  一時コードから固定コードへの段階は`tools/README.md#一時作業と固定化`に従う。
 - 詳細方法は`references/`、再利用テンプレートは`assets/`へ委譲し、`SKILL.md`を入口として短く保つ。
 - `SKILL.md`は20KiBを超えない。超える詳細は明示参照された補助ファイルへ分ける。
 

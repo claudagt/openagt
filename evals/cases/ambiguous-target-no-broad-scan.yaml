@@ -12,6 +12,6 @@ expect:
   max_read_files: 12
   must_read:
     - AGENTS.md
-    - projects/README.md
+    - projects/AGENTS.md
   must_report:
     - candidate-metadata-and-clarification

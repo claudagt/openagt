@@ -8,7 +8,11 @@ Knowledge、Skill、Projectを正本として育てながら、1タスクの読�
 A local-first repository template for one long-running AI agent. Canonical Markdown and source files may grow,
 while deterministic, status-aware retrieval keeps each task's working context bounded.
 
-- `AGENTS.md` — mission, routing, common policy, and the Context Loading Contract
+`AGENTS.md` is a bootloader and router, not an encyclopedia. It resolves one Route, then hands off to the
+canonical file that owns that domain's rules. Instructions live in three layers: the root router, the shared
+`projects/AGENTS.md` entry, and an optional per-Project `AGENTS.md` that carries only local work differences.
+
+- `AGENTS.md` — self definition, mission, routing table, minimal context loading, prohibitions, index
 - `knowledge/` — immutable records and reusable source/topic knowledge
 - `skills/` — reusable procedures and output contracts
 - `projects/` — outcome contracts, current state, inputs, outputs, and run evidence
@@ -47,16 +51,56 @@ never the source of truth.
 |---|---|---|
 | `knowledge` | 記憶、調査、統合 | `knowledge/KNOWLEDGE.md`と選択したKnowledge |
 | `skill` | 分析・判定手順 | `skills/README.md`と対象`SKILL.md` |
-| `project` | 固有の仕事・成果物 | `projects/README.md`、対象`PROJECT.md`、`STATE.md` |
+| `project` | 固有の仕事・成果物 | `projects/AGENTS.md`、対象`PROJECT.md`、`STATE.md` |
 | `meta` | 規約、テンプレート、eval、tool | 対象領域のREADMEと変更対象 |
 | `none` | 永続変更のない回答・一時作業 | 必要最小限。中間物は`.tmp/` |
+
+## AGENTS.mdの三層
+
+`AGENTS.md`は百科事典ではなく、ブートローダー兼ルーター兼目次である。詳細規則は各Routeの正本が所有し、
+ルートには発動条件と参照先だけを残す。`CLAUDE.md`は同階層の`AGENTS.md`をimportするブリッジであり、
+規則を所有しない。
+
+| 層 | ファイル | 所有する内容 |
+|---|---|---|
+| ルート | `AGENTS.md` | 自己定義、使命、共通判断原則、Route判定、最小Context Loading、禁止事項、目次 |
+| Project共通 | `projects/AGENTS.md` | 全Project共通の着手・実行・完了手順だけ |
+| Project個別 | `projects/<name>/AGENTS.md` | 任意。そのProject固有の作業差分だけ |
+
+通常のProjectタスクの読込順序は次とする。
+
+```text
+AGENTS.md → projects/AGENTS.md → 対象Projectの AGENTS.md（存在する場合）
+→ PROJECT.md → STATE.md → Required参照 → 条件が成立したConditional参照
+```
+
+`projects/README.md`は毎回読む必須正本ではない。Project新設、状態遷移、finite/continuous契約の変更、
+repository mode、Embedded/Satellite移行、構造の保守、復旧、Project規約の変更、正本からの明示参照が
+ある場合だけ読む。
+
+個別Projectの`AGENTS.md`は任意の差分ファイルであり、全Projectへ一律生成しない。`_template/`にも置かず、
+新規Projectへ自動複製しない。責務は次のとおり分ける。
+
+```text
+<name>/AGENTS.md = そのProjectだけの作業差分（コマンド、編集禁止、承認ゲート、検証順序）
+PROJECT.md       = 目的、成果契約、固定判断、品質、検証方法
+STATE.md         = 現在目標、現在状態、検証証拠、ブロッカー、次の一手
+```
+
+個別`AGENTS.md`を置く場合は同階層に`@AGENTS.md`だけの`CLAUDE.md`を必ず置き、`CLAUDE.md`だけを
+単独で置かない。Embedded Projectだけに置け、Satellite Hub側は従来どおり`PROJECT.md`と`STATE.md`以外を
+持たない。Satellite固有の`AGENTS.md`はSatelliteリポジトリ本体のルートが所有する。
+
+サイズ予算はルート`AGENTS.md`が8KiB（4KiB超はwarning）、`projects/AGENTS.md`と個別`AGENTS.md`が
+各2KiBである。validatorはこの3層の存在、サイズ、`CLAUDE.md`ブリッジ、Route表と入口ファイルの実在、
+個別`AGENTS.md`が契約・状態見出しを持たないこと、Satellite Hubの制限を検査する。
 
 ## 構造
 
 ```text
 agent-directory/
-├── AGENTS.md
-├── CLAUDE.md
+├── AGENTS.md                     # ブートローダー兼ルーター兼目次
+├── CLAUDE.md                     # @AGENTS.md
 ├── README.md
 ├── .agent-cache/                 # Git管理外の派生物
 ├── knowledge/
@@ -74,10 +118,17 @@ agent-directory/
 │   ├── README.md
 │   └── _template/
 ├── projects/
-│   ├── README.md
+│   ├── AGENTS.md                 # Project作業共通の薄い入口
+│   ├── CLAUDE.md                 # @AGENTS.md
+│   ├── README.md                 # Projectシステムの詳細正本。条件付きで読む
 │   ├── LIFECYCLE.md              # 状態遷移時だけ読む
 │   ├── RECOVERY.md               # 目的不一致の復旧時だけ読む
-│   └── _template/
+│   ├── _template/                # PROJECT.mdとSTATE.mdだけ。AGENTS.mdは持たない
+│   └── <project-name>/
+│       ├── AGENTS.md             # 任意。Project固有の作業差分がある場合だけ
+│       ├── CLAUDE.md             # 上記がある場合の @AGENTS.md ブリッジ
+│       ├── PROJECT.md
+│       └── STATE.md
 ├── evals/
 │   ├── README.md
 │   ├── cases/
@@ -106,16 +157,18 @@ tools/find-context.sh --route project --include-inactive -- "site migration"
 name/alias/description/path一致、本文一致の順に決定する。検索結果は候補であり、選択後に正本を読む。
 
 `.agent-cache/catalog.tsv`と`manifest.tsv`はfrontmatterと実ファイルから生成される。
-欠損・stale時はToolが一度再生成する。生成不能時の正本検索fallbackも`AGENTS.md`で規定する。
+欠損・stale時はToolが一度再生成する。生成不能時の正本検索fallbackは[tools/README.md](tools/README.md)が所有する。
 
-## Context Loading Contractの既定値
+## Context Loadingの既定値
 
-- 候補: 1検索最大5件
-- Knowledge: 初回3ページ、追加後最大6ページ
-- Project Required参照: KnowledgeとSkillの合計6件
-- Skill Required Knowledge: 3件
-- 正本の合計: 32KiB・12ファイル、または16,000 token・モデル上限25%の小さい方
-- 24KiB超のファイル: 見出し・検索で範囲を絞って部分読込
+ルート`AGENTS.md`は予算と共通規則だけを持ち、領域別の上限は各Routeの正本が所有する。
+
+- 候補: 1検索最大5件（`AGENTS.md`）
+- 正本の合計: 32KiB・12ファイル、または16,000 token・モデル上限25%の小さい方（`AGENTS.md`）
+- 24KiB超のファイル: 見出し・検索で範囲を絞って部分読込（`AGENTS.md`）
+- Knowledge: 初回3ページ、追加後最大6ページ（`knowledge/KNOWLEDGE.md`）
+- Skill Required Knowledge: 3件（`skills/README.md`）
+- Project Required参照: KnowledgeとSkillの合計6件（`projects/README.md`）
 - log、closed logs、runs、Git履歴: 通常0件
 
 ## 検証
@@ -126,8 +179,9 @@ bash tools/validate-agent-directory.sh --strict --full
 bash tools/validate-agent-directory.sh --full --base main
 ```
 
-validatorは構造、frontmatter、Project契約、状態、参照上限、サイズ、index、log、eval schema、
-派生cacheの決定的再生成、禁止されたGit追跡を検査する。`--base`は不変原資料や閉鎖済みlogの変更も検査する。
+validatorは構造、`AGENTS.md`と`CLAUDE.md`の三層、frontmatter、Project契約、状態、参照上限、サイズ、
+index、log、eval schema、派生cacheの決定的再生成、禁止されたGit追跡を検査する。
+`--base`は不変原資料や閉鎖済みlogの変更も検査する。
 
 ## ローカル正本とGitHubバックアップ
 

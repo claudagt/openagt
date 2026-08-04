@@ -9,6 +9,7 @@ expect:
   route: project
   must_read:
     - AGENTS.md
+    - projects/AGENTS.md
     - projects/README.md
     - projects/site-migration/PROJECT.md
     - projects/site-migration/STATE.md

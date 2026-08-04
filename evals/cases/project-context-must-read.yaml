@@ -9,10 +9,13 @@ expect:
   route: project
   must_read:
     - AGENTS.md
-    - projects/README.md
+    - projects/AGENTS.md
+    - projects/market-scan/AGENTS.md
     - projects/market-scan/PROJECT.md
     - projects/market-scan/STATE.md
     - projects/market-scan/inputs/quarter.csv
+  must_not_read:
+    - projects/README.md    # 通常のProject実行では詳細正本を無条件に読まない
   must_update:
     - projects/market-scan/STATE.md
   may_write:
