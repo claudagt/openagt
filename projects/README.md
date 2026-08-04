@@ -10,7 +10,8 @@ STATE.md   = 今どこにいるか。現在目標、合格条件、検証結果�
 ```
 
 別の`GOAL.md`、`STATUS.md`、`TODO.md`を作らない。詳細履歴は`runs/`またはGit履歴へ置く。
-成果物はProjectが所有し、再利用可能な知見だけを`knowledge/`へ同期する。
+成果物は必ず一つのProjectが所有し、Knowledge、Skill、`.tmp/`へ残さない。
+再利用可能な知見だけを`knowledge/`へ同期する。
 
 ## 対象の選択
 

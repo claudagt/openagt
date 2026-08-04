@@ -87,12 +87,12 @@ PROJECT.md       = 目的、成果契約、固定判断、品質、検証方法
 STATE.md         = 現在目標、現在状態、検証証拠、ブロッカー、次の一手
 ```
 
-個別`AGENTS.md`を置く場合は同階層に`@AGENTS.md`だけの`CLAUDE.md`を必ず置き、`CLAUDE.md`だけを
-単独で置かない。Embedded Projectだけに置け、Satellite Hub側は従来どおり`PROJECT.md`と`STATE.md`以外を
+個別`AGENTS.md`を置く場合は同階層に`CLAUDE.md`を必ず置き、`CLAUDE.md`だけを単独で置かない。
+`CLAUDE.md`の中身は`@AGENTS.md`の一行だけとし、validatorはファイル全体の完全一致で検査する。Embedded Projectだけに置け、Satellite Hub側は従来どおり`PROJECT.md`と`STATE.md`以外を
 持たない。Satellite固有の`AGENTS.md`はSatelliteリポジトリ本体のルートが所有する。
 
 サイズ予算はルート`AGENTS.md`が8KiB（4KiB超はwarning）、`projects/AGENTS.md`と個別`AGENTS.md`が
-各2KiBである。validatorはこの3層の存在、サイズ、`CLAUDE.md`ブリッジ、Route表と入口ファイルの実在、
+各2KiBである。validatorはこの3層の存在、サイズ、`CLAUDE.md`の完全一致、Route表と入口ファイルの実在、
 個別`AGENTS.md`が契約・状態見出しを持たないこと、Satellite Hubの制限を検査する。
 
 ## 構造

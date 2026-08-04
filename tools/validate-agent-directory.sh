@@ -277,14 +277,17 @@ check_size_warning() {
   fi
 }
 
+# CLAUDE.mdは@AGENTS.mdだけを持つブリッジであり、独自規則を所有してはならない。
 validate_claude_bridge() {
   local agents_file="$1"
   local claude_file="${agents_file%/AGENTS.md}/CLAUDE.md"
   if [[ ! -f "$claude_file" ]]; then
     fail "$(relative_path "$agents_file") requires a sibling CLAUDE.md importing @AGENTS.md"
-    return
+    return 0
   fi
-  require_fixed_line "$claude_file" '@AGENTS.md'
+  if ! printf '@AGENTS.md\n' | cmp -s - "$claude_file"; then
+    fail "$(relative_path "$claude_file") must contain only @AGENTS.md and own no rules"
+  fi
 }
 
 # Project差分ファイルは成果契約と現在状態を所有してはならない。
