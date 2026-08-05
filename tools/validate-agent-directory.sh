@@ -1,12 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 物理パスへ正規化する。論理pwdはgit rev-parse --show-toplevelと一致せず検査がskipされる。
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 failures=0
 warnings=0
 strict=false
 full=false
 base_ref=''
+
+# bash 3.2を互換性の床として構文検査する。/bin/bashが無い環境ではPATHのbashへfallbackする。
+syntax_bash='bash'
+if [[ -x /bin/bash ]]; then
+  syntax_bash='/bin/bash'
+fi
+
+# set -e中断でも一時ファイルを残さないよう、生成paths を一括で回収する。
+cleanup_paths=()
+cleanup_tmp_paths() {
+  local cleanup_path
+  (( ${#cleanup_paths[@]} > 0 )) || return 0
+  for cleanup_path in "${cleanup_paths[@]}"; do
+    rm -rf "$cleanup_path"
+  done
+}
+trap cleanup_tmp_paths EXIT
 
 # 固定Wiki Markdownは大文字名を正本とする。利用者が作るsources/topicsページは対象外。
 knowledge_index_path='knowledge/wiki/INDEX.md'
@@ -220,6 +238,9 @@ check_size() {
   bytes="$(wc -c < "$file" | tr -d ' ')"
   if (( bytes > hard_limit )); then
     fail "$(relative_path "$file") exceeds $label hard limit: ${bytes}B > ${hard_limit}B"
+  elif (( bytes * 10 > hard_limit * 9 )); then
+    # 超過前の代謝を促す早期警告。tools/TOOLS.md#超過時の標準処理を自律実行する合図。
+    warn "$(relative_path "$file") is above 90% of the $label hard limit: ${bytes}B / ${hard_limit}B; delegate details before it overflows"
   fi
 }
 
@@ -849,7 +870,7 @@ validate_knowledge_page() {
     "$knowledge_source_template_path"|"$knowledge_topic_template_path") ;;
     *)
       case "$filename" in
-        *[!a-z0-9.-]*|_*|*[A-Z]*) fail "$(relative_path "$page") filename must use lowercase kebab-case" ;;
+        *[!a-z0-9.-]*) fail "$(relative_path "$page") filename must use lowercase kebab-case" ;;
       esac
       ;;
   esac
@@ -1123,6 +1144,8 @@ validate_repositories_registry() {
   rel_ignore="$(relative_path "$scope_ignore")"
   names_file="$(mktemp "${TMPDIR:-/tmp}/agent-registry-names.XXXXXX")"
   ignore_file="$(mktemp "${TMPDIR:-/tmp}/agent-registry-ignore.XXXXXX")"
+  # set -e中断時もEXIT trapが回収できるよう登録する。正常経路のrmはそのまま。
+  cleanup_paths+=("$names_file" "$ignore_file")
 
   grep -Fqx '# REPOSITORIES — Independent Project Registry' "$scope_registry" || \
     fail "$rel_registry must open with the fixed heading: # REPOSITORIES — Independent Project Registry"
@@ -1151,7 +1174,7 @@ validate_repositories_registry() {
         while IFS= read -r tracked_entry; do
           [[ -n "$tracked_entry" ]] || continue
           fail "the root repository must not track Independent Project contents: $tracked_entry"
-        done < <(printf '%s\n' "$tracked_files_snapshot" | grep -E "^projects/$entry_name/" | head -n 5 || true)
+        done < <(printf '%s\n' "$tracked_files_snapshot" | grep -E "^projects/${entry_name//./\\.}/" | head -n 5 || true)
       fi
     fi
   done < <(registry_records "$scope_registry")
@@ -1278,7 +1301,7 @@ if [[ -d "$repo_root/knowledge/wiki/logs" ]]; then
   while IFS= read -r -d '' log_file; do
     filename="${log_file##*/}"
     [[ "$filename" == '.gitkeep' ]] && continue
-    if [[ ! "$filename" =~ ^[0-9]{4}-Q[1-4](-[0-9]{2})?\.md$ ]]; then
+    if [[ ! "$filename" =~ ^[0-9]{4}-Q[1-4](-[0-9]{2,})?\.md$ ]]; then
       fail "$(relative_path "$log_file") has an invalid closed-log filename"
     fi
   done < <(find "$repo_root/knowledge/wiki/logs" -type f -print0)
@@ -1350,7 +1373,11 @@ while IFS= read -r -d '' case_file; do
   fi
 done < <(find "$repo_root/evals/cases" -type f -name '*.yaml' -print0)
 
-duplicate_case_names="$(sed -n 's/^name: //p' "$repo_root"/evals/cases/*.yaml | LC_ALL=C sort | uniq -d)"
+# globが空でもsedの生エラーで異常終了しないよう先に存在を確かめる。
+duplicate_case_names=''
+if compgen -G "$repo_root/evals/cases/*.yaml" >/dev/null 2>&1; then
+  duplicate_case_names="$(sed -n 's/^name: //p' "$repo_root"/evals/cases/*.yaml | LC_ALL=C sort | uniq -d)"
+fi
 [[ -z "$duplicate_case_names" ]] || fail "duplicate eval case names: $duplicate_case_names"
 
 if ! grep -Eq '    - projects/.+/STATE\.md#現在の目標=.+' "$repo_root/evals/cases/project-state-closeout.yaml"; then
@@ -1371,7 +1398,7 @@ if [[ -d "$repo_root/.github/workflows" ]]; then
 fi
 if [[ -f "$backup_tool" ]]; then
   [[ -x "$backup_tool" ]] || fail 'tools/backup-to-github.sh is not executable'
-  bash -n "$backup_tool" 2>/dev/null || fail 'tools/backup-to-github.sh fails bash -n'
+  "$syntax_bash" -n "$backup_tool" 2>/dev/null || fail 'tools/backup-to-github.sh fails bash -n'
 
   allowed_git_subcommands='cat-file check-ref-format config diff fetch for-each-ref init ls-files ls-remote merge-base push rev-list rev-parse symbolic-ref'
   while IFS= read -r subcommand; do
@@ -1416,7 +1443,7 @@ fi
 materialize_tool="$repo_root/tools/materialize-project-repositories.sh"
 if [[ -f "$materialize_tool" ]]; then
   [[ -x "$materialize_tool" ]] || fail 'tools/materialize-project-repositories.sh is not executable'
-  bash -n "$materialize_tool" 2>/dev/null || \
+  "$syntax_bash" -n "$materialize_tool" 2>/dev/null || \
     fail 'tools/materialize-project-repositories.sh fails bash -n'
   for forbidden_flag in --force --mirror --hard; do
     if grep -Fq -- "$forbidden_flag" "$materialize_tool"; then
@@ -1520,7 +1547,9 @@ log_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-log.XXXXXX")"
 backup_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-backup.XXXXXX")"
 malformed_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-malformed.XXXXXX")"
 malformed_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-malformed-cache.XXXXXX")"
-trap 'rm -rf "$cache_test_dir" "$fixture_cache_dir" "$sqlite_fixture_cache_dir" "$log_fixture_dir" "$backup_fixture_dir" "$malformed_fixture_dir" "$malformed_cache_dir"' EXIT
+# 回収は冒頭のEXIT trap（cleanup_tmp_paths）が一括で行う。ここでtrapを上書きしない。
+cleanup_paths+=("$cache_test_dir" "$fixture_cache_dir" "$sqlite_fixture_cache_dir" \
+  "$log_fixture_dir" "$backup_fixture_dir" "$malformed_fixture_dir" "$malformed_cache_dir")
 if ! AGENT_CACHE_DIR="$cache_test_dir" bash "$repo_root/tools/build-context-cache.sh" >/dev/null; then
   fail 'build-context-cache.sh failed to generate a cache'
 elif ! AGENT_CACHE_DIR="$cache_test_dir" bash "$repo_root/tools/build-context-cache.sh" --check >/dev/null; then

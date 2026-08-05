@@ -145,9 +145,11 @@ repository_url_is_rejected() {
   return 1
 }
 
-# 登録時に拒否しているが、報告経路でもuserinfoのpassword、query、fragmentを伏せる。
+# 登録時に拒否しているが、報告経路では`://user:pass@`とscp形式`user:pass@host`の
+# password、query、fragmentを伏せる。cloneの実origin URLは登録検証を通っていない。
 redact_repository_url() {
-  printf '%s' "$1" | sed -E 's|(://[^/:@]+):[^/@]*@|\1:***@|; s|\?.*$|?***|; s|#.*$|#***|'
+  printf '%s' "$1" | \
+    sed -E 's|(://[^/:@]+):[^/@]*@|\1:***@|; s|^([^/:@]+):[^/@]+@|\1:***@|; s|\?.*$|?***|; s|#.*$|#***|'
 }
 
 # 認証プロンプトで停止しないよう、失敗出力から原因を分類する。

@@ -12,6 +12,7 @@ dry_run=false
 root_only=false
 independent_verify_root=''
 independent_index=0
+verify_repo=''
 # ローカルbare remoteは隔離fixture検証だけで許可する。通常運用では設定しない。
 allow_local_repository_url="${AGENT_ALLOW_LOCAL_REPOSITORY_URL:-false}"
 
@@ -144,9 +145,11 @@ repository_url_is_rejected() {
   return 1
 }
 
-# 登録時に拒否しているが、DETAIL行でもuserinfoのpassword、query、fragmentを伏せる。
+# 登録時に拒否しているが、DETAIL行では`://user:pass@`とscp形式`user:pass@host`の
+# password、query、fragmentを伏せる。cloneの実origin URLは登録検証を通っていない。
 redact_repository_url() {
-  printf '%s' "$1" | sed -E 's|(://[^/:@]+):[^/@]*@|\1:***@|; s|\?.*$|?***|; s|#.*$|#***|'
+  printf '%s' "$1" | \
+    sed -E 's|(://[^/:@]+):[^/@]*@|\1:***@|; s|^([^/:@]+):[^/@]+@|\1:***@|; s|\?.*$|?***|; s|#.*$|#***|'
 }
 
 cleanup() {
@@ -364,8 +367,6 @@ verify_independent_revision() {
   head_sha="$(git -C "$target" rev-parse --verify --quiet HEAD || true)"
   [[ "$head_sha" == "$state_revision" ]] || blocked 'independent-head-not-adopted' \
     "$project_dir HEAD is ${head_sha:-none}, but $registry_path adopts $state_revision"
-
-  printf '%s' "$verify_repo"
 }
 
 verify_local_refs_backed_up() {
@@ -381,8 +382,9 @@ verify_local_refs_backed_up() {
       "could not read local refs from $project_dir" "$fetch_output"
   fi
 
+  # rev-list自体の失敗はfail-closed（未公開扱い）に倒す。'0'は復旧可能の誤申告になる。
   unpublished="$(git -C "$verify_repo" rev-list --count refs/childhead \
-    --not --remotes=upstream --tags 2>/dev/null || printf '0')"
+    --not --remotes=upstream --tags 2>/dev/null || printf '1')"
   [[ "$unpublished" == '0' ]] || blocked 'independent-unpushed-commit' \
     "$project_dir HEAD holds $unpublished commit(s) absent from its remote"
 
@@ -608,8 +610,10 @@ else
     audit_revision="${independent_revisions[$audit_index]}"
     validate_independent_attachment "$audit_name" "$audit_url"
     audit_independent_repository "$audit_name"
-    audit_verify_repo="$(verify_independent_revision "$audit_name" "$audit_url" "$audit_revision")"
-    verify_local_refs_backed_up "$audit_name" "$audit_verify_repo"
+    # コマンド置換で呼ぶと一時ディレクトリの状態が親へ伝播せずcleanup trapが空振りする。
+    # 直接呼び、結果はグローバルverify_repoで受ける。
+    verify_independent_revision "$audit_name" "$audit_url" "$audit_revision"
+    verify_local_refs_backed_up "$audit_name" "$verify_repo"
     note "independent repository verified: $(redact_repository_url "$audit_url")@$audit_revision at projects/$audit_name"
     audit_index=$((audit_index + 1))
   done

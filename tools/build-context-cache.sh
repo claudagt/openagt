@@ -9,6 +9,10 @@ sqlite_knowledge_threshold="${AGENT_SQLITE_KNOWLEDGE_THRESHOLD:-1000}"
 sqlite_catalog_threshold="${AGENT_SQLITE_CATALOG_THRESHOLD:-5000}"
 mode='build'
 
+if (( $# > 1 )); then
+  printf 'Usage: %s [--check|--check-routing]\n' "${0##*/}" >&2
+  exit 2
+fi
 case "${1:-}" in
   '') ;;
   --check) mode='check' ;;
@@ -52,7 +56,7 @@ clean_field() {
 }
 
 normalize_aliases() {
-  sed -E 's/^\[//; s/\]$//; s/"//g; s/[[:space:]]*,[[:space:]]*/|/g' | clean_field
+  sed -E "s/^\[//; s/\]$//; s/[\"']//g; s/[[:space:]]*,[[:space:]]*/|/g" | clean_field
 }
 
 content_hash() {
@@ -355,7 +359,7 @@ if (( knowledge_rows >= sqlite_knowledge_threshold || catalog_rows >= sqlite_cat
     search_backend='sqlite-fts5'
   else
     search_backend='rg-fallback'
-    printf 'WARN: scale threshold reached, but sqlite3 with FTS5 trigram is unavailable; using lexical fallback\n' >&2
+    printf 'WARN: scale threshold reached, but sqlite3 with FTS5 trigram is unavailable; recording search_backend=rg-fallback\n' >&2
   fi
 fi
 

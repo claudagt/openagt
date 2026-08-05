@@ -44,6 +44,9 @@ if [[ ! "$limit" =~ ^[1-5]$ ]]; then
   exit 2
 fi
 query="$*"
+# 前後の空白を除去する。空白だけのクエリは全件一致になるため拒否する。
+query="${query#"${query%%[![:space:]]*}"}"
+query="${query%"${query##*[![:space:]]}"}"
 if [[ -z "$query" || "$query" == *$'\t'* || "$query" == *$'\n'* ]]; then
   printf 'ERROR: query must be one non-empty line without tabs\n' >&2
   exit 2
@@ -153,6 +156,8 @@ fi
 
 if [[ ! -s "$ranked" ]]; then
   read -r -a query_words <<< "$query"
+  # bash 3.2のset -u対策。検証済みだが空展開に到達しないよう件数で守る。
+  (( ${#query_words[@]} > 0 )) || query_words=("$query")
   while IFS=$'\x1f' read -r area kind status name aliases description item_mode path hash; do
     [[ "$area" == "$route" ]] || continue
     if [[ "$include_inactive" != true && "$status" != 'active' ]]; then

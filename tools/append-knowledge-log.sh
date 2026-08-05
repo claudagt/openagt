@@ -33,6 +33,13 @@ if [[ ! "$record_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
   printf 'ERROR: --date must use YYYY-MM-DD\n' >&2
   exit 2
 fi
+# 形だけでなく範囲も検査する。範囲外の月はQ5のような不正なarchive名を作る。
+date_month=$(( 10#${record_date:5:2} ))
+date_day=$(( 10#${record_date:8:2} ))
+if (( date_month < 1 || date_month > 12 || date_day < 1 || date_day > 31 )); then
+  printf 'ERROR: --date has an out-of-range month or day: %s\n' "$record_date" >&2
+  exit 2
+fi
 case "$record_type" in
   ingest|lint|migration|supersede|archive|retire) ;;
   *) printf 'ERROR: unsupported log type: %s\n' "$record_type" >&2; exit 2 ;;
