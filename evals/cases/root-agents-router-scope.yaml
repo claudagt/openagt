@@ -13,8 +13,9 @@ expect:
   must_report:
     - root-agents-md-is-a-bootloader-and-router
     - detail-rules-belong-to-the-route-canon
-    - root-agents-md-keeps-only-the-root-repository-push-prohibition
-    - independent-remote-boundary-stays-in-projects-projects-md
+    - root-agents-md-keeps-the-autonomy-default-and-the-four-exception-categories
+    - root-agents-md-keeps-only-the-backup-remote-push-prohibition
+    - independent-remote-boundary-and-push-policy-stay-in-projects-projects-md
     - root-size-budget-4096-warning-8192-fail
   must_run:
     - bash tools/validate-agent-directory.sh
@@ -26,4 +27,6 @@ expect:
   must_preserve:
     - AGENTS.md#Route
     - AGENTS.md#Context Loading
+    - AGENTS.md#自律実行
+    - AGENTS.md#人間へ上げる例外
     - AGENTS.md#禁止事項

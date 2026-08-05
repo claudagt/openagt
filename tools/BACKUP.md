@@ -1,7 +1,8 @@
 # BACKUP.md — 遠隔バックアップと復旧
 
-バックアップ、復旧、マシン移行、バックアップ監査を利用者が明示した場合だけ、meta Routeとして読む。
-通常のKnowledge、Skill、Project作業では読まない。
+backup trigger、remote分類、失敗、divergence、復旧、マシン移行、バックアップ監査を扱うときに読む。
+通常のKnowledge、Skill、Project作業では読まない。設定済みの自動backupを実行するだけなら、
+`tools/TOOLS.md#backup-to-github.sh`の1項目で足り、このファイルの全文読込を必要としない。
 
 ## 目的と非ゴール
 
@@ -12,7 +13,7 @@
 
 - GitHubを正本、実行キュー、タスク管理、デプロイ経路、クラウド同期基盤にすること
 - 複数マシンの双方向同期と自動競合解決
-- GitHub Actions、CI、cron、launchd、Git hook、常駐daemonによる自動バックアップ
+- GitHub Actions、CI、cron、launchd、Git hook、常駐daemonによる時刻駆動のバックアップ
 - バックアップ履歴の正本、`BACKUP_STATUS.md`、remote SHAを保存する追跡ファイル
 - 秘密情報、`.tmp/`、`.agent-cache/`、製品側AIメモリの遠隔保存
 
@@ -26,26 +27,16 @@
 - **Agent Workspace** — agent-directoryのツリー全体。root repositoryと、materializeされた
   全Independent repositoryを含む。
 - **root repository** — Agent Workspace rootのGit。Embedded Projectの履歴とattachment registryを持つ。
-- **Embedded Project** — `projects/<name>/**`をroot Gitが所有する通常Project。
-- **Independent Repository** — `projects/REPOSITORIES.md`へ登録され、`projects/<name>/`自体を
-  top-levelとして通常cloneされた独立リポジトリ。契約、状態、docs、コード、Git履歴をすべて持つ。
-  昇格条件と登録形式は`projects/PROJECTS.md#Attachment`が所有する。
+- **Embedded / Independent** — attachmentの区別。定義、昇格条件、登録形式は
+  `projects/PROJECTS.md#Attachment`が所有する。
 - **Materialization** — 登録と採用revisionから`projects/<name>/`のcloneを再現すること。
 - **Partial Materialization** — 一部だけが存在する状態。復旧途中のdegraded stateとしてだけ許し、
   workspace全体のbackup成功として扱わない。
-- **Single Writer** — Gitリポジトリ単位の制約。同じrepositoryへ同時に書き込むWriterを持たない。
 
 ## バックアップ対象
 
-`main`のコミットから到達可能なGit管理ファイルと履歴を対象とする。存在するなら次はGit追跡されていること。
-
-- `AGENTS.md`、`README.md`、各領域の規約
-- `knowledge/`の正本、`skills/`の正本
-- `projects/`の契約、状態、`ARCHITECTURE.md`、`docs/`、入力、成果物、`runs/`、`scripts/`
-- `evals/`、`tools/`
-- その他、リポジトリ内で永続正本または永続成果物として分類されたファイル
-
-対象外は次である。復旧は別経路で行う。
+`main`のコミットから到達可能なGit管理ファイルと履歴を対象とする。永続正本と永続成果物は、領域を問わず
+Git追跡されていること。対象外は次である。復旧は別経路で行う。
 
 - `.env`、`.env.local`などの秘密情報、SSH鍵、Git認証情報、ローカルGit設定
 - `.tmp/`、`.agent-cache/`、`.DS_Store`、製品側AIメモリ
@@ -67,7 +58,6 @@
 ## リポジトリ構成
 
 - エージェント1体につきGitHub Privateリポジトリを1つ用意する。共用しない。
-- 公開スケルトンへ実運用データをpushしない。スケルトンの`origin`は`template`へ改名するか削除する。
 - remote名の既定値は`backup`、branchは`main`とする。
 - GitHub Web UI、Codespaces、別マシンからremoteを直接編集しない。remoteは常にpush先であり編集先ではない。
 - Private可視性はセットアップ契約であり、利用者が作成時に確認する。Toolは可視性を照会・変更しない。
@@ -76,36 +66,23 @@
 
 Toolは1つだけであり、scopeをoptionで選ぶ。別のbackup Toolを追加しない。
 
-### 既定scope — workspace
+### scope
 
 ```bash
-bash tools/backup-to-github.sh
+bash tools/backup-to-github.sh              # 既定はworkspace scope
 bash tools/backup-to-github.sh --dry-run
-```
-
-root repositoryをpushする前に、全Independent repositoryを監査する。Independent repository自体はpushしない。
-全repositoryがremoteから復旧可能な場合だけ成功とする。partial materializationでは停止する。
-
-| 結果 | 出力 | 終了コード |
-|---|---|---:|
-| 成功 | `WORKSPACE_BACKUP_OK remote=backup branch=main sha=<sha> independent=<count>` | 0 |
-| dry-run成功 | `WORKSPACE_BACKUP_READY remote=backup branch=main sha=<sha> independent=<count>` | 0 |
-
-### root-only scope
-
-```bash
 bash tools/backup-to-github.sh --root-only
-bash tools/backup-to-github.sh --root-only --dry-run
 ```
 
-root repositoryだけを検査・pushする。Independent repositoryのnetwork、dirty、unpushは検査しない。
-静的metadataとroot ownership違反は検査する。これは明示的な部分結果であり、workspace全体の
-バックアップ成功として報告しない。
+既定のworkspace scopeは、root repositoryをpushする前に全Independent repositoryを監査する。Independent
+repository自体はpushしない。全repositoryがremoteから復旧可能な場合だけ成功とし、partial materializationでは
+停止する。`--root-only`はrootだけを検査・pushし、Independentのnetwork、dirty、unpushを検査しない。静的
+metadataとroot ownership違反は検査する。これは明示的な部分結果であり、workspace全体の成功として報告しない。
 
-| 結果 | 出力 | 終了コード |
-|---|---|---:|
-| 成功 | `ROOT_BACKUP_OK remote=backup branch=main sha=<sha> scope=root-only` | 0 |
-| dry-run成功 | `ROOT_BACKUP_READY remote=backup branch=main sha=<sha> scope=root-only` | 0 |
+| scope | 成功（終了コード0） | dry-run成功 |
+|---|---|---|
+| workspace | `WORKSPACE_BACKUP_OK remote=<r> branch=<b> sha=<sha> independent=<n>` | `WORKSPACE_BACKUP_READY …` |
+| `--root-only` | `ROOT_BACKUP_OK remote=<r> branch=<b> sha=<sha> scope=root-only` | `ROOT_BACKUP_READY …` |
 
 ### 共通
 
@@ -139,21 +116,18 @@ root前提条件は次である。ひとつでも満たさない場合、Toolは
 構造的に非対応な状態（2）はcleanliness（3）より先に判定する。未追跡ファイルとして報告してしまうと
 原因が隠れるためである。
 
-主なroot reason: `not-agent-directory-root`、`detached-head`、`branch-mismatch`、`missing-remote`、
-`staged-changes`、`dirty-working-tree`、`untracked-files`、`stash-present`、`unreachable-local-branch`、
-`forbidden-tracked-file`、`nested-git-repository`、`unsupported-submodule`、`unsupported-git-lfs`、
-`oversized-git-object`、`invalid-registry`、`invalid-ignore-projection`、
-`deprecated-repository-layout`、`remote-unreachable`、`remote-diverged`、`push-failed`、
-`remote-verification-mismatch`。
+停止reasonの網羅的な正本はTool出力とvalidatorの隔離fixtureであり、ここでは分類だけを固定する。
 
-Independent関連のreason: `missing-independent-repository`、`repository-path-symlink`、
-`repository-gitfile-unsupported`、`repository-origin-mismatch`、`repository-toplevel-mismatch`、
-`root-tracks-independent-repository`、`unsupported-root-gitlink`、`workspace-partially-materialized`、
-`independent-nested-repository`、`independent-submodule-unsupported`、`independent-git-lfs-unsupported`、
-`independent-contract-missing`、`independent-staged-changes`、`independent-dirty-working-tree`、
-`independent-untracked-files`、`independent-stash-present`、`independent-head-not-adopted`、
-`independent-revision-unavailable`、`independent-unpushed-commit`、
-`independent-unreachable-local-branch`、`independent-unpushed-tag`、`independent-remote-unreachable`。
+rootのreasonは実行前提（`not-agent-directory-root`、`detached-head`、`branch-mismatch`、`missing-remote`）、
+cleanliness（`staged-changes`、`dirty-working-tree`、`untracked-files`、`stash-present`、
+`unreachable-local-branch`）、禁止内容（`forbidden-tracked-file`、`nested-git-repository`、
+`unsupported-submodule`、`unsupported-git-lfs`、`oversized-git-object`、`deprecated-repository-layout`）、
+registry整合（`invalid-registry`、`invalid-ignore-projection`）、remote（`remote-unreachable`、
+`remote-diverged`、`push-failed`、`remote-verification-mismatch`）に分かれる。
+
+Independent関連は、未materializeの`missing-independent-repository`と`workspace-partially-materialized`、
+attachment不一致の`repository-*`、root ownership違反の`root-tracks-independent-repository`と
+`unsupported-root-gitlink`、子cloneの構造・cleanliness・到達性を表す`independent-*`に分かれる。
 
 Toolはfast-forward pushだけを`HEAD:refs/heads/<branch>`の明示refspecで行い、push後に`git ls-remote`で
 remote SHAを再取得してローカルHEADとの完全一致を確認する。`--dry-run`はremoteへ一切書き込まない。
@@ -170,13 +144,21 @@ remote branch削除、tagや全branchの一括push、remote側の競合自動解
 GitHubリポジトリの作成・可視性変更、GitHub Actionsの実行、Independent remoteへの書込、
 子cloneのfetch・checkout・reset・merge・rebase・stashによる変形。
 
-Toolはコミットを作らない。バックアップ対象を確定するのは利用者のコミットであり、Toolではない。
+Toolはコミットを作らない。対象を確定するのは検証済みのcommitであり、Toolではない。
 
-## remote操作の分担
+## remoteの分類
 
-`AGENTS.md#禁止事項`のfetch、pull、push禁止はroot repositoryを対象とする。root remoteへのpushは
-このToolだけが行い、Independent repositoryへは決してpushしない。Independent側のfetchと通常pushは
-`projects/<name>/`をrootとするIndependent sessionが行い、条件は
+remoteを目的ごとに分け、許可操作と承認を混同しない。
+
+| remote | 目的 | 許可操作 | 承認 |
+|---|---|---|---|
+| workspace `backup` | 受動的な復旧コピー | このToolのfast-forward pushだけ | 設定済みなら自動 |
+| skeleton `origin` | 公開スケルトンの開発remote | 読み取り専用fetch、検証済みcommitの通常push | スケルトン保守の依頼範囲内 |
+| Independent `origin` | Project固有remote | Independent sessionのfetchと通常push | Projectのpush policy |
+
+実運用のAgent Workspaceは開発remoteを持たず`backup`だけを持つ。公開スケルトンへ実運用データをpushせず、
+導入時にスケルトンの`origin`を`template`へ改名するか削除する。`AGENTS.md#禁止事項`のpull、merge、rebase、
+force push禁止は全分類へ適用する。Independent側の条件とpush policyは
 `projects/PROJECTS.md#Remote操作の境界`が所有する。
 
 registryの`repository_url`には認証情報、query、fragment、`file://`、ローカルpathを書かない。Toolはこれらと
@@ -189,8 +171,6 @@ Single WriterはAgent単位ではなくGitリポジトリ単位の制約であ�
 
 - 同じrepositoryへ同時に書き込むWriterを持たない。
 - 異なるIndependent repositoryは並行して進めてよい。
-- `projects/REPOSITORIES.md`の採用revisionは、child sessionのSHA handoffが完了した後にroot sessionが
-  更新する。
 - materializationまたはmigrationの実行中は、対象repositoryのWriterを停止する。
 
 ## root での `git clean`
@@ -205,21 +185,39 @@ Single WriterはAgent単位ではなくGitリポジトリ単位の制約であ�
 対象pathを明示した最小のコマンドを利用者へ提示し、削除対象と失われる範囲を先に報告する。
 危険性の検証は破棄前提の一時fixtureだけで行い、実作業rootで実行しない。
 
-## バックアップ実行条件
+## 実行trigger
 
-次を利用者が明示した場合だけ実行する。
+有効なPrivate backup remoteが設定済みなら、次のタスク境界で確認を求めずbackupを実行する。remoteが未設定なら
+実行せず、未設定である事実を報告する。
 
-- バックアップを依頼された
-- マシン移行を依頼された
-- 破壊的変更前の復旧点作成を指示された
-- チェックポイント保存を指示された
+- 正常に検証・commitされた意味のある変更の後
+- 破壊的変更前のcleanなcheckpoint
+- 復旧可能性に関わるmetadata変更後
+- Independent Projectの採用revision更新後
+- 長い作業を中断する際の検証済みcheckpoint
+- マシン移行前
 
-通常タスク終了後の自動pushは行わない。バックアップは通常ワークフローの完了条件ではない。
-remoteの障害、未設定、到達不能はローカルタスクの検証結果と無関係であり、ローカル作業を停止させない。
-バックアップ失敗をタスクの失敗として報告しない。逆に、バックアップ成功をタスクの検証成功として報告しない。
+ファイル1件ごとにpushせず、意味のあるcommit境界で実行する。時刻駆動や常駐ではなく、エージェントの
+タスク境界で起きるevent-drivenな操作に限る。フルvalidatorの合否はbackupの必須条件ではない。壊れた状態の
+保全にもbackupを使う。
 
-フルvalidatorの合否はバックアップの必須条件ではない。壊れた状態の保全にもバックアップを使う。
-ただし秘密情報、未コミット状態、remote divergence、対象漏れ、GitHubのhard limitは停止条件とする。
+## backupが失敗したとき
+
+backup先が未設定、到達不能、または一時的に失敗しても、検証済みローカルcommitの成功まで取り消さない。
+ローカル作業を停止させず、次を区別して報告する。
+
+```text
+local task: complete
+local commit: complete
+backup: failed / skipped / blocked
+recoverability: degraded
+```
+
+そのタスクの成果契約が「remoteから復旧可能であること」を必須条件としている場合だけ、完了扱いにしない。
+backup失敗をタスクの失敗として報告せず、逆にbackup成功をタスクの検証成功として報告しない。
+
+秘密情報、未コミット状態、remote divergence、対象漏れ、GitHubのhard limit、Single Writer違反、remoteの
+想定外変更は停止条件である。これらを自動解決せず、`AGENTS.md#人間へ上げる例外`として上げる。
 
 ## divergenceの停止
 
@@ -301,8 +299,7 @@ Git LFSは既定構成へ導入しない。
 
 - 通常のバックアップ対象はテキスト、コード、設定、文書、軽量成果物とする。
 - 100MiB以上のGit objectはbackup Toolが`oversized-git-object`で停止する。
-- 大量の動画、音声、モデル、データセット、生成物は通常Gitへ入れない。
-- 大容量成果物が必要になった場合は、そのProjectに外部artifact保管先とchecksumを定義する。
-  外部artifact保管の実装は本規約の範囲外とする。
+- 大量の動画、音声、モデル、データセット、生成物は通常Gitへ入れない。外部artifact保管先とchecksumの
+  定義は`projects/PROJECTS.md`のとおりProject側が持ち、その実装は本規約の範囲外とする。
 - submoduleまたはGit LFSを検出した場合、完全バックアップを保証できないため自動処理せず、
   未対応として停止・報告する。

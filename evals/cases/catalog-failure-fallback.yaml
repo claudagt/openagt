@@ -17,3 +17,6 @@ expect:
     - rebuild-cache
     - rg
     - grep-find
+  must_report:
+    - stale-or-broken-cache-is-regenerated-without-asking
+    - cache-is-a-derivative-never-the-canon

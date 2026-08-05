@@ -33,6 +33,8 @@ Product-side memory and search databases are caches, never the source of truth.
 
 ## 設計方針
 
+- Human-on-the-loopで運用する。内部で完結する可逆な操作はAIが判断、実行、検証、commitまで完結し、
+  人間は方針・成果契約の変更、不可逆操作、外部影響、安全性と正本衝突だけを見る。
 - リポジトリ内の正本を会話記憶、製品側AIメモリ、検索結果より優先する。
 - `raw/internal/`と`raw/external/`の既存原資料は同じ強さで保護し、変更・削除しない。
 - 完了・停止・廃止を物理archiveで表さず、frontmatterの状態で検索から除外する。
@@ -126,8 +128,9 @@ bash tools/materialize-project-repositories.sh --all
 bash tools/materialize-project-repositories.sh --project <name>
 ```
 
-昇格条件、`repository_reason`、session rootとSHA handoff、remote操作の境界は
-[projects/PROJECTS.md](projects/PROJECTS.md)が所有する。旧`projects/<name>/repository/`方式と
+昇格条件、`repository_reason`、session rootとSHA handoff、remote操作の境界とpush policy（`auto` / `gated`）は
+[projects/PROJECTS.md](projects/PROJECTS.md)が所有する。Independentの`origin`はworkspace backupと別物であり、
+外部影響を持ちうるためProjectごとに一度push方針を決める。旧`projects/<name>/repository/`方式と
 agent-directory外へcloneを置く旧方式は現役構造として許可せず、移行対象としてだけ
 [tools/BACKUP.md](tools/BACKUP.md)が扱う。
 
@@ -160,10 +163,12 @@ validatorは構造、`AGENTS.md`と`CLAUDE.md`の三層、frontmatter、Project�
 ## ローカル正本とGitHubバックアップ
 
 ローカルの作業コピーが唯一の書込可能な稼働正本であり、GitHubは最後に確定したコミットの受動的な
-遠隔復旧コピーである。通常タスクはネットワークなしで完結し、GitHub Actions、CI、定期同期、自動commit、
-自動pushは使用しない。エージェント1体につきPrivateリポジトリを1つ用意し、公開スケルトンへ実運用データを
-pushしない。Single WriterはGitリポジトリ単位であり、同じrepositoryへ同時に書き込む稼働コピーを持たない。
-異なるIndependent repositoryは並行して進めてよい。
+遠隔復旧コピーである。通常タスクはネットワークなしで完結し、GitHub Actions、CI、cron、常駐daemonによる
+時刻駆動の同期は使用しない。backupはエージェントのタスク境界で起きるevent-drivenな操作であり、有効な
+Private backup remoteが設定済みなら、検証済みcommitの後に確認を求めず実行する。エージェント1体につき
+Privateリポジトリを1つ用意し、公開スケルトンへ実運用データをpushしない。Single WriterはGitリポジトリ
+単位であり、同じrepositoryへ同時に書き込む稼働コピーを持たない。異なるIndependent repositoryは
+並行して進めてよい。
 
 ```bash
 # セットアップ（GitHubで空のPrivateリポジトリを作成してから実行する）
@@ -180,8 +185,9 @@ bash tools/backup-to-github.sh --root-only --dry-run
 bash tools/backup-to-github.sh --root-only
 ```
 
-利用者がバックアップ、マシン移行、復旧点作成、チェックポイント保存を明示した場合だけ実行する。通常タスクの
-完了条件ではない。前提条件を満たさなければ何も変更せず停止する。
+triggerは検証済みcommitの後、破壊的変更前のcheckpoint、採用revision更新後、マシン移行前などのタスク
+境界である。前提条件を満たさなければ何も変更せず停止する。backupの失敗は検証済みローカルcommitの成功を
+取り消さず、`local task` / `local commit` / `backup` / `recoverability`を区別して報告する。
 
 | scope | 検査範囲 | 成功出力 |
 |---|---|---|
@@ -195,16 +201,16 @@ bash tools/backup-to-github.sh --root-only
 
 | 正本 | 所有する内容 |
 |---|---|
-| [AGENTS.md](AGENTS.md) | 自己定義、共通判断原則、Route判定、Context Loading、禁止事項、目次 |
+| [AGENTS.md](AGENTS.md) | 自己定義、共通判断原則、Route判定、Context Loading、自律実行と例外、禁止事項、目次 |
 | [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md) | 四層構造、保存先、不変規則、命名、限定取得、INDEX、LOG |
 | [skills/SKILLS.md](skills/SKILLS.md) | Skillの選択、frontmatter、Knowledge参照、構造 |
 | [projects/AGENTS.md](projects/AGENTS.md) | Project作業共通の着手・実行・完了手順 |
-| [projects/PROJECTS.md](projects/PROJECTS.md) | 成果契約、Project docs、Domain Canon、Research昇格、attachment |
+| [projects/PROJECTS.md](projects/PROJECTS.md) | 成果契約、Project docs、Domain Canon、Research昇格、attachment、push policy |
 | [projects/REPOSITORIES.md](projects/REPOSITORIES.md) | Independent Projectのattachment registryとentry形式 |
 | [projects/LIFECYCLE.md](projects/LIFECYCLE.md) / [projects/RECOVERY.md](projects/RECOVERY.md) | 状態遷移と削除条件 / 目的不一致からの復旧 |
 | [evals/EVALS.md](evals/EVALS.md) | 振る舞いevalの契約、ケースschema、fixture、最低条件 |
-| [tools/TOOLS.md](tools/TOOLS.md) | Toolの入出力、fallback、相互参照、サイズ予算、規模拡大 |
-| [tools/BACKUP.md](tools/BACKUP.md) | バックアップ、復旧、divergence、Single Writer |
+| [tools/TOOLS.md](tools/TOOLS.md) | Toolの入出力、自律commit、自己修復、サイズ超過、fallback、予算 |
+| [tools/BACKUP.md](tools/BACKUP.md) | backup trigger、remote分類、失敗と復旧、divergence、Single Writer |
 
 ## ライセンス
 

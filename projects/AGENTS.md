@@ -17,16 +17,16 @@ Project Routeの入口。最小手順だけを持ち、詳細は`projects/PROJEC
 - toplevelがAgent Workspace root: Embedded。commit先はroot Git。
 - toplevelが`projects/<name>/`自身: Independent。commit先はProject固有Git。
 - 解決できない場合だけ`projects/REPOSITORIES.md`を読み、materializeへ進む。
-- 書込対象はどちらも`projects/<name>/**`。一sessionで二つのGit rootへcommitしない。
-- 本体sessionはregistryを書かず、root sessionは本体を書かない。handoff後に
-  root sessionが`projects/REPOSITORIES.md`の`revision`だけを更新する。
+- 書込対象はどちらも`projects/<name>/**`である。
+- 本体sessionはregistryを書かず、root sessionは本体を書かない。
 
 ## 実行と完了
 
-- 成果契約の範囲で最小かつ完全な変更を行う。目的、ゴール、完了条件、成功指標、固定制約は
-  利用者の明示時だけ変更する。
+- 成果契約の範囲で最小かつ完全な変更を行う。契約自体の変更は`projects/LIFECYCLE.md#人間が決める遷移`。
 - `PROJECT.md`の検証方法と合格条件を実行し、未実行の検証を合格扱いしない。
-- 状態が変わった同じ作業内で`STATE.md`を更新し、結果、証拠、未完了を区別して報告する。
+- 状態が変わった同じ作業内で`STATE.md`を更新する。
+- 検証合格後はscoped commitまで確認を求めず完結し、結果、証拠、commit、未完了を区別して事後報告する。
+  条件と停止は`tools/TOOLS.md#自律実行の標準完了`が所有する。
 
 ## projects/PROJECTS.mdを読む条件
 

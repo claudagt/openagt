@@ -15,5 +15,8 @@ expect:
   must_set:
     - knowledge/wiki/logs/YYYY-QN.md#records=1000
     - knowledge/wiki/LOG.md#records=0
+  must_report:
+    - threshold-rotation-is-deterministic-and-runs-without-asking
+    - the-user-does-not-choose-how-to-split-the-log
   must_not_modify:
     - knowledge/wiki/logs/**

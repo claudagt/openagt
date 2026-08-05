@@ -29,24 +29,19 @@ Root Knowledge         = Projectを越えて再利用する確定知識
 - `AGENTS.md`へのDomain Canon、`PROJECT.md`、`STATE.md`本文の複製。
 - `PROJECT.md`や`STATE.md`へのDomain文書本文の複製。
 - Independent Projectの契約、状態、実装をroot Gitと Project固有Gitの両方へ複製すること。
-- `PROJECT.md`と`PRODUCT_SENSE.md`、`PROJECT.md`と`DESIGN.md`、`STATE.md`と`PLANS.md`、
-  `ARCHITECTURE.md`と詳細設計文書、Project ResearchとRoot Knowledge。
+- `PROJECT.md`とDomain Canon、`STATE.md`と`PLANS.md`、`ARCHITECTURE.md`と詳細設計文書、
+  Project ResearchとRoot Knowledge。
 
 ## 対象の選択
 
-1. 依頼または正本が相対パスを明示していれば、そのProjectを選ぶ。
-2. 未指定なら`tools/find-context.sh --route project --limit 5 -- <query>`で候補を得る。
-   Project選択の単位は`PROJECT.md`であり、`docs/`配下は通常の検索候補へ展開しない。
-3. 通常候補は`status: active`だけとする。`paused`、`completed`、`retired`は、明示参照、再開、監査、保守時だけ選ぶ。
-4. 候補メタデータだけで一意に選べず、選択で成果や安全性が変わる場合は利用者へ確認する。
-5. Projectを1件に確定してから次の順序で読む。この`PROJECTS.md`は`projects/AGENTS.md`が列挙する条件に
-   該当する場合だけ読む。
+1. 依頼または正本が相対パスを明示していればそのProjectを選ぶ。未指定なら
+   `tools/find-context.sh --route project --limit 5 -- <query>`で候補を得る。Project選択の単位は
+   `PROJECT.md`であり、`docs/`配下は通常の検索候補へ展開しない。
+2. 通常候補は`status: active`だけとする。`paused`、`completed`、`retired`は、明示参照、再開、監査、保守時だけ選ぶ。
+3. 候補メタデータだけで一意に選べず、選択で成果や安全性が変わる場合は利用者へ確認する。
 
-```text
-AGENTS.md → projects/AGENTS.md → 対象Project AGENTS.md（存在する場合）
-→ PROJECT.md → STATE.md → 条件に一致したDomain Canon
-→ Required Knowledge / Skill → 必要な詳細文書とConditional参照
-```
+読込順序は`projects/AGENTS.md#着手`が所有する。確定後は条件に一致したDomain Canon、Required参照、
+成立したConditional参照と必要な詳細文書へ進む。
 
 ## 基本構造
 
@@ -115,9 +110,8 @@ docs/research/model-selection-study.md  docs/plans/database-migration.md
   同じ規則に従い、どのDomain Canonが管理するかを明示する。
 - 下位コレクションの局所地図として`index.md`を使ってよい。下位`README.md`を正本や入口として多用しない。
 - 空フォルダをテンプレート生成しない。
-- `docs/references/`と`docs/generated/`は予約された任意の慣例であり、必要な場合だけ作る。
-  `references/`はProject固有で繰り返し参照する資料に限定し、Root Knowledgeと二重正本にしない。
-  `generated/`は生成元、生成コマンド、鮮度確認方法が存在する場合だけ使い、生成物を手編集しない。
+- `docs/references/`は繰り返し参照するProject固有資料に限定し、Root Knowledgeと二重正本にしない。
+  `docs/generated/`は生成元、生成コマンド、鮮度確認方法がある場合だけ使い、生成物を手編集しない。
 
 ## ARCHITECTURE.md
 
@@ -135,8 +129,7 @@ Project rootに置く任意の全体地図であり、attachmentによらず`pro
 ## `<DOMAIN>_SENSE.md`
 
 分野固有の定性的な品質判断を所有する任意パターンである。裸の`SENSE.md`を使わず、必ず対象Domainを
-名前に含める。例: `PRODUCT_SENSE.md`、`DESIGN_SENSE.md`、`EDITORIAL_SENSE.md`、`MUSIC_SENSE.md`、
-`CONTENT_SENSE.md`、`RESEARCH_SENSE.md`。
+名前に含める。例: `PRODUCT_SENSE.md`、`DESIGN_SENSE.md`、`EDITORIAL_SENSE.md`、`RESEARCH_SENSE.md`。
 
 - 所有する: What good looks like、Core beliefs、定性的な判断ヒューリスティクス、トレードオフ、
   Anti-patterns、良い例と悪い例、レビュー時の問い、見直し条件。
@@ -161,7 +154,7 @@ Project固有の作業差分だけを持つ差分ファイルである。差分�
 - 条件付きのProject Docs Route（本文を複製せず、条件と読む正本だけを列挙する）
 - Project固有のbuild、test、lintコマンドと検証順序
 - 特定パスの編集禁止、既存成果物の上書き禁止、使用するランタイム
-- 本番送信、公開、課金、権限変更の承認ゲート、Project固有の生成物配置
+- 本番送信、公開、課金、権限変更の承認ゲート、`## Push Policy`、Project固有の生成物配置
 
 置いてはいけない内容:
 
@@ -177,7 +170,6 @@ Project固有の作業差分だけを持つ差分ファイルである。差分�
 |---|---|
 | モジュール、依存、データフローを変更する | `ARCHITECTURE.md` |
 | UIや体験を変更する | `docs/DESIGN.md` |
-| 定性的な製品判断を行う | `docs/PRODUCT_SENSE.md` |
 ```
 
 見出しは`## Project Docs Route`と正確に一致させ、存在する`ARCHITECTURE.md`と`docs/`直下の各Domain Canonを
@@ -231,11 +223,10 @@ root Gitがそのpath配下を追跡しているかの三つで行う。
 
 ### Canonical Ownership
 
-Independentでは`PROJECT.md`、`STATE.md`、`AGENTS.md`、`CLAUDE.md`、`ARCHITECTURE.md`、`docs/`、
-`inputs/`、`outputs/`、`scripts/`、`tests/`、source code、Project固有設定、Git履歴のすべてを
-Project固有Gitが所有し、root Gitは内部ファイルを一つも追跡しない。root側へ`PROJECT.md`や`STATE.md`の
-コピーを残さず、同じ契約と状態を二つのGitへ複製しない。Project内部の相対pathは両attachmentで同じで
-あり、mode別の読み替え規約を持たない。
+Independentでは契約、状態、個別`AGENTS.md`と`CLAUDE.md`、`ARCHITECTURE.md`、`docs/`、入出力、`scripts/`、
+`tests/`、source code、Project固有設定、Git履歴を含む`projects/<name>/**`のすべてをProject固有Gitが所有し、
+root Gitは内部ファイルを一つも追跡しない。root側へ`PROJECT.md`や`STATE.md`のコピーを残さず、同じ契約と
+状態を二つのGitへ複製しない。Project内部の相対pathは両attachmentで同じであり、mode別の読み替えを持たない。
 
 ### Registryとignore projection
 
@@ -247,9 +238,8 @@ entry形式、field規則、`repository_reason`の値と意味はregistry自身�
 `projects/.gitignore`はその派生projectionであり、root GitがIndependent Projectを誤追跡しないためだけに
 存在する。managed blockの形式はregistry自身が示す。
 
-managed blockはregistry登録名だけを`/<name>/`の形でname昇順に持ち、registryと集合が完全一致する。
-Embedded Project、`_template/`、policy、registry自身をignoreしない。`projects/*/`のような広いpatternを
-追加しない。registryの変更と同じroot commitで更新する。registryが正本であり、これは派生である。
+Embedded Project、`_template/`、registry自身をignoreせず、`projects/*/`のような広いpatternを追加しない。
+managed blockの形式と更新規則はregistry自身が持つ。registryが正本であり、これは派生である。
 
 コード量、ファイル数、言語、整理上の都合、重要度、期間、既存repoだったという事実だけではIndependent化
 しない。大容量binaryもrepo分割の理由にせず、Project側が外部artifact保管先とchecksumを定義する。
@@ -257,50 +247,60 @@ remote名は`origin`を固定既定とし、remoteから復旧できることを
 
 ### Session rootとSHA handoff
 
-一つのAI sessionが二つのGit rootへ書き込んではならない。Single Writerはagent単位ではなく
-Gitリポジトリ単位であり、同じrepositoryへの同時Writerを禁止する一方、異なるIndependent repositoryは
-並行して進めてよい。
+一つのAI sessionが二つのGit rootへ書き込んではならない。Single Writerの定義は`tools/BACKUP.md`が所有する。
 
-| session | cwd | commit先 |
-|---|---|---|
-| Embedded作業 | `projects/<name>/` | root Git |
-| Independent本体作業 | `projects/<name>/` | Project固有Git |
-| registry更新 | Agent Workspace root | root Git。registryとignore projectionだけ |
-
-Independent本体を変更するsessionはroot repositoryを変更せず、registryを更新するsessionは本体を変更しない。
+cwdとcommit先の対応は`projects/AGENTS.md#Git所有境界`が所有する。registryを更新するsessionだけが
+Agent Workspace rootをcwdとし、registryとignore projectionだけを書く。Independent本体を変更するsessionは
+root repositoryを変更せず、registryを更新するsessionは本体を変更しない。
 
 ### Remote操作の境界
 
-`AGENTS.md#禁止事項`のfetch、pull、push禁止はroot repositoryを対象とする。root remoteへのpushは、
-利用者が明示したbackup時に`tools/backup-to-github.sh`だけが行う。
+root backup remoteへのpushは`tools/backup-to-github.sh`だけが行う。remoteの分類とbackupのtriggerは
+`tools/BACKUP.md`が所有する。Independentの`origin`はbackupと同じ扱いにしない。CI、deploy、release、
+Webhook、外部共同編集、公開といった外部影響を持ちうるためである。
 
-Independent repositoryでは、そのProjectの成果契約または利用者の明示指示で必要な場合に限り、Independent
-session rootからfetchと通常pushを行ってよい。force push、force-with-lease、mirror push、およびpull、
-merge、rebaseによる自動統合を行わない。root sessionからIndependent remoteを操作しない。
+#### push policy
 
-通常のIndependent更新は次の順序で進む。
+Projectごとに一度決め、以後は同じProjectでpush可否を質問しない。値は`auto`と`gated`だけとし、
+判定は次の優先順で一意に定める。
+
+1. **宣言** — `projects/<name>/AGENTS.md`の`## Push Policy`が`auto`か`gated`を1語で持つ。
+2. **観測** — repository内にCI、deploy、release、publish、Webhookを起動する設定がある場合は`gated`。
+3. **既定** — `repository_reason`が`automation`、`distribution`、`access`なら`gated`、
+   `collaboration`、`identity`、`upstream`、`retention`なら`auto`。
+
+- `auto` — 検証済みcommitを`origin`へ通常pushし、remoteにSHAが存在することまでAIが自律確認する。
+- `gated` — commitまでAIが行い、push前だけ利用者の承認を得る。承認待ちはpushだけを止め、検証済み
+  ローカルcommitを取り消さない。
+
+三段で一意にならない場合だけ一度確認し、決まった値を`## Push Policy`へ記録する。判定に必要な情報が
+既存の契約と`repository_reason`で足りるため、新しいregistry fieldやfrontmatterを追加しない。
+
+policyによらず、force push、force-with-lease、mirror push、pull・merge・rebaseによる自動統合、検証前の
+push、root sessionからのIndependent remote操作、remote divergenceの自動解消を行わない。
+
+通常のIndependent更新は次の順序で進み、安全条件を満たす限り途中で確認を挟まない。
 
 1. `projects/<name>/`でsessionを開始し、`AGENTS.md`、`PROJECT.md`、`STATE.md`を読む。
 2. 本体と`STATE.md`を変更し、Project固有の検証を実行してcommitする。
-3. `origin`へ通常pushし、remoteにcommit SHAが存在することを確認する。
+3. policyが`auto`なら`origin`へ通常pushし、remoteにcommit SHAが存在することを確認する。
 4. SHA、検証結果、未完了をhandoffする。
 5. 別のroot sessionが`projects/REPOSITORIES.md`の`revision`だけを更新する。
-6. root validatorとcacheを実行し、root Gitへcommitする。
+6. root validatorとcacheを実行してroot Gitへcommitし、設定済みならworkspace backupを実行する。
 
 ### Materializationとbackup境界
 
 健全なAgent Workspaceでは、statusにかかわらず全Independent repositoryが`projects/<name>/`へ
 materialize済みである。`bash tools/materialize-project-repositories.sh --all`がregistryからcloneを
 再現し、採用revisionを最初にcheckoutする。branch tipを自動採用せず、HEADが採用revisionと一致しない
-既存cloneを正常扱いしない。partial materializationは復旧途中のdegraded stateとしてだけ許し、
-workspace全体のbackup成功として扱わない。
+既存cloneを正常扱いしない。
 
 backupの既定scopeはworkspaceであり、root pushの前に全Independent repositoryを監査する。Independent
 repository自体はpushしない。`--root-only`は部分結果である。scope、停止reason、監査項目、移行手順は
 `tools/BACKUP.md`が所有する。
 
-rootで`git clean -x`、`git clean -X`、`git clean`への二つ以上の`-f`を実行しない。登録済みの
-`projects/<name>/`はignoredであり、これらは未pushのIndependent commitを不可逆に削除しうる。
+rootでの`git clean`の禁止も`tools/BACKUP.md`が所有する。登録済みの`projects/<name>/`はignoredであり、
+広い`git clean`は未pushのIndependent commitを不可逆に削除しうる。
 
 ### 昇格、移行、統合
 
@@ -311,28 +311,24 @@ EmbeddedからIndependentへの昇格は、次の順序で行う。
 3. root indexから`projects/<name>/`配下を削除し、registry entryと`projects/.gitignore`のmanaged entryを
    同じroot commitで追加する。
 4. validatorで二重正本とroot追跡がないことを確認する。
-5. 利用者が明示した場合だけworkspaceをバックアップする。
+5. 設定済みならworkspaceをバックアップする。
 
 履歴維持に実益がある場合だけ対象pathの履歴を抽出する。履歴抽出のために平常時からrepoを分けない。
 登録のないnested repoまたはsubmoduleは追加、削除、ignore、submodule化せず、停止して利用者へ確認する。
 
-IndependentからEmbeddedへの統合は自動既定にしない。外部共同編集、automation、release、Webhook、固定URL
-参照、配布、異なる権限、upstream関係、`retention`上の保持・削除方針がすべて存在しないことを監査し、
-利用者が明示的に廃止・統合を承認した場合だけ実行する。過去に外部identityを持ったrepoは、現在停止中と
-いう理由だけで統合しない。
+IndependentからEmbeddedへの統合は自動既定にしない。`projects/REPOSITORIES.md`が列挙する
+`repository_reason`のどの根拠も現在成立しないことを監査し、利用者が明示的に廃止・統合を承認した場合だけ
+実行する。過去に外部identityを持ったrepoは、現在停止中という理由だけで統合しない。
 
 ### 旧構造からの移行
 
 旧方式を最終標準として残さず、二方式の永久併存も認めない。順序、監査項目、旧clone削除条件は
 [tools/BACKUP.md](../tools/BACKUP.md)が所有する。
 
-- **`projects/<name>/repository/`方式** — root Gitが`PROJECT.md`と`STATE.md`を持ち、child Gitが
-  `repository/`にある旧構造。契約と状態をchild repoへ移し、registryとignore entryを追加し、root
-  indexから旧2ファイルを削除した後、child clone全体を`projects/<name>/`へ一段上へ移す。
-- **agent-directory外の旧clone** — 最終的にclone全体を`projects/<name>/`へ移す。
+対象は旧`projects/<name>/repository/`方式と、agent-directory外へcloneを置く旧方式である。どちらも
+最終的にclone全体を`projects/<name>/`へ移し、契約と状態はProject固有Gitが持つ形へ揃える。
 
-dirty、staged、untracked、stash、未pushが残るcloneをfresh cloneで置換しない。reset、clean、stash作成、
-force pushで移行しない。machine-localなsource pathはCLI入力と移行手順の中だけで使い、正本へ保存しない。
+未pushやdirtyが残るcloneの置換禁止、旧clone削除条件、machine-localなsource pathの扱いも同じ正本が持つ。
 
 ## PROJECT.md
 
@@ -376,12 +372,14 @@ mode: finite
 
 ## 着手から終了まで
 
-1. `PROJECT.md`と`STATE.md`を最後まで読み、現在目標、合格条件、それが前進させる`PROJECT.md#PC-xx`を特定する。
-2. Required参照と、成立したConditional参照およびDomain Canonだけを読む。
-3. 成果契約の範囲で最小かつ完全な変更を行う。契約や品質基準を弱めない。
-4. `PROJECT.md`の検証方法と現在目標の合格条件を実行する。未実行の検証を合格と推測しない。
-5. 状態が変わった同じ作業内で`STATE.md`を現在有効な状態へ更新する。
-6. 達成結果、検証証拠、未完了・ブロッカーを区別して報告する。
+1. `PROJECT.md`と`STATE.md`を最後まで読み、現在目標、合格条件、それが前進させる`PROJECT.md#PC-xx`と、
+   Required参照および成立したConditional参照・Domain Canonだけを特定して読む。
+2. 成果契約の範囲で最小かつ完全な変更を行う。契約や品質基準を弱めない。
+3. `PROJECT.md`の検証方法と現在目標の合格条件を実行する。未実行の検証を合格と推測しない。
+4. 状態が変わった同じ作業内で`STATE.md`を現在有効な状態へ更新する。
+5. 検証合格後は同じ作業内でscoped commitまで完結し、可否を質問しない。条件と停止条件は
+   `tools/TOOLS.md#自律実行の標準完了`が所有する。
+6. 達成結果、検証証拠、commit、push・backup結果、未完了・ブロッカーを区別して報告する。
 
 `mode`、目的、ゴールまたは使命、完了条件または成功指標、判断原則、非ゴール、固定決定は、
 利用者が変更を明示した場合だけ変更する。
@@ -413,4 +411,5 @@ IDは達成状態ではなく恒久的な住所である。並べ替えや達成
 
 - Project固有の検証は`PROJECT.md`に実行方法、期待結果、入力、必要な環境変数名を記す。
 - 固定コードは`scripts/`、一時コードは`.tmp/`、2回目の不安定な再利用候補は`candidates/`が所有する。
-- 外部公開、送信、課金、権限変更は、必要な利用者承認がない限り完了条件を満たしたとしない。
+- 外部公開、本番反映、送信、課金、権限変更、`gated`なpushは実行前に承認を得る。承認がない限り
+  完了条件を満たしたとしない。内部で完結する可逆な検証と修正は承認を待たずに行う。

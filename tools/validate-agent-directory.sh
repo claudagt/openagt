@@ -388,7 +388,7 @@ validate_claude_bridge() {
 # Project差分ファイルは成果契約と現在状態を所有してはならない。
 validate_project_agents_file() {
   local agents_file="$1"
-  local project_dir forbidden
+  local project_dir forbidden push_policy
   local forbidden_headings=(
     '## 目的' '## 最終ゴール' '## 完了条件' '## 継続的使命' '## 成功指標' '## 見直し・終了条件'
     '## 現在の到達点' '## 現在の目標' '## 目標の合格条件' '## 検証結果' '## 現在有効な決定'
@@ -422,6 +422,19 @@ validate_project_agents_file() {
       END { exit !found }
     ' "$agents_file"; then
     fail "$(relative_path "$agents_file") must not order a bulk docs/** read; list one condition per Domain Canon instead"
+  fi
+
+  # Independentのpush方針を宣言する場合、語彙は auto と gated だけとする。
+  if grep -Fqx '## Push Policy' "$agents_file"; then
+    push_policy="$(awk '
+      $0 == "## Push Policy" { in_section = 1; next }
+      in_section && substr($0, 1, 3) == "## " { exit }
+      in_section && NF { print $1; exit }
+    ' "$agents_file")"
+    case "$push_policy" in
+      auto|gated) ;;
+      *) fail "$(relative_path "$agents_file") ## Push Policy must declare exactly auto or gated (found: ${push_policy:-<empty>})" ;;
+    esac
   fi
 
   validate_claude_bridge "$agents_file"
@@ -1279,8 +1292,11 @@ required_cases=(
   catalog-failure-fallback project-completed-not-default project-required-only context-budget-stop
   large-file-section-read ambiguous-target-no-broad-scan meta-route-validator-change
   knowledge-log-auto-rotation scale-sqlite-auto-enable
-  backup-explicit-only backup-divergence-refusal restore-single-writer
-  backup-workspace-repository-boundary independent-consolidation-audit
+  backup-auto-after-verified-commit backup-divergence-refusal restore-single-writer
+  backup-failure-local-success backup-workspace-repository-boundary independent-consolidation-audit
+  autonomous-internal-change-commit autonomous-validator-self-repair
+  router-size-overflow-delegation independent-push-policy-gated
+  external-effect-approval-gate canon-conflict-escalation unowned-change-conflict
   independent-promotion-session-boundary independent-repository-materialization
   independent-remote-update-handoff root-clean-independent-repository-safety
   root-agents-router-scope project-agents-optional project-agents-diff-only
@@ -1296,6 +1312,7 @@ required_cases=(
 retired_case_names=(
   backup-external-repo-boundary satellite-consolidation-audit
   satellite-promotion-session-boundary satellite-hub-content-boundary
+  backup-explicit-only
 )
 for retired_case in "${retired_case_names[@]}"; do
   [[ ! -e "$repo_root/evals/cases/$retired_case.yaml" ]] || \
@@ -1437,6 +1454,64 @@ if grep -Eq '(^|[^_])BACKUP_(OK|READY)' "$repo_root/tools/backup-to-github.sh"; 
 fi
 grep -Fq 'tools/BACKUP.md' "$repo_root/AGENTS.md" || \
   fail 'AGENTS.md does not delegate backup details to tools/BACKUP.md'
+
+# --- Human-on-the-loopの契約が正本へ存在し、旧「明示時だけ」規則が残っていないことを検査する ----------
+
+# ルートは自律実行の既定と例外ゲートを持つ。詳細列挙は各Ownerが持つ。
+for autonomy_heading in '## 自律実行' '## 人間へ上げる例外'; do
+  grep -Fqx -- "$autonomy_heading" "$repo_root/AGENTS.md" || \
+    fail "AGENTS.md must carry the Human-on-the-loop section: $autonomy_heading"
+done
+
+# 例外の4区分は、それぞれ詳細を所有する正本へRouteする。
+for exception_owner in projects/LIFECYCLE.md projects/PROJECTS.md tools/BACKUP.md tools/TOOLS.md; do
+  grep -Fq "$exception_owner" "$repo_root/AGENTS.md" || \
+    fail "AGENTS.md must route an escalation category to its canon: $exception_owner"
+done
+
+# 詳細はOwner側に実在する。rootへ再掲せず、Ownerを空にもしない。
+while IFS='|' read -r owner_doc owner_heading; do
+  [[ -n "$owner_doc" ]] || continue
+  grep -Fqx -- "$owner_heading" "$repo_root/$owner_doc" || \
+    fail "$owner_doc must own the Human-on-the-loop section: $owner_heading"
+done <<'AUTONOMY_OWNERS'
+tools/TOOLS.md|## 自律実行の標準完了
+tools/TOOLS.md|## 自己修復と停止
+tools/TOOLS.md|### 超過時の標準処理
+tools/BACKUP.md|## 実行trigger
+tools/BACKUP.md|## remoteの分類
+tools/BACKUP.md|## backupが失敗したとき
+projects/PROJECTS.md|#### push policy
+projects/LIFECYCLE.md|## 人間が決める遷移
+knowledge/KNOWLEDGE.md|### 大きいKnowledgeの扱い
+evals/EVALS.md|## 自律実行と例外ケースの最低条件
+AUTONOMY_OWNERS
+
+# backupを利用者の明示依頼へ縛る旧規則と、自動pushの一律禁止は残さない。
+for autonomy_doc in AGENTS.md README.md tools/TOOLS.md tools/BACKUP.md evals/EVALS.md \
+  projects/AGENTS.md projects/PROJECTS.md; do
+  if grep -Fq '明示した場合だけ実行する' "$repo_root/$autonomy_doc"; then
+    fail "$autonomy_doc still gates backup behind an explicit request; backup is event-driven"
+  fi
+  if grep -Fq '自動pushは使用しない' "$repo_root/$autonomy_doc"; then
+    fail "$autonomy_doc still forbids automatic push outright; scope the rule to the remote class"
+  fi
+done
+
+# push policyの語彙は auto と gated だけとする。
+grep -Fq '`auto`' "$repo_root/projects/PROJECTS.md" && grep -Fq '`gated`' "$repo_root/projects/PROJECTS.md" || \
+  fail 'projects/PROJECTS.md must define both push policy values: auto and gated'
+
+# size budgetを黙って拡大していないことを固定する。
+while IFS= read -r budget_row; do
+  [[ -n "$budget_row" ]] || continue
+  grep -Fqx -- "$budget_row" "$repo_root/tools/TOOLS.md" || \
+    fail "tools/TOOLS.md size budget row was raised or removed: $budget_row"
+done <<'SIZE_BUDGET_ROWS'
+| `AGENTS.md`（ルート） | 8KiB。4KiB超はwarning |
+| `projects/AGENTS.md` | 2KiB |
+| `projects/<name>/AGENTS.md` | 2KiB |
+SIZE_BUDGET_ROWS
 
 cache_test_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-cache.XXXXXX")"
 fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-fixture.XXXXXX")"

@@ -12,6 +12,14 @@ backup-to-github.sh      validate-agent-directory.sh
 materialize-project-repositories.sh
 ```
 
+責務は次で固定する。Toolへ判断を持たせず、Agentへ決定的操作を再実装させない。
+
+```text
+Tool  = 決定的な操作を安全に実行する
+Agent = いつ実行するかを規約に従って判断し、検証と記録まで完結する
+Human = 例外と方針変更を決定する
+```
+
 ## 正本と派生物
 
 Markdown、原資料、Project入出力、eval、Toolコードが正本である。`.agent-cache/`はGit管理外の派生物で、
@@ -35,6 +43,45 @@ Git追跡対象にもしない。
 - 固定コードはProjectまたはSkillの`scripts/`、構造保守はこの`tools/`が所有し、実行方法と検証方法を持つ。
 - 外部共有、本番、金銭、権限、機密へ影響する処理は初回から固定コード相当の品質を要求する。
 - 全件監査でも全件を同時に入力しない。バッチで検査し、`.tmp/`の集約結果と必要な正本だけを次段階へ渡す。
+
+## 自律実行の標準完了
+
+検証合格後のscoped commitを通常の完了処理とし、可否を利用者へ質問しない。次をすべて満たすとき自動commitする。
+
+- 依頼範囲内の変更であり、変更対象のOwnerが明確である。
+- 必須検証が合格している。未検証または不合格の状態を完了commitとして扱わない。
+- 秘密情報を含まず、unrelated changeを混ぜていない。
+- 一つのsessionが一つのGit rootだけへ書き、作業ツリーから自分の変更を安全に分離できる。
+- commitが意味的に一つの作業単位になっている。
+
+commit messageは変更内容と理由が分かる一文を先頭に置く。長い作業を中断するときは、未完了であることと
+残件をmessageへ明記したcheckpoint commitを作ってよい。checkpointは完了報告にせず、成果契約の達成としても
+扱わない。commit後は`tools/BACKUP.md`のtriggerとpolicyが許す場合だけbackupまたは通常pushへ進む。
+
+次のいずれかでは自動commitせず停止し、`AGENTS.md#人間へ上げる例外`として報告する。
+
+- 秘密情報を含む、または所有者不明の変更と安全に分離できない。
+- 同じ行や成果物で別sessionと競合している。
+- 不可逆操作を前提とする、または成果契約の変更を含む。
+- 何を正本とするか決定できない。
+
+## 自己修復と停止
+
+安全で可逆な内部エラーは、最初の失敗で利用者へ判断を返さず、原因を調査して自律修正し再検証する。対象は
+サイズ超過、参照切れ、lintとformatの失敗、stale cache、validatorが示した構造違反、生成物の再生成漏れ、
+Toolへの決定的な入力不備、自分の変更が壊したtestである。
+
+同じ原因への修正再試行は3回までとし、到達したら停止する。同じ修正の反復と無限ループを行わない。
+次のいずれかは試行回数によらず停止する。
+
+- 修正方法が成果契約、目的、優先順位を変える。
+- 解決策が複数あり、選択で成果や安全性が変わる。
+- 不可逆操作または外部状態の変更が必要である。
+- 所有者不明の変更へ触れる必要がある。
+- 二つの正本が矛盾し、どちらを正本とするか一意に決まらない。
+
+正本同士が矛盾した場合は片方を推測で書き換えない。両方のpath、矛盾する記述、`AGENTS.md#参照順序`上の
+上位、影響範囲を示し、推奨する一つの解決を添えて停止する。
 
 ## build-context-cache.sh
 
@@ -76,9 +123,8 @@ name、description、status、mode、pathだけをcatalogへ登録する。conte
 
 登録済みの`projects/<name>/`はdirectory全体をpruneする。Independent Project本体をmanifest、
 fingerprint、SQLite bodyのいずれからも除外し、root側の`projects/REPOSITORIES.md`と`projects/.gitignore`は
-manifestへ入れる。したがってchild側のcodeや未commitの`PROJECT.md`を変更してもroot fingerprintは変わらず、
-採用revisionが変わったときだけ変わる。`find-context.sh`はcatalogとrouteable正本だけを検索し、fallbackでも
-Independent Project配下をrecursive grepしない。
+manifestへ入れる。root fingerprintは採用revisionが変わったときだけ変わる。`find-context.sh`はcatalogと
+routeable正本だけを検索し、fallbackでもIndependent Project配下をrecursive grepしない。
 
 環境変数`AGENT_DIRECTORY_ROOT`で検査対象root、`AGENT_CACHE_DIR`で出力先を差し替えられる。
 fixtureや隔離検証以外では既定値を使う。
@@ -121,23 +167,20 @@ bash tools/backup-to-github.sh --root-only
 bash tools/backup-to-github.sh --remote backup --branch main --dry-run
 ```
 
-meta層のToolであり、通常のKnowledge、Skill、Project作業から自動実行しない。利用者がバックアップ、
-マシン移行、破壊的変更前の復旧点作成、チェックポイント保存を明示した場合だけ実行する。
+meta層のToolであり、いつ実行するかはAgentが規約に従って判断する。有効なPrivate backup remoteと自動backup
+方針が設定済みなら、検証済みcommitの後のようなタスク境界で確認を求めず実行する。trigger、未設定・失敗時の
+扱い、remote分類は`tools/BACKUP.md`が所有する。ファイル1件ごとにpushする設計にはしない。
 
 - 入力: `--remote`（既定`backup`）、`--branch`（既定`main`）、`--dry-run`、`--root-only`。
   `AGENT_DIRECTORY_ROOT`で対象root、`AGENT_BACKUP_MAX_BLOB_BYTES`でblob上限を差し替えられる。
   上限の差し替えは隔離fixture検証だけで使う。
-- scope: 既定はworkspace scopeで、root pushの前に全Independent repositoryを監査する。`--root-only`は
-  rootだけを検査・pushする部分結果であり、Independentのnetwork、dirty、unpushを検査しない。
-- 出力: workspace成功`WORKSPACE_BACKUP_OK remote=<name> branch=<name> sha=<40文字SHA> independent=<count>`、
-  dry-run`WORKSPACE_BACKUP_READY ...`、root-only成功`ROOT_BACKUP_OK ... scope=root-only`、
-  dry-run`ROOT_BACKUP_READY ... scope=root-only`をstdoutへ1行。停止時は`BACKUP_BLOCKED reason=<reason>`を
-  stderrへ出し、終了コードを非0にする。補足はstderrの`DETAIL:`行に出す。
-- root remoteへpushする唯一の標準経路であり、pushは`HEAD:refs/heads/<branch>`の明示refspecによる
+- 出力: 成功とdry-runは1行の機械可読な結果をstdoutへ、停止は`BACKUP_BLOCKED reason=<reason>`をstderrへ
+  出して終了コードを非0にする。scope、結果文字列、前提条件、停止reasonの一覧、divergence時の禁止操作、
+  Independent監査項目、Single Writer、root `git clean`の禁止、復旧・移行手順は`tools/BACKUP.md`が所有し、
+  扱うときだけ読む。
+- root backup remoteへpushする唯一の標準経路であり、pushは`HEAD:refs/heads/<branch>`の明示refspecによる
   通常のfast-forward pushだけとする。Independent remoteへは決してpushしない。コミットを作らず、
   `--dry-run`はremoteへ一切書き込まない。
-- 前提条件、停止reasonの一覧、divergence時の禁止操作、Independent監査項目、Single Writer、
-  root `git clean`の禁止、復旧・移行手順は`tools/BACKUP.md`が所有し、扱うときだけ読む。
 - 検証: 一時ディレクトリのローカルbare remoteを使う隔離fixtureで、実GitHub接続なしに再現できる。
 
 ## materialize-project-repositories.sh
@@ -193,9 +236,8 @@ bash tools/validate-agent-directory.sh --full --base main
 機械検査する境界には少なくとも次が含まれる。
 
 - `knowledge/research/`と旧領域`README.md`が存在せず、`knowledge/raw/`の二領域がimmutableである。
-- 固定Wiki Markdownが`INDEX.md`、`LOG.md`、`_template/SOURCE.md`、`_template/TOPIC.md`の大文字名だけであり、
+- `knowledge/KNOWLEDGE.md#命名規則`のとおり固定Wikiが大文字名、利用者ページが小文字ケバブケースであり、
   旧小文字パスがGit indexにも実ファイル名にも戻っていない。
-- 利用者が作る`knowledge/wiki/sources/`と`knowledge/wiki/topics/`のページが小文字ケバブケースである。
 - frontmatterを欠く正本があってもcache生成が停止せず、対象パスと欠落キーを警告して候補から外す。
 - `PROJECT.md`に`repository_mode`、`repository_url`、`repository_reason`、`repository_default_branch`が
   残らず、`STATE.md`に`## Repository State`が残らない。
@@ -238,6 +280,28 @@ Private可視性はセットアップ契約であり、利用者が確認する�
 | `tools/BACKUP.md` | 20KiB |
 
 token数はモデル差があるためvalidatorのhard failには使わない。実行時の読込予算は`AGENTS.md`が所有する。
+
+### 超過時の標準処理
+
+ルート`AGENTS.md`、Project個別`AGENTS.md`、Domain Canonのような短い入口が上限を超えたら、圧縮・分割・
+上限拡大のどれを選ぶかを利用者へ質問せず、次の順で処理する。
+
+1. 同じ意味の重複記述を除去する。
+2. 詳細を既存の正しい所有先へ移す。
+3. 条件付きロードへ変更する。
+4. 残る詳細を責務単位で詳細文書へ分割する。
+5. 元の正本には現在有効な原則、境界、Route、参照だけを残す。
+6. 移動前後で意味、禁止事項、例外、参照が失われていないことを確認する。
+7. 参照切れを検査し、validatorを実行し、commitして結果を報告する。
+
+「圧縮」は曖昧な要約への置換ではなく、意味を保持した重複除去、責務移管、段階的開示である。既定では上限を
+拡大しない。拡大を検討できるのは、既存の責務分離では収容できず、そのファイル自身が情報を所有すべき明確な
+根拠があり、構造全体の変更として正当化できる場合だけであり、validatorを通すためだけの拡大は禁止する。
+hard limit未満のwarningは委譲余地の確認を促す助言であり、閾値を動かして消さない。
+
+原資料、Knowledge、研究証拠、Project成果物は、大きいことだけを理由に圧縮、要約置換、削除しない。入口
+ファイルの肥大化と保存すべき情報量の増加は別問題として扱い、前者は責務移管、後者は限定取得で解く。
+非破壊的な取り扱いは`knowledge/KNOWLEDGE.md`が所有する。
 
 ## 中規模以降
 
