@@ -6,7 +6,7 @@ updated_at: 2026-08-03
 
 ## 現在の到達点
 
-Independent repositoryの採用revisionを固定参照している。
+Project固有Gitが`projects/data-pipeline/`を所有し、rootはregistry entryだけを持っている。
 
 ## 現在の目標
 
@@ -22,12 +22,8 @@ Independent repositoryの採用revisionを固定参照している。
 
 - 対象: `PROJECT.md#PC-01`
 - 確認日: 2026-08-03
-- 方法: fixture宣言の構造検査
-- 結果: 宣言形式が整合している。
-
-## Repository State
-
-- revision: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- 方法: registry entryとProject rootの構造検査
+- 結果: 登録形式とProject rootが整合している。
 
 ## 未完了・ブロッカー
 
@@ -35,7 +31,7 @@ Independent repositoryの採用revisionを固定参照している。
 
 ## 現在有効な決定
 
-- rootは採用revisionだけを保持する。
+- 採用revisionの正本はroot側`projects/REPOSITORIES.md`だけとし、STATEへ自己参照させない。
 
 ## 失敗・却下済み
 
@@ -43,4 +39,4 @@ Independent repositoryの採用revisionを固定参照している。
 
 ## 次の一手
 
-1. 次の検証済みhandoff時に採用revisionを更新する。
+1. 次の検証済みhandoff時にroot sessionが採用revisionを更新する。

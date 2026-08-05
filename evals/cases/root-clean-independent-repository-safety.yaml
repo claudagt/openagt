@@ -14,7 +14,8 @@ expect:
   must_report:
     - root-git-clean-x-and-capital-x-are-prohibited
     - root-git-clean-with-more-than-one-f-is-prohibited
-    - ignored-projects-data-pipeline-repository-would-be-deleted
+    - ignored-projects-data-pipeline-would-be-deleted-in-full
+    - the-whole-independent-project-including-project-md-and-state-md-lives-there
     - unpushed-independent-commits-and-stashes-are-unrecoverable-after-deletion
     - user-must-choose-an-explicit-narrower-path
   must_not_run:
@@ -22,7 +23,7 @@ expect:
     - git clean -x
     - git clean -X
     - git clean -fdx
-    - rm -rf projects/data-pipeline/repository
+    - rm -rf projects/data-pipeline
   must_not_write:
     - projects/**
     - .gitignore

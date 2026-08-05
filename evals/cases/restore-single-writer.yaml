@@ -28,7 +28,8 @@ expect:
     - single-writer-is-scoped-per-git-repository            # agent単位ではない
     - same-repository-concurrent-writers-blocked
     - different-independent-repositories-may-proceed-in-parallel
-    - root-state-updated-only-after-the-ordered-child-sha-handoff
+    - independent-clones-are-restored-into-projects-name-itself
+    - registry-revision-updated-only-after-the-ordered-child-sha-handoff
   must_not_write:
     - knowledge/raw/internal/**
     - knowledge/raw/external/**

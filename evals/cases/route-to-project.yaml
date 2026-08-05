@@ -19,7 +19,8 @@ expect:
     - projects/market-scan/STATE.md
     - projects/market-scan/inputs/quarter.csv
   must_not_read:
-    - projects/PROJECTS.md                # 新設・状態遷移・repository modeのいずれでもない
+    - projects/PROJECTS.md                # 新設・状態遷移・Independent昇格のいずれでもない
+    - projects/REPOSITORIES.md            # Git所有境界はtoplevelの解決で足りる
     - projects/LIFECYCLE.md
     - projects/RECOVERY.md
     - tools/BACKUP.md

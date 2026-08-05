@@ -18,10 +18,12 @@ expect:
   must_report:
     - repository-reason-automation
     - user-approval-before-promotion
-    - fixed-internal-path-projects-market-scan-repository
-    - repository-must-be-a-normal-git-clone-with-a-real-git-directory
+    - project-root-stays-projects-market-scan                 # 別のrepository/階層を作らない
+    - no-extra-repository-subdirectory
+    - attachment-recorded-in-projects-repositories-md         # rootはregistry entryだけを持つ
+    - project-md-state-md-agents-md-and-docs-move-to-the-child-git
     - root-and-independent-session-roots-are-separate
-    - independent-sha-handoff-required
+    - independent-sha-handoff-updates-the-registry-revision
     - no-machine-local-clone-path-in-canonical-files
     - no-duplicate-source-after-migration
     - no-submodule-no-worktree-no-symlink

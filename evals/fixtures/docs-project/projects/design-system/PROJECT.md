@@ -3,7 +3,6 @@ name: design-system
 description: 社内プロダクトの共通デザインシステムを、実装済みコンポーネントと判断基準まで含めて確立する。
 status: active
 mode: finite
-repository_mode: embedded
 ---
 
 # `design-system`

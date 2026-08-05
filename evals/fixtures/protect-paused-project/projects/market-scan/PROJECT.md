@@ -3,7 +3,6 @@ name: market-scan
 description: 指定四半期の市場動向レポートを作る停止中の有限Project。
 status: paused
 mode: finite
-repository_mode: embedded
 ---
 
 # `market-scan`

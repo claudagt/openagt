@@ -92,27 +92,112 @@ frontmatter_key_count() {
   ' "$1"
 }
 
-repository_state_value() {
-  awk -v key="$2" '
-    $0 == "## Repository State" { in_section = 1; next }
-    in_section && /^## / { exit }
-    in_section && index($0, "- " key ": `") == 1 {
-      value = $0
-      sub("^- " key ": `", "", value)
-      sub(/`$/, "", value)
-      print value
-      exit
+# registry entryを "name<TAB>url<TAB>reason<TAB>revision" として1行ずつ出す。
+# コードフェンス内は読まず、構造上の誤りは "E<TAB>detail" で返す。
+# materializerとbackup Toolの同名関数と同じ判定を持つ。
+registry_records() {
+  LC_ALL=C awk '
+    function flush_entry() {
+      if (current == "") return
+      if (url_count != 1) print "E\t`" current "` must declare repository_url exactly once"
+      if (reason_count != 1) print "E\t`" current "` must declare repository_reason exactly once"
+      if (revision_count != 1) print "E\t`" current "` must declare revision exactly once"
+      print "R\t" current "\t" url "\t" reason "\t" revision
+      current = ""
+    }
+    {
+      if (substr($0, 1, 3) == "```") { fence = 1 - fence; next }
+      if (fence) next
+      if (substr($0, 1, 3) == "## ") {
+        flush_entry()
+        heading = $0
+        url = ""; reason = ""; revision = ""
+        url_count = 0; reason_count = 0; revision_count = 0
+        if (heading ~ /^## `[A-Za-z0-9][A-Za-z0-9._-]*`[ \t]*$/) {
+          sub(/^## `/, "", heading)
+          sub(/`[ \t]*$/, "", heading)
+          current = heading
+          if (current in seen) print "E\tduplicate registry entry: `" current "`"
+          seen[current] = 1
+          if (previous != "" && previous >= current)
+            print "E\tregistry entries must sort ascending: `" previous "` before `" current "`"
+          previous = current
+        } else {
+          print "E\tinvalid registry heading: " $0
+        }
+        next
+      }
+      if (substr($0, 1, 2) == "- ") {
+        field = $0
+        sub(/^- /, "", field)
+        if (field !~ /^[a-z_]+: `[^`]*`[ \t]*$/) next
+        if (current == "") { print "E\tregistry field outside an entry: " $0; next }
+        key = field
+        sub(/:.*$/, "", key)
+        value = field
+        sub(/^[a-z_]+: `/, "", value)
+        sub(/`[ \t]*$/, "", value)
+        if (key == "repository_url") { url = value; url_count++ }
+        else if (key == "repository_reason") { reason = value; reason_count++ }
+        else if (key == "revision") { revision = value; revision_count++ }
+        else print "E\tunsupported registry field in `" current "`: " key
+        next
+      }
+    }
+    END { flush_entry() }
+  ' "$1"
+}
+
+# projects/.gitignore の managed block構造を検査し、entryを1行ずつ出す。
+ignore_block_records() {
+  [[ -f "$1" ]] || { printf 'E\tmissing file\n'; return 0; }
+  awk '
+    $0 == "# BEGIN INDEPENDENT PROJECTS" {
+      if (begin_count > 0) print "E\tduplicate BEGIN INDEPENDENT PROJECTS marker"
+      begin_count++
+      in_block = 1
+      next
+    }
+    $0 == "# END INDEPENDENT PROJECTS" {
+      if (!in_block) print "E\tEND INDEPENDENT PROJECTS without a matching BEGIN"
+      end_count++
+      in_block = 0
+      next
+    }
+    in_block && $0 != "" { print "R\t" $0 }
+    END {
+      if (in_block) print "E\tunterminated managed block"
+      if (begin_count != 1) print "E\tthe managed block must open exactly once"
+      if (end_count != 1) print "E\tthe managed block must close exactly once"
     }
   ' "$1"
 }
 
-repository_state_key_count() {
-  awk -v key="$2" '
-    $0 == "## Repository State" { in_section = 1; next }
-    in_section && /^## / { exit }
-    in_section && index($0, "- " key ": `") == 1 { count++ }
-    END { print count + 0 }
-  ' "$1"
+# repository_urlはoption injection、認証情報、query/fragment、file://、ローカルpathを拒否する。
+repository_url_is_rejected() {
+  local url="$1"
+  local authority userinfo
+  [[ -n "$url" ]] || return 0
+  case "$url" in
+    -*) return 0 ;;
+    *[[:space:]]*|*'`'*) return 0 ;;
+    *'?'*|*'#'*) return 0 ;;
+    file://*|FILE://*) return 0 ;;
+    /*|./*|../*|~*) return 0 ;;
+  esac
+  authority="${url#*://}"
+  authority="${authority%%/*}"
+  case "$authority" in
+    *@*)
+      userinfo="${authority%%@*}"
+      case "$userinfo" in *:*) return 0 ;; esac
+      ;;
+  esac
+  case "$url" in
+    *://*|*:*) ;;
+    *) return 0 ;;
+  esac
+  return 1
 }
 
 value_character_count() {
@@ -303,7 +388,7 @@ validate_claude_bridge() {
 # Project差分ファイルは成果契約と現在状態を所有してはならない。
 validate_project_agents_file() {
   local agents_file="$1"
-  local project_dir repository_mode forbidden
+  local project_dir forbidden
   local forbidden_headings=(
     '## 目的' '## 最終ゴール' '## 完了条件' '## 継続的使命' '## 成功指標' '## 見直し・終了条件'
     '## 現在の到達点' '## 現在の目標' '## 目標の合格条件' '## 検証結果' '## 現在有効な決定'
@@ -314,10 +399,6 @@ validate_project_agents_file() {
   project_dir="$(dirname "$agents_file")"
   check_size "$agents_file" 2048 'Project AGENTS.md'
 
-  repository_mode="$(frontmatter_value "$project_dir/PROJECT.md" 'repository_mode')"
-  if [[ "$repository_mode" == 'independent' ]]; then
-    fail "$(relative_path "$agents_file") is forbidden in an Independent Project envelope; projects/<name>/repository/ owns it"
-  fi
   if [[ "$project_dir" == "$repo_root/projects/_template" ]]; then
     fail 'projects/_template must not carry AGENTS.md; per-Project差分は自動複製しない'
   fi
@@ -389,7 +470,6 @@ validate_project_docs() {
   local canon_files=()
 
   [[ -f "$project_file" ]] || return 0
-  [[ "$(frontmatter_value "$project_file" 'repository_mode')" == 'embedded' ]] || return 0
   rel_project="$(relative_path "$project_dir")"
 
   if [[ -d "$docs_dir" ]]; then
@@ -457,66 +537,65 @@ validate_project_docs() {
   fi
 }
 
-# Independentの固定pathは普通のcloneであり、`.git`は実directoryでなければならない。
-# evals/fixtures配下の静的fixtureは宣言と状態だけを持ち、実cloneを要求しない。
+# Independent Project rootは普通のcloneであり、`.git`は実directoryでなければならない。
+# evals/fixtures配下の静的fixtureは登録と契約だけを持ち、実cloneを要求しない。
 # 実Gitの挙動はvalidator内のintegration fixtureが所有する。
 validate_independent_attachment() {
-  local project_file="$1"
+  local project_name="$1"
   local repository_url="$2"
-  local project_dir rel_project target child_top child_origin child_head state_revision
-  project_dir="$(dirname "$project_file")"
-  case "$project_dir" in
-    "$repo_root"/projects/*) ;;
-    *) return 0 ;;
-  esac
-  rel_project="$(relative_path "$project_dir")"
-  target="$project_dir/repository"
+  local state_revision="$3"
+  local rel_project="projects/$project_name"
+  local target="$repo_root/$rel_project"
+  local child_top child_origin child_head contract_file
 
-  if [[ -L "$project_dir" || -L "$target" ]]; then
-    fail "$rel_project/repository must be a real directory, not a symlink"
+  if [[ -L "$target" ]]; then
+    fail "$rel_project must be a real directory, not a symlink"
     return 0
   fi
   if [[ ! -d "$target" ]]; then
-    fail "$rel_project declares repository_mode: independent but $rel_project/repository/ is missing; run bash tools/materialize-project-repositories.sh --project ${rel_project##*/}"
+    fail "$rel_project is registered in projects/REPOSITORIES.md but the clone is missing; run bash tools/materialize-project-repositories.sh --project $project_name"
     return 0
   fi
   if [[ -L "$target/.git" ]]; then
-    fail "$rel_project/repository/.git must be a real directory, not a symlink"
+    fail "$rel_project/.git must be a real directory, not a symlink"
     return 0
   fi
   if [[ -e "$target/.git" && ! -d "$target/.git" ]]; then
-    fail "$rel_project/repository/.git must be a real directory; .git files, worktrees and submodules are unsupported"
+    fail "$rel_project/.git must be a real directory; .git files, worktrees and submodules are unsupported"
     return 0
   fi
   if [[ ! -d "$target/.git" ]]; then
-    fail "$rel_project/repository must be a normal git clone carrying its own .git directory"
+    fail "$rel_project must be a normal git clone carrying its own .git directory"
     return 0
   fi
   command -v git >/dev/null 2>&1 || return 0
   if ! child_top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)"; then
-    fail "$rel_project/repository does not resolve to a Git working tree"
+    fail "$rel_project does not resolve to a Git working tree"
     return 0
   fi
   child_top="$(cd "$child_top" && pwd -P)"
   [[ "$child_top" == "$(cd "$target" && pwd -P)" ]] || \
-    fail "$rel_project/repository toplevel must be the fixed path itself, but Git reports $child_top"
+    fail "$rel_project toplevel must be the Project root itself, but Git reports $child_top"
   child_origin="$(git -C "$target" config --get remote.origin.url 2>/dev/null || true)"
   [[ "$child_origin" == "$repository_url" ]] || \
-    fail "$rel_project/repository remote.origin.url is ${child_origin:-<unset>}, expected $repository_url"
+    fail "$rel_project remote.origin.url is ${child_origin:-<unset>}, expected $repository_url"
   # 採用revisionがcloneに存在するだけでは足りない。HEADがそこに固定されていることまで確かめる。
   # branch上で作業してそのtipを採用する運用も成立するため、detached HEADまでは要求しない。
-  state_revision="$(repository_state_value "$project_dir/STATE.md" 'revision')"
   if [[ "$state_revision" =~ ^[0-9a-f]{40}$ ]]; then
     child_head="$(git -C "$target" rev-parse --verify --quiet HEAD || true)"
     [[ "$child_head" == "$state_revision" ]] || \
-      fail "$rel_project/repository HEAD is ${child_head:-none}, but STATE.md adopts $state_revision"
+      fail "$rel_project HEAD is ${child_head:-none}, but projects/REPOSITORIES.md adopts $state_revision"
   fi
+  for contract_file in PROJECT.md STATE.md; do
+    [[ -f "$target/$contract_file" ]] || \
+      fail "$rel_project must carry its own $contract_file; the Independent Git owns the Project contract"
+  done
 }
 
 validate_project_contract() {
   local project_file="$1"
   local criterion_heading mode name status description project_dir knowledge_required skill_required
-  local repository_mode repository_url repository_reason repository_default_branch unexpected_entry
+  local retired_key
   local headings=(
     '## 目的' '## 判断原則' '## 非ゴール' '## 制約・固定決定' '## 品質基準'
     '## 入力' '## 使用するKnowledge' '## 使用するSkill' '## 成果物' '## 検証方法'
@@ -534,10 +613,6 @@ validate_project_contract() {
   description="$(frontmatter_value "$project_file" 'description')"
   status="$(frontmatter_value "$project_file" 'status')"
   mode="$(frontmatter_value "$project_file" 'mode')"
-  repository_mode="$(frontmatter_value "$project_file" 'repository_mode')"
-  repository_url="$(frontmatter_value "$project_file" 'repository_url')"
-  repository_reason="$(frontmatter_value "$project_file" 'repository_reason')"
-  repository_default_branch="$(frontmatter_value "$project_file" 'repository_default_branch')"
   project_dir="$(basename "$(dirname "$project_file")")"
 
   [[ -n "$name" ]] || fail "$(relative_path "$project_file") has a missing name"
@@ -550,56 +625,13 @@ validate_project_contract() {
   fi
   case "$status" in active|paused|completed|retired) ;; *) fail "$(relative_path "$project_file") has an invalid status" ;; esac
   case "$mode" in finite|continuous) ;; *) fail "$(relative_path "$project_file") has an invalid mode" ;; esac
-  [[ "$(frontmatter_key_count "$project_file" 'repository_mode')" == '1' ]] || \
-    fail "$(relative_path "$project_file") must declare repository_mode exactly once"
-  case "$repository_mode" in
-    embedded)
-      if [[ -n "$repository_url$repository_reason$repository_default_branch" ]] || \
-        (( $(frontmatter_key_count "$project_file" 'repository_url') + \
-           $(frontmatter_key_count "$project_file" 'repository_reason') + \
-           $(frontmatter_key_count "$project_file" 'repository_default_branch') > 0 )); then
-        fail "$(relative_path "$project_file") embedded Project must not declare Independent repository fields"
-      fi
-      [[ ! -e "$(dirname "$project_file")/repository" ]] || \
-        fail "$(relative_path "$project_file") is embedded but holds a repository/ directory; promote it or remove the clone"
-      ;;
-    independent)
-      for repository_key in repository_url repository_reason repository_default_branch; do
-        [[ "$(frontmatter_key_count "$project_file" "$repository_key")" == '1' ]] || \
-          fail "$(relative_path "$project_file") must declare $repository_key exactly once for Independent mode"
-      done
-      # option injection、認証情報、query/fragment、file://、ローカルpathを正本へ書かせない。
-      if [[ -z "$repository_url" || "$repository_url" =~ [[:space:]\`] || \
-            "$repository_url" == -* || "$repository_url" == *'?'* || "$repository_url" == *'#'* || \
-            "$repository_url" == file://* || "$repository_url" == /* || "$repository_url" == .* || \
-            "$repository_url" == '~'* || "$repository_url" =~ ^[^:]*://[^/@]*:[^/@]*@ || \
-            "$repository_url" =~ ^[^:/@]*:[^/@]*@ ]]; then
-        fail "$(relative_path "$project_file") Independent repository_url must be a credential-free remote URL without query, fragment or local path"
-      elif [[ "$repository_url" != *://* && "$repository_url" != *:* ]]; then
-        fail "$(relative_path "$project_file") Independent repository_url must be a remote URL, not a bare path"
-      fi
-      case "$repository_reason" in
-        automation|distribution|collaboration|access|identity|upstream|retention) ;;
-        *) fail "$(relative_path "$project_file") has an invalid repository_reason" ;;
-      esac
-      if [[ ! "$repository_default_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || \
-        { command -v git >/dev/null 2>&1 && \
-          ! git check-ref-format --branch "$repository_default_branch" >/dev/null 2>&1; }; then
-        fail "$(relative_path "$project_file") has an invalid repository_default_branch"
-      fi
-      # root側envelopeが持ってよいのは契約、状態、固定pathのcloneだけである。
-      while IFS= read -r unexpected_entry; do
-        [[ -n "$unexpected_entry" ]] || continue
-        fail "$(relative_path "$project_file") Independent Project envelope may contain only PROJECT.md, STATE.md and repository/: $unexpected_entry"
-      done < <(find "$(dirname "$project_file")" -mindepth 1 -maxdepth 1 \
-        ! -name PROJECT.md ! -name STATE.md ! -name repository -print 2>/dev/null)
-      validate_independent_attachment "$project_file" "$repository_url"
-      ;;
-    satellite)
-      fail "$(relative_path "$project_file") uses the retired satellite mode; migrate it to repository_mode: independent (deprecated-satellite-mode)"
-      ;;
-    *) fail "$(relative_path "$project_file") has an invalid repository_mode" ;;
-  esac
+  # attachmentはProject契約ではなくregistryが持つ。旧fieldをactive schemaへ残さない。
+  for retired_key in repository_mode repository_url repository_reason repository_default_branch; do
+    [[ "$(frontmatter_key_count "$project_file" "$retired_key")" == '0' ]] || \
+      fail "$(relative_path "$project_file") declares the retired $retired_key field; attachment now lives in projects/REPOSITORIES.md"
+  done
+  [[ ! -d "$(dirname "$project_file")/repository" ]] || \
+    fail "$(relative_path "$project_file") still holds the retired projects/<name>/repository/ layer; migrate it per tools/BACKUP.md"
 
   if ! grep -Eq '^> .+' "$project_file"; then
     fail "$(relative_path "$project_file") is missing a one-line goal or mission"
@@ -640,7 +672,7 @@ validate_project_contract() {
   fi
 
   if grep -Eq '外部リポジトリ:|作業clone:' "$project_file"; then
-    fail "$(relative_path "$project_file") uses the retired prose repository declaration; use repository_mode frontmatter"
+    fail "$(relative_path "$project_file") uses the retired prose repository declaration; attachment lives in projects/REPOSITORIES.md"
   fi
 
   validate_declared_references "$project_file"
@@ -653,7 +685,6 @@ validate_project_contract() {
 validate_project_state() {
   local state_file="$1"
   local contract_targets verification_targets project_file target updated_at project_status project_mode criterion
-  local repository_mode state_revision repository_state_key
   local headings=(
     '## 現在の到達点' '## 現在の目標' '## 目標の合格条件' '## 検証結果'
     '## 未完了・ブロッカー' '## 現在有効な決定' '## 失敗・却下済み' '## 次の一手'
@@ -677,7 +708,6 @@ validate_project_state() {
   project_file="$(dirname "$state_file")/PROJECT.md"
   project_status="$(frontmatter_value "$project_file" 'status')"
   project_mode="$(frontmatter_value "$project_file" 'mode')"
-  repository_mode="$(frontmatter_value "$project_file" 'repository_mode')"
   contract_targets="$(state_section_targets "$state_file" '## 現在の目標' '対象契約: `PROJECT.md#')"
   if [[ -z "$contract_targets" || "$(printf '%s\n' "$contract_targets" | wc -l | tr -d ' ')" != '1' ]]; then
     fail "$(relative_path "$state_file") must name one current PROJECT.md#PC-xx or #status target"
@@ -710,26 +740,10 @@ validate_project_state() {
       fi
     done < <(grep -Eo '\*\*PC-(0[1-9]|[1-9][0-9])\*\*' "$project_file" | tr -d '*' | LC_ALL=C sort -u)
   fi
-  case "$repository_mode" in
-    embedded)
-      if grep -Fqx '## Repository State' "$state_file"; then
-        fail "$(relative_path "$state_file") embedded Project must not declare Repository State"
-      fi
-      ;;
-    independent)
-      # Repository Stateは採用revisionだけを持つ。remote URLとbranchはPROJECT.mdが所有する。
-      require_fixed_line "$state_file" '## Repository State'
-      state_revision="$(repository_state_value "$state_file" 'revision')"
-      [[ "$(repository_state_key_count "$state_file" 'revision')" == '1' ]] || \
-        fail "$(relative_path "$state_file") must declare Repository State revision exactly once"
-      for repository_state_key in repository branch remote_verified_at; do
-        [[ "$(repository_state_key_count "$state_file" "$repository_state_key")" == '0' ]] || \
-          fail "$(relative_path "$state_file") Repository State must hold only revision; remove the retired $repository_state_key field"
-      done
-      [[ "$state_revision" =~ ^[0-9a-f]{40}$ ]] || \
-        fail "$(relative_path "$state_file") Repository State revision must be a 40-character lowercase commit SHA"
-      ;;
-  esac
+  # 採用revisionはroot側 projects/REPOSITORIES.md だけが所有する。STATEへ自己参照を戻さない。
+  if grep -Fqx '## Repository State' "$state_file"; then
+    fail "$(relative_path "$state_file") declares the retired ## Repository State section; the adopted revision lives in projects/REPOSITORIES.md"
+  fi
   if [[ "$state_file" != "$repo_root/projects/_template/STATE.md" ]] && contains_template_placeholder "$state_file"; then
     fail "$(relative_path "$state_file") contains an unresolved placeholder"
   fi
@@ -878,32 +892,60 @@ validate_deleted_project() {
   [[ ! -e "$repo_root/$project_dir" ]] || fail "Project deletion left files behind: $project_dir"
   if command -v rg >/dev/null 2>&1; then
     inbound_refs="$(rg -l -F --hidden --glob '!.git/**' --glob '!.agent-cache/**' --glob '!.tmp/**' \
-      --glob '!projects/*/repository/**' "$project_dir/" "$repo_root" 2>/dev/null || true)"
+      "$project_dir/" "$repo_root" 2>/dev/null || true)"
   else
     inbound_refs="$(grep -RIlF --exclude-dir=.git --exclude-dir=.agent-cache --exclude-dir=.tmp \
-      --exclude-dir=repository "$project_dir/" "$repo_root" 2>/dev/null || true)"
+      "$project_dir/" "$repo_root" 2>/dev/null || true)"
   fi
   [[ -z "$inbound_refs" ]] || fail "deleted Project still has inbound reference(s): $project_dir"
 }
 
-# 宣言済みIndependent repositoryの本体はroot validatorの走査対象外である。directoryごとpruneし、
-# 許可された `projects/<name>/repository/.git/` 以外のnested Gitは停止させる。
+registry_path='projects/REPOSITORIES.md'
+ignore_path='projects/.gitignore'
+
+# 登録済みIndependent ProjectのProject rootはroot validatorの走査対象外である。
 # 配列は set -u 下でも安全なよう、既存pruneと重複する無害な項目で常に非空にする。
+independent_names=()
+independent_urls=()
+independent_reasons=()
+independent_revisions=()
+if [[ -f "$repo_root/$registry_path" ]]; then
+  while IFS=$'\t' read -r registry_kind registry_a registry_b registry_c registry_d; do
+    [[ "$registry_kind" == 'R' ]] || continue
+    independent_names+=("$registry_a")
+    independent_urls+=("$registry_b")
+    independent_reasons+=("$registry_c")
+    independent_revisions+=("$registry_d")
+  done < <(registry_records "$repo_root/$registry_path")
+fi
+independent_count="${#independent_names[@]}"
+
 repository_prune=( -path "$repo_root/.git" )
 repository_prune_or=( -o -path "$repo_root/.git" )
-for declared_contract in "$repo_root"/projects/*/PROJECT.md; do
-  [[ -f "$declared_contract" ]] || continue
-  [[ "$(frontmatter_value "$declared_contract" 'repository_mode')" == 'independent' ]] || continue
-  declared_repository="$(dirname "$declared_contract")/repository"
-  [[ -d "$declared_repository" ]] || continue
-  repository_prune+=( -o -path "$declared_repository" )
-  repository_prune_or+=( -o -path "$declared_repository" )
+prune_index=0
+while (( prune_index < independent_count )); do
+  declared_root="$repo_root/projects/${independent_names[$prune_index]}"
+  prune_index=$((prune_index + 1))
+  [[ -d "$declared_root" ]] || continue
+  repository_prune+=( -o -path "$declared_root" )
+  repository_prune_or+=( -o -path "$declared_root" )
 done
+
+is_registered_independent() {
+  local candidate="$1"
+  local index=0
+  while (( index < independent_count )); do
+    [[ "${independent_names[$index]}" != "$candidate" ]] || return 0
+    index=$((index + 1))
+  done
+  return 1
+}
 
 required_files=(
   'AGENTS.md' 'CLAUDE.md' 'projects/AGENTS.md' 'projects/CLAUDE.md'
   'README.md' 'knowledge/KNOWLEDGE.md' "$knowledge_index_path" "$knowledge_log_path"
   'skills/SKILLS.md' 'skills/_template/SKILL.md' 'projects/PROJECTS.md' 'projects/LIFECYCLE.md' 'projects/RECOVERY.md'
+  "$registry_path" "$ignore_path"
   'projects/_template/PROJECT.md' 'projects/_template/STATE.md' 'evals/EVALS.md' 'tools/TOOLS.md'
   'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/append-knowledge-log.sh'
   'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
@@ -1047,18 +1089,134 @@ done < <(find "$repo_root/projects" "$repo_root/evals/fixtures" \
   \( "${repository_prune[@]}" \) -prune -o -type f -name 'CLAUDE.md' -print0)
 
 while IFS= read -r -d '' nested_git; do
-  fail "nested Git repository is forbidden unless it is a declared Independent Project clone: $(relative_path "$nested_git")"
+  fail "nested Git repository is forbidden unless it is a registered Independent Project clone: $(relative_path "$nested_git")"
 done < <(find "$repo_root" \( "${repository_prune[@]}" \) -prune -o \
   -mindepth 2 \( -type d -o -type f \) -name .git -print0)
 
-# root Gitは`repository/`本体を追跡せず、gitlinkもsubmoduleも持たない。
-require_fixed_line "$repo_root/.gitignore" 'projects/*/repository/'
+# --- registryとignore projectionの検査 ------------------------------------------
+
+# 静的fixtureは実cloneを持たないため、attachmentとroot ownershipはroot registryだけで検査する。
+validate_repositories_registry() {
+  local scope_root="$1"
+  local scope_is_root="$2"
+  local scope_registry="$scope_root/$registry_path"
+  local scope_ignore="$scope_root/$ignore_path"
+  local rel_registry rel_ignore record_kind entry_name entry_url entry_reason entry_revision
+  local ignore_entry ignore_name previous_ignore tracked_entry
+  local names_file ignore_file
+
+  [[ -f "$scope_registry" ]] || return 0
+  rel_registry="$(relative_path "$scope_registry")"
+  rel_ignore="$(relative_path "$scope_ignore")"
+  names_file="$(mktemp "${TMPDIR:-/tmp}/agent-registry-names.XXXXXX")"
+  ignore_file="$(mktemp "${TMPDIR:-/tmp}/agent-registry-ignore.XXXXXX")"
+
+  grep -Fqx '# REPOSITORIES — Independent Project Registry' "$scope_registry" || \
+    fail "$rel_registry must open with the fixed heading: # REPOSITORIES — Independent Project Registry"
+
+  while IFS=$'\t' read -r record_kind entry_name entry_url entry_reason entry_revision; do
+    [[ -n "$record_kind" ]] || continue
+    if [[ "$record_kind" == 'E' ]]; then
+      fail "$rel_registry: $entry_name"
+      continue
+    fi
+    printf '%s\n' "$entry_name" >> "$names_file"
+    case "$entry_reason" in
+      automation|distribution|collaboration|access|identity|upstream|retention) ;;
+      *) fail "$rel_registry entry \`$entry_name\` has an invalid repository_reason: ${entry_reason:-<empty>}" ;;
+    esac
+    if repository_url_is_rejected "$entry_url"; then
+      fail "$rel_registry entry \`$entry_name\` repository_url must be a credential-free remote URL without query, fragment or local path"
+    fi
+    [[ "$entry_revision" =~ ^[0-9a-f]{40}$ ]] || \
+      fail "$rel_registry entry \`$entry_name\` revision must be a 40-character lowercase commit SHA"
+    [[ -d "$scope_root/projects/$entry_name" ]] || \
+      fail "$rel_registry entry \`$entry_name\` has no matching Project root at projects/$entry_name/"
+    if [[ "$scope_is_root" == true ]]; then
+      validate_independent_attachment "$entry_name" "$entry_url" "$entry_revision"
+      if [[ -n "$tracked_files_snapshot" ]]; then
+        while IFS= read -r tracked_entry; do
+          [[ -n "$tracked_entry" ]] || continue
+          fail "the root repository must not track Independent Project contents: $tracked_entry"
+        done < <(printf '%s\n' "$tracked_files_snapshot" | grep -E "^projects/$entry_name/" | head -n 5 || true)
+      fi
+    fi
+  done < <(registry_records "$scope_registry")
+
+  # managed blockはregistryの派生projectionであり、集合と順序が完全一致しなければならない。
+  previous_ignore=''
+  while IFS=$'\t' read -r record_kind ignore_entry; do
+    [[ -n "$record_kind" ]] || continue
+    if [[ "$record_kind" == 'E' ]]; then
+      fail "$rel_ignore: $ignore_entry"
+      continue
+    fi
+    if [[ ! "$ignore_entry" =~ ^/[A-Za-z0-9][A-Za-z0-9._-]*/$ ]]; then
+      fail "$rel_ignore managed block entries must use the /<name>/ form: $ignore_entry"
+      continue
+    fi
+    ignore_name="${ignore_entry#/}"
+    ignore_name="${ignore_name%/}"
+    printf '%s\n' "$ignore_name" >> "$ignore_file"
+    if [[ -n "$previous_ignore" ]] && \
+      [[ "$(printf '%s\n%s\n' "$previous_ignore" "$ignore_name" | LC_ALL=C sort | head -n 1)" != "$previous_ignore" ]]; then
+      fail "$rel_ignore managed block must sort ascending: $previous_ignore before $ignore_name"
+    fi
+    previous_ignore="$ignore_name"
+  done < <(ignore_block_records "$scope_ignore")
+
+  if ! cmp -s "$names_file" "$ignore_file"; then
+    fail "$rel_ignore managed block must match the $rel_registry entry set exactly (registry is canonical, the ignore block is derived)"
+  fi
+  rm -f "$names_file" "$ignore_file"
+}
+
+validate_repositories_registry "$repo_root" true
+while IFS= read -r -d '' fixture_registry; do
+  validate_repositories_registry "$(dirname "$(dirname "$fixture_registry")")" false
+done < <(find "$repo_root/evals/fixtures" -mindepth 3 -maxdepth 3 -type f \
+  -path '*/projects/REPOSITORIES.md' -print0 2>/dev/null)
+
+# root Gitは登録済みProject rootを追跡せず、gitlinkもsubmoduleも持たない。
+if grep -Fqx 'projects/*/repository/' "$repo_root/.gitignore"; then
+  fail 'root .gitignore still ignores the retired projects/*/repository/ layout; the registry projection lives in projects/.gitignore'
+fi
+while IFS= read -r broad_pattern; do
+  [[ -n "$broad_pattern" ]] || continue
+  fail "root .gitignore must not ignore Project directories wholesale: $broad_pattern"
+done < <(grep -E '^/?projects/\*/?$' "$repo_root/.gitignore" || true)
+while IFS= read -r broad_pattern; do
+  [[ -n "$broad_pattern" ]] || continue
+  fail "$ignore_path must not ignore Project directories wholesale: $broad_pattern"
+done < <(grep -E '^/?\*/?$' "$repo_root/$ignore_path" || true)
+
+# Embedded Project、_template、registry、projectionをignoreしない。
+if command -v git >/dev/null 2>&1 && git -C "$repo_root" rev-parse --show-toplevel >/dev/null 2>&1; then
+  for guarded_path in "$registry_path" "$ignore_path" 'projects/_template/PROJECT.md' 'projects/PROJECTS.md'; do
+    if git -C "$repo_root" check-ignore -q -- "$guarded_path" 2>/dev/null; then
+      fail "$guarded_path must never be ignored by the root repository"
+    fi
+  done
+  for embedded_contract in "$repo_root"/projects/*/PROJECT.md; do
+    [[ -f "$embedded_contract" ]] || continue
+    embedded_name="$(basename "$(dirname "$embedded_contract")")"
+    is_registered_independent "$embedded_name" && continue
+    if git -C "$repo_root" check-ignore -q -- "projects/$embedded_name/PROJECT.md" 2>/dev/null; then
+      fail "Embedded Project projects/$embedded_name/ must not be ignored by the root repository"
+    fi
+  done
+fi
+
 if [[ -n "$tracked_files_snapshot" ]]; then
   while IFS= read -r tracked_child; do
     [[ -n "$tracked_child" ]] || continue
-    fail "the root repository must not track Independent repository contents: $tracked_child"
+    fail "the retired projects/<name>/repository/ layout is still tracked: $tracked_child"
   done < <(printf '%s\n' "$tracked_files_snapshot" | grep -E '^projects/[^/]+/repository/' | head -n 5 || true)
 fi
+while IFS= read -r -d '' legacy_repository; do
+  fail "the retired projects/<name>/repository/ clone still exists: $(relative_path "$legacy_repository") — migrate it per tools/BACKUP.md"
+done < <(find "$repo_root/projects" -mindepth 3 -maxdepth 3 -type d -path '*/repository/.git' -print0 2>/dev/null)
+
 if git -C "$repo_root" rev-parse --show-toplevel >/dev/null 2>&1; then
   while IFS= read -r gitlink_path; do
     [[ -n "$gitlink_path" ]] || continue
@@ -1347,7 +1505,7 @@ mkdir -p "$malformed_fixture_dir/projects/good-project" \
   "$malformed_fixture_dir/knowledge/wiki/topics"
 {
   printf '%s\n' '---' 'name: good-project' 'description: fixture' 'status: active'
-  printf '%s\n' 'mode: finite' 'repository_mode: embedded' '---'
+  printf '%s\n' 'mode: finite' '---'
 } > "$malformed_fixture_dir/projects/good-project/PROJECT.md"
 {
   printf '%s\n' '---' 'name: no-status' 'description: fixture' '---'
@@ -1412,8 +1570,10 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_peer="$backup_fixture_dir/peer"
   independent_seed="$backup_fixture_dir/independent-seed"
   independent_remote_dir="$backup_fixture_dir/independent.git"
-  independent_clone="$backup_work/projects/data-pipeline/repository"
+  independent_clone="$backup_work/projects/data-pipeline"
   independent_cache_dir="$backup_fixture_dir/independent-cache"
+  fixture_registry="$backup_work/projects/REPOSITORIES.md"
+  fixture_ignore="$backup_work/projects/.gitignore"
   backup_env=(
     HOME="$backup_fixture_dir" GIT_CONFIG_NOSYSTEM=1
     GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
@@ -1449,6 +1609,10 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   fixture_fingerprint() {
     sed -n 's/^content_fingerprint=//p' "$independent_cache_dir/cache.meta" | head -n 1
   }
+  fixture_catalog_field() {
+    awk -F '\t' -v path="$1" -v column="$2" '$8 == path { print $column; exit }' \
+      "$independent_cache_dir/catalog.tsv"
+  }
   backup_expect_blocked() {
     if (( backup_status == 0 )); then
       fail "backup fixture: $2 unexpectedly succeeded"
@@ -1483,12 +1647,26 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   independent_remote_sha() {
     env "${backup_env[@]}" git -C "$independent_remote_dir" rev-parse --verify --quiet refs/heads/main || true
   }
-  adopt_revision() {
+  write_registry() {
     {
-      printf '%s\n' '---' 'updated_at: 2026-08-03' '---' '' '## Repository State' ''
+      printf '%s\n' '# REPOSITORIES — Independent Project Registry' ''
+      printf '%s\n' 'Independent Projectのattachmentと復旧情報だけを持つ。' ''
+      printf '%s\n' '## `data-pipeline`' ''
+      printf -- '- repository_url: `%s`\n' "$independent_remote_dir"
+      printf -- '- repository_reason: `%s`\n' "${2:-automation}"
       printf -- '- revision: `%s`\n' "$1"
-    } > "$backup_work/projects/data-pipeline/STATE.md"
-    backup_git add projects/data-pipeline/STATE.md
+    } > "$fixture_registry"
+  }
+  write_ignore_projection() {
+    {
+      printf '%s\n' '# Derived from projects/REPOSITORIES.md.' '# BEGIN INDEPENDENT PROJECTS'
+      while (( $# > 0 )); do printf '/%s/\n' "$1"; shift; done
+      printf '%s\n' '# END INDEPENDENT PROJECTS'
+    } > "$fixture_ignore"
+  }
+  adopt_revision() {
+    write_registry "$1"
+    backup_git add projects/REPOSITORIES.md
     backup_git commit -q -m 'fixture: adopt revision'
   }
 
@@ -1499,10 +1677,18 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   # branchやtagから到達できないcommitを採用する負ケースのため、SHA指定fetchを許可する。
   env "${backup_env[@]}" git -C "$independent_remote_dir" config uploadpack.allowAnySHA1InWant true
 
+  # Independent ProjectのPROJECT.mdとSTATE.mdはchild Gitが所有する。
   env "${backup_env[@]}" git init -q "$independent_seed"
   seed_git symbolic-ref HEAD refs/heads/main
   printf 'verified independent revision\n' > "$independent_seed/source.txt"
-  seed_git add source.txt
+  {
+    printf '%s\n' '---' 'name: data-pipeline' 'description: fixture contract owned by the child Git'
+    printf '%s\n' 'status: active' 'mode: continuous' '---'
+  } > "$independent_seed/PROJECT.md"
+  {
+    printf '%s\n' '---' 'updated_at: 2026-08-03' '---' '' '# Current State'
+  } > "$independent_seed/STATE.md"
+  seed_git add source.txt PROJECT.md STATE.md
   seed_git commit -q -m 'fixture: independent revision'
   seed_git remote add origin "$independent_remote_dir"
   seed_git push -q origin main
@@ -1510,23 +1696,37 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
 
   env "${backup_env[@]}" git init -q "$backup_work"
   backup_git symbolic-ref HEAD refs/heads/main
-  mkdir -p "$backup_work/tools" "$backup_work/projects/data-pipeline"
+  mkdir -p "$backup_work/tools" "$backup_work/projects"
   printf 'fixture agent directory\n' > "$backup_work/AGENTS.md"
-  printf '.tmp/\n.agent-cache/\n.env*\n!.env.example\n.DS_Store\nprojects/*/repository/\nignored-dir/\n' \
+  printf '.tmp/\n.agent-cache/\n.env*\n!.env.example\n.DS_Store\nignored-dir/\n' \
     > "$backup_work/.gitignore"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$backup_work/tools/validate-agent-directory.sh"
+  # Embedded Projectはroot Gitが丸ごと追跡し、ignore projectionへ入らない。
+  mkdir -p "$backup_work/projects/embedded-project"
   {
-    printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
-    printf '%s\n' 'repository_mode: independent' "repository_url: $independent_remote_dir"
-    printf '%s\n' 'repository_reason: automation' 'repository_default_branch: main' '---'
-  } > "$backup_work/projects/data-pipeline/PROJECT.md"
+    printf '%s\n' '---' 'name: embedded-project' 'description: fixture embedded project'
+    printf '%s\n' 'status: active' 'mode: finite' '---'
+  } > "$backup_work/projects/embedded-project/PROJECT.md"
   {
-    printf '%s\n' '---' 'updated_at: 2026-08-03' '---' '' '## Repository State' ''
-    printf -- '- revision: `%s`\n' "$independent_revision"
-  } > "$backup_work/projects/data-pipeline/STATE.md"
+    printf '%s\n' '---' 'updated_at: 2026-08-03' '---' '' '# Current State'
+  } > "$backup_work/projects/embedded-project/STATE.md"
+  # 空registryでも成立することを先に確かめる。
+  printf '%s\n' '# REPOSITORIES — Independent Project Registry' > "$fixture_registry"
+  write_ignore_projection
   backup_git add -A
-  backup_git commit -q -m 'fixture: initial commit'
+  backup_git commit -q -m 'fixture: empty registry'
   backup_git remote add backup "$backup_remote_dir"
+  backup_run --root-only --dry-run
+  backup_expect_line \
+    "ROOT_BACKUP_READY remote=backup branch=main sha=$(backup_git rev-parse HEAD) scope=root-only" \
+    'root-only dry run on an empty registry'
+  materialize_run --all
+  materialize_expect_line 'MATERIALIZATION_OK total=0 cloned=0 verified=0' 'an empty registry'
+
+  write_registry "$independent_revision"
+  write_ignore_projection data-pipeline
+  backup_git add -A
+  backup_git commit -q -m 'fixture: register the Independent Project'
   backup_head="$(backup_git rev-parse HEAD)"
 
   # --- 未materialize状態 -------------------------------------------------------
@@ -1540,15 +1740,24 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
 
   # --- materializer ------------------------------------------------------------
   materialize_run --all
-  materialize_expect_line 'MATERIALIZATION_OK total=1 cloned=1 verified=0' 'fresh clone'
+  materialize_expect_line 'MATERIALIZATION_OK total=1 cloned=1 verified=0' 'fresh clone at the Project root'
   [[ -d "$independent_clone/.git" && ! -L "$independent_clone/.git" ]] || \
-    fail 'materializer fixture: repository/.git is not a real directory'
+    fail 'materializer fixture: projects/data-pipeline/.git is not a real directory'
+  [[ "$(cd "$independent_clone" && env "${backup_env[@]}" git rev-parse --show-toplevel)" == \
+    "$(cd "$independent_clone" && pwd -P)" ]] || \
+    fail 'materializer fixture: the clone toplevel is not the Project root itself'
+  [[ ! -e "$independent_clone/repository" ]] || \
+    fail 'materializer fixture: a retired repository/ layer was created'
   [[ ! -e "$independent_clone/.gitmodules" ]] || \
     fail 'materializer fixture: the clone was materialized as a submodule'
+  [[ -f "$independent_clone/PROJECT.md" && -f "$independent_clone/STATE.md" ]] || \
+    fail 'materializer fixture: the adopted revision does not carry PROJECT.md and STATE.md'
   [[ "$(child_git rev-parse HEAD)" == "$independent_revision" ]] || \
     fail 'materializer fixture: HEAD is not the adopted revision'
   [[ -z "$(child_git symbolic-ref --quiet HEAD 2>/dev/null || true)" ]] || \
     fail 'materializer fixture: the adopted revision was not checked out detached'
+  [[ -z "$(backup_git ls-files -- projects/data-pipeline)" ]] || \
+    fail 'materializer fixture: the root index tracks the Independent Project root'
   materialize_run --all --check
   materialize_expect_line 'MATERIALIZATION_OK total=1 cloned=0 verified=1' 'idempotent --check'
 
@@ -1592,25 +1801,58 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   if (( backup_status != 0 )); then
     fail 'cache fixture: build-context-cache.sh failed on a materialized workspace'
   else
-    if grep -Fq 'projects/data-pipeline/repository/' "$independent_cache_dir/manifest.tsv"; then
-      fail 'cache fixture: manifest.tsv registers Independent repository contents'
+    if grep -Fq 'projects/data-pipeline/' "$independent_cache_dir/manifest.tsv"; then
+      fail 'cache fixture: manifest.tsv registers Independent Project contents'
     fi
-    grep -Fq 'projects/data-pipeline/PROJECT.md' "$independent_cache_dir/catalog.tsv" || \
-      fail 'cache fixture: catalog.tsv does not register the root-side PROJECT.md'
+    grep -Fq 'projects/REPOSITORIES.md' "$independent_cache_dir/manifest.tsv" || \
+      fail 'cache fixture: manifest.tsv omits the root-side registry'
+    grep -Fq 'projects/.gitignore' "$independent_cache_dir/manifest.tsv" || \
+      fail 'cache fixture: manifest.tsv omits the root-side ignore projection'
+    grep -Fq 'projects/embedded-project/PROJECT.md' "$independent_cache_dir/catalog.tsv" || \
+      fail 'cache fixture: catalog.tsv does not register the Embedded Project'
+    [[ "$(fixture_catalog_field 'projects/data-pipeline/PROJECT.md' 6)" == \
+      'fixture contract owned by the child Git' ]] || \
+      fail 'cache fixture: catalog.tsv does not carry the adopted revision PROJECT metadata'
     fingerprint_before="$(fixture_fingerprint)"
 
     printf 'child-only change\n' >> "$independent_clone/source.txt"
     build_fixture_cache
     [[ "$(fixture_fingerprint)" == "$fingerprint_before" ]] || \
-      fail 'cache fixture: an Independent body change altered the root cache fingerprint'
+      fail 'cache fixture: an Independent code change altered the root cache fingerprint'
     child_git checkout -q -- source.txt
 
-    printf '\n<!-- fixture root metadata change -->\n' >> "$backup_work/projects/data-pipeline/PROJECT.md"
+    printf '\n<!-- uncommitted child metadata -->\n' >> "$independent_clone/PROJECT.md"
+    build_fixture_cache
+    [[ "$(fixture_fingerprint)" == "$fingerprint_before" ]] || \
+      fail 'cache fixture: an uncommitted child PROJECT.md change altered the root cache fingerprint'
+    child_git checkout -q -- PROJECT.md
+
+    # 採用revisionを進めるとcatalogのmetadataとfingerprintの両方が変わる。
+    seed_git checkout -q main
+    {
+      printf '%s\n' '---' 'name: data-pipeline' 'description: adopted revision two'
+      printf '%s\n' 'status: active' 'mode: continuous' '---'
+    } > "$independent_seed/PROJECT.md"
+    seed_git add PROJECT.md
+    seed_git commit -q -m 'fixture: second adopted revision'
+    seed_git push -q origin main
+    independent_second_revision="$(seed_git rev-parse HEAD)"
+    child_git fetch -q origin main
+    child_git checkout -q --detach "$independent_second_revision"
+    adopt_revision "$independent_second_revision"
     build_fixture_cache
     [[ "$(fixture_fingerprint)" != "$fingerprint_before" ]] || \
-      fail 'cache fixture: a root PROJECT.md change did not alter the cache fingerprint'
-    backup_git checkout -q -- projects/data-pipeline/PROJECT.md
+      fail 'cache fixture: a new adopted revision did not alter the root cache fingerprint'
+    [[ "$(fixture_catalog_field 'projects/data-pipeline/PROJECT.md' 6)" == 'adopted revision two' ]] || \
+      fail 'cache fixture: catalog.tsv did not follow the new adopted revision metadata'
+    grep -Fq 'child-only change' "$independent_cache_dir/manifest.tsv" && \
+      fail 'cache fixture: Independent body content leaked into the manifest'
+    backup_git reset -q --hard HEAD~1
+    child_git checkout -q --detach "$independent_revision"
+    build_fixture_cache
   fi
+  # fixture自身がremote mainを進めたので、ここから先の不変条件を新しい基準で測る。
+  independent_remote_before="$(independent_remote_sha)"
 
   # --- Independent本体の負ケース ----------------------------------------------------
   mkdir -p "$independent_clone/nested/.git"
@@ -1666,10 +1908,10 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   child_git branch -q -D fixture-unpublished
 
   # remoteはobjectを持つが、branchからもtagからも到達できないcommitを採用させる。
+  seed_git checkout -q --detach "$independent_tip"
   seed_git commit -q --allow-empty -m 'fixture: unreferenced revision'
   unreferenced_revision="$(seed_git rev-parse HEAD)"
   seed_git push -q origin 'HEAD:refs/hidden/unreferenced'
-  seed_git checkout -q --detach "$independent_tip"
   child_git fetch -q origin "$unreferenced_revision"
   child_git checkout -q --detach "$unreferenced_revision"
   adopt_revision "$unreferenced_revision"
@@ -1693,11 +1935,10 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   attachment_probe="$( (
     repo_root="$backup_work"
     failures=0
-    validate_independent_attachment \
-      "$backup_work/projects/data-pipeline/PROJECT.md" "$independent_remote_dir"
+    validate_independent_attachment 'data-pipeline' "$independent_remote_dir" "$independent_revision"
     exit 0
   ) 2>&1 )"
-  printf '%s\n' "$attachment_probe" | grep -Fq 'but STATE.md adopts' || \
+  printf '%s\n' "$attachment_probe" | grep -Fq 'adopts' || \
     fail "validator fixture: validate_independent_attachment accepted a clone parked on a different revision: $attachment_probe"
   child_git checkout -q --detach "$independent_revision"
 
@@ -1706,7 +1947,9 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_expect_blocked 'repository-origin-mismatch' 'a clone pointing at a different remote'
   child_git remote set-url origin "$independent_remote_dir"
 
+  # 無関係なcloneがProject rootを占有している状態も、originの不一致として停止させる。
   env "${backup_env[@]}" git -C "$independent_remote_dir" config uploadpack.allowAnySHA1InWant false
+
   # --- attachmentの負ケース ---------------------------------------------------------
   mv "$independent_clone/.git" "$backup_fixture_dir/detached-git"
   printf 'gitdir: %s\n' "$backup_fixture_dir/detached-git" > "$independent_clone/.git"
@@ -1722,128 +1965,161 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   rm -f "$independent_clone/.git"
   mv "$backup_fixture_dir/relocated-git" "$independent_clone/.git"
 
-  # 固定path自体をsymlinkへ置き換えると、`projects/*/repository/` のignoreはdirectoryにしか
+  # Project root自体をsymlinkへ置き換えると、`/data-pipeline/` のignoreはdirectoryにしか
   # 一致しないため、attachment検査へ届く前にroot側のuntracked検査が停止させる。
   # 停止することが安全性の要件であり、reasonはrootの検査が先に確定する。
   mv "$independent_clone" "$backup_fixture_dir/moved-clone"
   ln -s "$backup_fixture_dir/moved-clone" "$independent_clone"
   backup_run --dry-run
-  backup_expect_blocked 'untracked-files' 'a symlinked Independent clone path'
+  backup_expect_blocked 'untracked-files' 'a symlinked Independent Project root'
   rm -f "$independent_clone"
   mv "$backup_fixture_dir/moved-clone" "$independent_clone"
 
-  # --- root ownershipの負ケース -------------------------------------------------------
-  # 埋め込みrepository配下は `git add` が拒否するため、indexへ直接blobを登録して再現する。
-  # 作業ツリーと同じ内容を登録し、root側がdirtyにならない純粋な所有関係違反にする。
-  fixture_tracked_blob="$(backup_git hash-object -w -- projects/data-pipeline/repository/source.txt)"
-  backup_git update-index --add \
-    --cacheinfo "100644,$fixture_tracked_blob,projects/data-pipeline/repository/source.txt"
-  backup_git commit -q -m 'fixture: root tracks the Independent body'
-  backup_run --root-only --dry-run
-  backup_expect_blocked 'root-tracks-independent-repository' 'the root tracking Independent contents'
-  backup_git reset -q --soft HEAD~1
-  backup_git reset -q
+  # registry entryはあるがcloneが空の非repositoryである。
+  mv "$independent_clone" "$backup_fixture_dir/parked-clone"
+  mkdir -p "$independent_clone"
+  printf 'stray\n' > "$independent_clone/stray.txt"
+  backup_run --dry-run
+  backup_expect_blocked 'repository-gitfile-unsupported' 'a non-repository directory at the Project root'
+  materialize_run --project data-pipeline
+  materialize_expect_blocked 'target-not-empty' 'data-pipeline' 'a non-empty non-repository target'
+  rm -rf "$independent_clone"
+  mv "$backup_fixture_dir/parked-clone" "$independent_clone"
 
-  backup_git update-index --add --cacheinfo "160000,$independent_revision,projects/data-pipeline/repository"
+  # --- root ownershipの負ケース -------------------------------------------------------
+  # ignoreされたProject root配下は `git add` が拒否するため、indexへ直接blobを登録して再現する。
+  # 作業ツリーと同じ内容を登録し、root側がdirtyにならない純粋な所有関係違反にする。
+  for tracked_child_path in source.txt PROJECT.md STATE.md; do
+    fixture_tracked_blob="$(backup_git hash-object -w -- "projects/data-pipeline/$tracked_child_path")"
+    backup_git update-index --add \
+      --cacheinfo "100644,$fixture_tracked_blob,projects/data-pipeline/$tracked_child_path"
+    backup_git commit -q -m "fixture: root tracks the Independent $tracked_child_path"
+    backup_run --root-only --dry-run
+    backup_expect_blocked 'root-tracks-independent-repository' \
+      "the root tracking the Independent $tracked_child_path"
+    backup_git reset -q --soft HEAD~1
+    backup_git reset -q
+  done
+
+  backup_git update-index --add --cacheinfo "160000,$independent_revision,projects/data-pipeline"
   backup_git commit -q -m 'fixture: root gitlink'
   backup_run --root-only --dry-run
   backup_expect_blocked 'unsupported-root-gitlink' 'a gitlink in the root index'
   backup_git reset -q --soft HEAD~1
   backup_git reset -q
 
-  # --- 宣言の負ケース -------------------------------------------------------------------
-  fixture_project_backup="$backup_fixture_dir/PROJECT.md.orig"
-  cp "$backup_work/projects/data-pipeline/PROJECT.md" "$fixture_project_backup"
-  {
-    printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
-    printf '%s\n' 'repository_mode: independent' "repository_url: $independent_remote_dir"
-    printf '%s\n' 'repository_reason: because-we-want-to' 'repository_default_branch: main' '---'
-  } > "$backup_work/projects/data-pipeline/PROJECT.md"
-  backup_git commit -q -a -m 'fixture: malformed independent declaration'
-  backup_run --root-only --dry-run
-  backup_expect_blocked 'invalid-independent-declaration' 'an invalid repository_reason'
-  backup_git reset -q --hard HEAD~1
+  # --- registryとignore projectionの負ケース -----------------------------------------
+  registry_reject() {
+    backup_git commit -q -a -m "fixture: $2"
+    backup_run --root-only --dry-run
+    backup_expect_blocked "$1" "$2"
+    backup_git reset -q --hard HEAD~1
+  }
+
+  printf '%s\n' '# REPOSITORIES — Independent Project Registry' '' '## data-pipeline' '' \
+    "- repository_url: \`$independent_remote_dir\`" '- repository_reason: `automation`' \
+    "- revision: \`$independent_revision\`" > "$fixture_registry"
+  registry_reject 'invalid-registry' 'a malformed registry heading'
 
   {
-    printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
-    printf '%s\n' 'repository_mode: satellite' "repository_url: $independent_remote_dir"
-    printf '%s\n' 'repository_reason: automation' 'repository_default_branch: main' '---'
-  } > "$backup_work/projects/data-pipeline/PROJECT.md"
-  backup_git commit -q -a -m 'fixture: deprecated satellite mode'
-  backup_run --root-only --dry-run
-  backup_expect_blocked 'deprecated-satellite-mode' 'the retired satellite repository mode'
-  backup_git reset -q --hard HEAD~1
+    printf '%s\n' '# REPOSITORIES — Independent Project Registry' ''
+    printf '%s\n' '## `data-pipeline`' ''
+    printf -- '- repository_url: `%s`\n' "$independent_remote_dir"
+    printf '%s\n' '- repository_reason: `automation`'
+    printf -- '- revision: `%s`\n' "$independent_revision"
+    printf '%s\n' '' '## `data-pipeline`' ''
+    printf -- '- repository_url: `%s`\n' "$independent_remote_dir"
+    printf '%s\n' '- repository_reason: `automation`'
+    printf -- '- revision: `%s`\n' "$independent_revision"
+  } > "$fixture_registry"
+  registry_reject 'invalid-registry' 'a duplicate registry name'
 
-  # 認証情報、query、option injectionを載せたURLを正本へ書かせない。
+  {
+    printf '%s\n' '# REPOSITORIES — Independent Project Registry' ''
+    printf '%s\n' '## `zeta-project`' ''
+    printf -- '- repository_url: `%s`\n' "$independent_remote_dir"
+    printf '%s\n' '- repository_reason: `automation`'
+    printf -- '- revision: `%s`\n' "$independent_revision"
+    printf '%s\n' '' '## `data-pipeline`' ''
+    printf -- '- repository_url: `%s`\n' "$independent_remote_dir"
+    printf '%s\n' '- repository_reason: `automation`'
+    printf -- '- revision: `%s`\n' "$independent_revision"
+  } > "$fixture_registry"
+  registry_reject 'invalid-registry' 'an unsorted registry'
+
+  write_registry "$independent_revision" 'because-we-want-to'
+  registry_reject 'invalid-registry' 'an invalid repository_reason'
+
+  {
+    printf '%s\n' '# REPOSITORIES — Independent Project Registry' ''
+    printf '%s\n' '## `data-pipeline`' ''
+    printf -- '- repository_url: `%s`\n' "$independent_remote_dir"
+    printf '%s\n' '- repository_reason: `automation`'
+    printf -- '- revision: `%s`\n' "$independent_revision"
+    printf '%s\n' '- repository_default_branch: `main`'
+  } > "$fixture_registry"
+  registry_reject 'invalid-registry' 'an extra registry field'
+
+  {
+    printf '%s\n' '# REPOSITORIES — Independent Project Registry' ''
+    printf '%s\n' '## `data-pipeline`' ''
+    printf -- '- repository_url: `%s`\n' "$independent_remote_dir"
+    printf '%s\n' '- repository_reason: `automation`'
+  } > "$fixture_registry"
+  registry_reject 'invalid-registry' 'a registry entry missing its revision'
+
+  write_registry 'aaaa'
+  registry_reject 'invalid-registry' 'a truncated adopted revision'
+
   for hostile_url in \
     "ssh://fixture:secret@example.invalid/repository.git" \
     "https://example.invalid/repository.git?token=secret" \
     "--upload-pack=/tmp/fixture-pack"; do
     {
-      printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
-      printf '%s\n' 'repository_mode: independent' "repository_url: $hostile_url"
-      printf '%s\n' 'repository_reason: automation' 'repository_default_branch: main' '---'
-    } > "$backup_work/projects/data-pipeline/PROJECT.md"
+      printf '%s\n' '# REPOSITORIES — Independent Project Registry' ''
+      printf '%s\n' '## `data-pipeline`' ''
+      printf -- '- repository_url: `%s`\n' "$hostile_url"
+      printf '%s\n' '- repository_reason: `automation`'
+      printf -- '- revision: `%s`\n' "$independent_revision"
+    } > "$fixture_registry"
     backup_git commit -q -a -m 'fixture: hostile repository_url'
     backup_run --root-only --dry-run
-    backup_expect_blocked 'invalid-independent-declaration' "the hostile repository_url $hostile_url"
+    backup_expect_blocked 'invalid-registry' "the hostile repository_url $hostile_url"
     printf '%s\n' "$backup_output" | grep -Fq 'secret' && \
       fail "backup fixture: the blocked report leaked a credential from $hostile_url"
     backup_git reset -q --hard HEAD~1
   done
 
-  # 実在しないdefault branchは、採用SHAが取得できても通さない。
-  {
-    printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
-    printf '%s\n' 'repository_mode: independent' "repository_url: $independent_remote_dir"
-    printf '%s\n' 'repository_reason: automation' 'repository_default_branch: maim' '---'
-  } > "$backup_work/projects/data-pipeline/PROJECT.md"
-  backup_git commit -q -a -m 'fixture: default branch that does not exist'
-  backup_run --dry-run
-  backup_expect_blocked 'independent-default-branch-missing' 'a declared default branch absent from the remote'
-  backup_git reset -q --hard HEAD~1
+  write_registry "$independent_revision"
+  write_ignore_projection
+  registry_reject 'invalid-ignore-projection' 'a registry entry missing from the ignore projection'
 
-  {
-    printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
-    printf '%s\n' 'repository_mode: independent' "repository_url: $independent_remote_dir"
-    printf '%s\n' 'repository_reason: automation' 'repository_default_branch: bad..branch' '---'
-  } > "$backup_work/projects/data-pipeline/PROJECT.md"
-  backup_git commit -q -a -m 'fixture: malformed default branch'
+  write_ignore_projection data-pipeline embedded-project
+  registry_reject 'invalid-ignore-projection' 'an Embedded Project inside the ignore projection'
+
+  write_ignore_projection data-pipeline
+  # --- 旧構造の検出 -----------------------------------------------------------------
+  mkdir -p "$backup_work/projects/embedded-project/repository/.git"
   backup_run --root-only --dry-run
-  backup_expect_blocked 'invalid-independent-declaration' 'a default branch rejected by check-ref-format'
-  backup_git reset -q --hard HEAD~1
+  backup_expect_blocked 'deprecated-repository-layout' 'a clone at the retired repository/ path'
+  rm -rf "$backup_work/projects/embedded-project/repository"
 
   {
-    printf '%s\n' '---' 'updated_at: 2026-08-03' '---' '' '## Repository State' ''
-    printf -- '- repository: `%s`\n' "$independent_remote_dir"
-    printf -- '- revision: `%s`\n' "$independent_revision"
-    printf '%s\n' '- branch: `main`' '- remote_verified_at: `2026-08-03`'
-  } > "$backup_work/projects/data-pipeline/STATE.md"
-  backup_git commit -q -a -m 'fixture: retired Repository State fields'
-  backup_run --root-only --dry-run
-  backup_expect_blocked 'invalid-independent-state' 'the retired Repository State tuple'
-  backup_git reset -q --hard HEAD~1
+    printf '%s\n' '---' 'name: embedded-project' 'description: fixture embedded project'
+    printf '%s\n' 'status: active' 'mode: finite' 'repository_mode: embedded' '---'
+  } > "$backup_work/projects/embedded-project/PROJECT.md"
+  registry_reject 'deprecated-repository-layout' 'a retired repository_mode field'
 
-  cp "$fixture_project_backup" "$backup_work/projects/data-pipeline/PROJECT.md"
-
-  # --- materializerの負ケース -----------------------------------------------------------
-  printf 'dirty\n' >> "$independent_clone/source.txt"
-  materialize_run --project data-pipeline --check
-  materialize_expect_blocked 'repository-dirty' 'data-pipeline' '--check on a dirty target'
-  child_git checkout -q -- source.txt
-
-  mv "$independent_clone" "$backup_fixture_dir/parked-clone"
-  mkdir -p "$independent_clone"
-  printf 'stray\n' > "$independent_clone/stray.txt"
-  materialize_run --project data-pipeline
-  materialize_expect_blocked 'target-not-empty' 'data-pipeline' 'a non-empty non-repository target'
-  rm -rf "$independent_clone"
-  mv "$backup_fixture_dir/parked-clone" "$independent_clone"
+  {
+    printf '%s\n' '---' 'updated_at: 2026-08-03' '---' '' '# Current State' ''
+    printf '%s\n' '## Repository State' '' "- revision: \`$independent_revision\`"
+  } > "$backup_work/projects/embedded-project/STATE.md"
+  registry_reject 'deprecated-repository-layout' 'a retired Repository State section'
 
   # --- 既存のroot側負ケース ---------------------------------------------------------------
   mkdir -p "$backup_work/ignored-dir/nested/.git"
   backup_run --dry-run
-  backup_expect_blocked 'nested-git-repository' 'an undeclared ignored nested Git repository'
+  backup_expect_blocked 'nested-git-repository' 'an unregistered ignored nested Git repository'
   rm -rf "$backup_work/ignored-dir"
 
   printf 'dirty\n' >> "$backup_work/AGENTS.md"
@@ -1922,15 +2198,16 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
 
   # --- root git cleanの危険性は破棄前提のfixtureだけで確かめる -----------------------------
   clean_probe_dir="$backup_fixture_dir/clean-probe"
-  mkdir -p "$clean_probe_dir/projects/probe/repository"
-  printf 'projects/*/repository/\n' > "$clean_probe_dir/.gitignore"
-  printf 'unpushed work\n' > "$clean_probe_dir/projects/probe/repository/unpushed.txt"
+  mkdir -p "$clean_probe_dir/projects/probe"
+  printf '# Derived from projects/REPOSITORIES.md.\n# BEGIN INDEPENDENT PROJECTS\n/probe/\n# END INDEPENDENT PROJECTS\n' \
+    > "$clean_probe_dir/projects/.gitignore"
+  printf 'unpushed work\n' > "$clean_probe_dir/projects/probe/unpushed.txt"
   env "${backup_env[@]}" git init -q "$clean_probe_dir"
   env "${backup_env[@]}" git -C "$clean_probe_dir" add -A
   env "${backup_env[@]}" git -C "$clean_probe_dir" commit -q -m 'fixture: clean probe'
   env "${backup_env[@]}" git -C "$clean_probe_dir" clean -q -ffdx
-  [[ ! -e "$clean_probe_dir/projects/probe/repository/unpushed.txt" ]] || \
-    fail 'clean probe fixture: the ignored Independent path unexpectedly survived git clean -ffdx'
+  [[ ! -e "$clean_probe_dir/projects/probe/unpushed.txt" ]] || \
+    fail 'clean probe fixture: the ignored Independent Project root unexpectedly survived git clean -ffdx'
   rm -rf "$clean_probe_dir"
 
   [[ -z "$(backup_git status --porcelain)" ]] || \

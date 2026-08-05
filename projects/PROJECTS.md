@@ -28,7 +28,7 @@ Root Knowledge         = Projectを越えて再利用する確定知識
 - `docs/**`の一括読込と、Domain Canon全件の無条件読込。
 - `AGENTS.md`へのDomain Canon、`PROJECT.md`、`STATE.md`本文の複製。
 - `PROJECT.md`や`STATE.md`へのDomain文書本文の複製。
-- Independent Projectのroot側envelopeへの個別`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、コード、設計文書の複製。
+- Independent Projectの契約、状態、実装をroot Gitと Project固有Gitの両方へ複製すること。
 - `PROJECT.md`と`PRODUCT_SENSE.md`、`PROJECT.md`と`DESIGN.md`、`STATE.md`と`PLANS.md`、
   `ARCHITECTURE.md`と詳細設計文書、Project ResearchとRoot Knowledge。
 
@@ -121,8 +121,7 @@ docs/research/model-selection-study.md  docs/plans/database-migration.md
 
 ## ARCHITECTURE.md
 
-Project implementation rootに置く任意の全体地図である。Embedded Projectは`projects/<name>/ARCHITECTURE.md`、
-Independent Projectは`projects/<name>/repository/ARCHITECTURE.md`が所有する。
+Project rootに置く任意の全体地図であり、attachmentによらず`projects/<name>/ARCHITECTURE.md`が所有する。
 
 | 所有する | 所有しない |
 |---|---|
@@ -154,8 +153,8 @@ QUALITY_SCORE.md / <DOMAIN>_SCORE.md = 測定可能な評価軸
 ## 個別ProjectのAGENTS.md
 
 Project固有の作業差分だけを持つ差分ファイルである。差分があるときだけ置き、全Projectへ一律生成しない。
-ただしEmbedded Projectに`ARCHITECTURE.md`または`docs/`が存在する場合は、同Projectの`AGENTS.md`と
-`CLAUDE.md`を必須とし、段階的開示の入口にする。
+ただし`ARCHITECTURE.md`または`docs/`が存在する場合は、同Projectの`AGENTS.md`と`CLAUDE.md`を必須とし、
+段階的開示の入口にする。
 
 置いてよい内容:
 
@@ -185,9 +184,8 @@ Project固有の作業差分だけを持つ差分ファイルである。差分�
 この節の条件付き項目として列挙する。項目は「条件」と「読む正本」を持つ表の行、または`条件:`と`参照:`の対と
 する。本文中の言及、単なるファイル一覧、禁止文への登場は条件付き参照として数えない。
 2,048 bytes以内とし、`PROJECT.md`と`STATE.md`を正本として参照する。同階層に`@AGENTS.md`だけを持つ`CLAUDE.md`を必ず置き、
-`CLAUDE.md`だけを単独で置かない。Embedded Projectだけに置ける。Independent Projectの
-`AGENTS.md`は`projects/<name>/repository/`が所有し、所有関係は`projects/PROJECTS.md#repository-mode`が持つ。
-サイズ制約を拡大せず、短いRoute表として収まる設計を優先する。
+`CLAUDE.md`だけを単独で置かない。置き場所は`projects/<name>/AGENTS.md`であり、Independentではその
+Project固有Gitが所有する。サイズ制約を拡大せず、短いRoute表として収まる設計を優先する。
 
 ## 研究文書とKnowledge昇格
 
@@ -211,82 +209,51 @@ Root Knowledgeへ昇格するのは次をすべて満たす場合だけとする
 Knowledgeへリンクする。現在有効な再利用可能結論の正本はKnowledge側とし、同じ結論を二つのactive正本として
 保守しない。Project固有の結論は、研究が完了していても無理に昇格させない。
 
-## Repository mode
+## Attachment
 
-agent-directoryは複数の外部repoを束ねるHubではなく、一体のAgent Workspaceである。Projectは成果、目的、
-状態の境界であり、Gitリポジトリは変更権限、自動化、配布、外部接続の境界である。両者を1対1にしない。
-すべてのProjectは`embedded`で開始し、独立したremote identityが必要になった場合だけ`independent`へ昇格する。
+Projectは成果、目的、状態の境界であり、Gitリポジトリは変更権限、自動化、配布、外部接続の境界である。
+両者を1対1にしない。agent-directoryは外部repoの集約点ではなく、一体のAgent Workspaceである。
 
-### Embedded Project
+Project root、実装root、通常の作業cwdは、attachmentによらず`projects/<name>/`へ統一する。
+違いはpathではなく所有Gitだけである。
 
-`repository_mode: embedded`では、Projectの正本、コード、軽量成果物を`projects/<name>/`に置く。
-root GitがProject単位の履歴、差分、復元を持ち、Private backupへまとめて保全する。Project内の`.git`、
-submodule、固有remote、GitHub Actionsは禁止する。Project単位の履歴は次のようにパスで取得できる。
+- **Embedded** — Git top-levelはAgent Workspace root。`projects/<name>/**`をroot Gitが所有する。
+- **Independent** — Git top-levelは`projects/<name>/`自身。同じ`projects/<name>/**`をProject固有Gitが
+  所有し、直下に実`.git/`を持つ通常cloneである。
 
-```bash
-git log -- projects/<name>
-git diff <old-sha>..<new-sha> -- projects/<name>
-git restore --source=<sha> -- projects/<name>
-```
+worktree、submodule、symlink、`.git` file、外部配置、`repository/`のような下位repo階層を使わない。
+すべてのProjectはEmbeddedで開始し、独立したremote identityが必要な場合だけIndependentへ昇格する。
 
-無関係な複数Projectを同じcommitへ混ぜず、`project(<name>): ...`のように変更単位を分ける。
+`PROJECT.md`はattachmentを宣言しない。`repository_mode`、`repository_url`、`repository_reason`、
+`repository_default_branch`、`STATE.md`の`## Repository State`は廃止済みで現役schemaへ残さない。
+判定は`projects/REPOSITORIES.md`の登録、`git -C projects/<name> rev-parse --show-toplevel`の結果、
+root Gitがそのpath配下を追跡しているかの三つで行う。
 
-### Independent Project Repository
+### Canonical Ownership
 
-利用者の承認を得たうえで、次のいずれかを満たす場合だけ`repository_mode: independent`へ昇格する。
+Independentでは`PROJECT.md`、`STATE.md`、`AGENTS.md`、`CLAUDE.md`、`ARCHITECTURE.md`、`docs/`、
+`inputs/`、`outputs/`、`scripts/`、`tests/`、source code、Project固有設定、Git履歴のすべてを
+Project固有Gitが所有し、root Gitは内部ファイルを一つも追跡しない。root側へ`PROJECT.md`や`STATE.md`の
+コピーを残さず、同じ契約と状態を二つのGitへ複製しない。Project内部の相対pathは両attachmentで同じで
+あり、mode別の読み替え規約を持たない。
 
-| `repository_reason` | 独立repoが必要になる境界 |
-|---|---|
-| `automation` | Actions、Pages、Packages、Dependabot、Webhook、外部デプロイ |
-| `distribution` | OSS公開、tag、Release、packageやbinaryの配布 |
-| `collaboration` | 外部共同編集、Pull Request、Issue運用 |
-| `access` | 異なるvisibility、権限、Secrets、branch protection |
-| `identity` | 外部サービスや利用者が固定repo URLを参照 |
-| `upstream` | fork、upstream追従、他システムからの依存 |
-| `retention` | rootと異なる履歴保持・export・削除方針、または実測されたGit履歴上の復旧問題 |
+### Registryとignore projection
 
-コード量、ファイル数、言語、整理上の都合、重要度、期間、個別履歴の希望、既存の別repoという事実だけでは
-Independent化しない。大容量binaryやartifactもrepo分割の理由にせず、Project側が外部artifact保管先と
-checksumを定義する。Independent repositoryはremoteから復旧できることを必須とし、remote名は`origin`を
-固定既定とする。
+root Gitが持つのはProject本文ではなく、[projects/REPOSITORIES.md](REPOSITORIES.md)の最小な
+attachment／recovery registryだけである。registryはIndependent Project名、`repository_url`、
+`repository_reason`、採用`revision`だけを持ち、目的、成果契約、status、mode、現在状態を複製しない。
+entry形式、field規則、`repository_reason`の値と意味はregistry自身が所有する。
 
-Independentの`PROJECT.md`は次をfrontmatterへ各1回だけ宣言する。マシン固有のclone pathや認証情報を含むURLは
-正本へ保存しない。`remote.origin.url`は`repository_url`と完全一致させる。
+`projects/.gitignore`はその派生projectionであり、root GitがIndependent Projectを誤追跡しないためだけに
+存在する。managed blockの形式はregistry自身が示す。
 
-```yaml
-repository_mode: independent
-repository_url: git@github.com:<owner>/<repository>.git
-repository_reason: automation
-repository_default_branch: main
-```
+managed blockはregistry登録名だけを`/<name>/`の形でname昇順に持ち、registryと集合が完全一致する。
+Embedded Project、`_template/`、policy、registry自身をignoreしない。`projects/*/`のような広いpatternを
+追加しない。registryの変更と同じroot commitで更新する。registryが正本であり、これは派生である。
 
-`STATE.md`の`## Repository State`は採用revisionだけを持つ。remoteへpush済みの完全な40文字commit SHAとする。
-
-```markdown
-## Repository State
-
-- revision: `<40-character-commit-sha>`
-```
-
-### 固定pathとCanonical Ownership
-
-Independentの通常cloneは必ず次の固定pathへ置く。普通の`git clone`であり、`repository/.git`は実directoryとする。
-worktree、submodule、symlink、`.git` file、Projectディレクトリ自体の別repo化は禁止する。
-
-```text
-projects/<name>/
-├── PROJECT.md      # root Gitが追跡。目的、成果契約、remote宣言
-├── STATE.md        # root Gitが追跡。現在目標、採用revision、検証結果
-└── repository/     # root Gitではignored、cacheではpruned、Independent Gitではroot
-```
-
-root側のIndependent Project directoryに置いてよいものはこの3つだけである。root Gitは`repository/`本体を
-追跡せず、gitlinkも持たない。コード、tests、Project固有`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、実行設定、
-release設定、Git履歴はIndependent repositoryが所有する。root cache、manifest、fingerprint、検索は
-`repository/`本体を完全にpruneする。
-
-Project内部のpathはProject implementation rootからの相対とする。embeddedは`projects/<name>/`、
-independentは`projects/<name>/repository/`である。
+コード量、ファイル数、言語、整理上の都合、重要度、期間、既存repoだったという事実だけではIndependent化
+しない。大容量binaryもrepo分割の理由にせず、Project側が外部artifact保管先とchecksumを定義する。
+remote名は`origin`を固定既定とし、remoteから復旧できることを必須とする。
 
 ### Session rootとSHA handoff
 
@@ -294,66 +261,78 @@ independentは`projects/<name>/repository/`である。
 Gitリポジトリ単位であり、同じrepositoryへの同時Writerを禁止する一方、異なるIndependent repositoryは
 並行して進めてよい。
 
-| session | root | 書いてよい |
+| session | cwd | commit先 |
 |---|---|---|
-| Embedded作業 | Agent Workspace root | `projects/<name>/`配下 |
-| Independent本体作業 | `projects/<name>/repository/` | Independent repositoryの中身だけ |
-| Independent metadata更新 | Agent Workspace root | `PROJECT.md`と`STATE.md`だけ |
+| Embedded作業 | `projects/<name>/` | root Git |
+| Independent本体作業 | `projects/<name>/` | Project固有Git |
+| registry更新 | Agent Workspace root | root Git。registryとignore projectionだけ |
 
-Independent sessionはcommit SHA、検証結果、未完了事項を返し、root sessionだけがそのSHAを`STATE.md`へ
-採用する。Independent sessionはroot metadataを書かず、root sessionはIndependent本体を書かない。
+Independent本体を変更するsessionはroot repositoryを変更せず、registryを更新するsessionは本体を変更しない。
 
 ### Remote操作の境界
 
 `AGENTS.md#禁止事項`のfetch、pull、push禁止はroot repositoryを対象とする。root remoteへのpushは、
 利用者が明示したbackup時に`tools/backup-to-github.sh`だけが行う。
 
-Independent repositoryでは、Project契約、外部workflow、または利用者の明示指示で必要な場合に限り、
-Independent session rootからfetchと通常pushを行ってよい。root sessionからIndependent remoteを操作せず、
-pull、merge、rebaseによる自動統合と、force push、force-with-lease、mirror pushを行わない。
+Independent repositoryでは、そのProjectの成果契約または利用者の明示指示で必要な場合に限り、Independent
+session rootからfetchと通常pushを行ってよい。force push、force-with-lease、mirror push、およびpull、
+merge、rebaseによる自動統合を行わない。root sessionからIndependent remoteを操作しない。
 
 通常のIndependent更新は次の順序で進む。
 
-1. Independent session rootで検証してcommitする。
-2. `origin`へ通常pushし、remoteへ採用予定SHAが存在することを確認する。
-3. SHAと検証結果をhandoffする。
-4. 別のroot sessionが`STATE.md`の採用revisionを更新する。
+1. `projects/<name>/`でsessionを開始し、`AGENTS.md`、`PROJECT.md`、`STATE.md`を読む。
+2. 本体と`STATE.md`を変更し、Project固有の検証を実行してcommitする。
+3. `origin`へ通常pushし、remoteにcommit SHAが存在することを確認する。
+4. SHA、検証結果、未完了をhandoffする。
+5. 別のroot sessionが`projects/REPOSITORIES.md`の`revision`だけを更新する。
+6. root validatorとcacheを実行し、root Gitへcommitする。
 
 ### Materializationとbackup境界
 
-健全なAgent Workspaceでは、statusにかかわらず全Independent repositoryが固定pathへmaterialize済みである。
-`bash tools/materialize-project-repositories.sh --all`が宣言と採用revisionからcloneを再現する。
-partial materializationは復旧途中のdegraded stateとしてだけ許し、workspace全体のbackup成功として扱わない。
+健全なAgent Workspaceでは、statusにかかわらず全Independent repositoryが`projects/<name>/`へ
+materialize済みである。`bash tools/materialize-project-repositories.sh --all`がregistryからcloneを
+再現し、採用revisionを最初にcheckoutする。branch tipを自動採用せず、HEADが採用revisionと一致しない
+既存cloneを正常扱いしない。partial materializationは復旧途中のdegraded stateとしてだけ許し、
+workspace全体のbackup成功として扱わない。
 
-backupの既定scopeはworkspaceであり、root repositoryをpushする前に全Independent repositoryを監査する。
-Independent repository自体はpushしない。`--root-only`はrootだけを扱う部分結果である。
-scope、停止reason、監査項目は`tools/BACKUP.md`が所有する。
+backupの既定scopeはworkspaceであり、root pushの前に全Independent repositoryを監査する。Independent
+repository自体はpushしない。`--root-only`は部分結果である。scope、停止reason、監査項目、移行手順は
+`tools/BACKUP.md`が所有する。
 
-rootで`git clean -x`、`git clean -X`、`git clean`への二つ以上の`-f`を実行しない。`repository/`はignored
-であり、これらは未pushのIndependent commitを不可逆に削除しうる。
+rootで`git clean -x`、`git clean -X`、`git clean`への二つ以上の`-f`を実行しない。登録済みの
+`projects/<name>/`はignoredであり、これらは未pushのIndependent commitを不可逆に削除しうる。
 
 ### 昇格、移行、統合
 
 EmbeddedからIndependentへの昇格は、次の順序で行う。
 
-1. 利用者がIndependent化と`repository_reason`を承認する。
-2. root Gitで移行前checkpointを確定する。
-3. remote repoを作成し、コード、tests、実行設定、`ARCHITECTURE.md`、`docs/`を移す。
-4. `projects/<name>/repository/`で検証、commit、`origin`へのpushを完了する。
-5. rootの`PROJECT.md`をIndependent宣言へ変更し、`STATE.md`へ初回SHAを記録する。
-6. rootから重複sourceを除き、validatorで二重正本と`repository/`の追跡がないことを確認する。
-7. 利用者が明示した場合だけworkspaceをバックアップする。
+1. 利用者がIndependent化と`repository_reason`を承認し、root Gitで移行前checkpointを確定する。
+2. remote repoを作成し、`projects/<name>/`をrootとするsessionで検証、commit、`origin`へ通常pushする。
+3. root indexから`projects/<name>/`配下を削除し、registry entryと`projects/.gitignore`のmanaged entryを
+   同じroot commitで追加する。
+4. validatorで二重正本とroot追跡がないことを確認する。
+5. 利用者が明示した場合だけworkspaceをバックアップする。
 
 履歴維持に実益がある場合だけ対象pathの履歴を抽出する。履歴抽出のために平常時からrepoを分けない。
-宣言のないnested repoまたはsubmoduleは追加、削除、ignore、submodule化せず、停止して利用者へ確認する。
+登録のないnested repoまたはsubmoduleは追加、削除、ignore、submodule化せず、停止して利用者へ確認する。
 
-agent-directory外へcloneを置く旧Satellite方式は最終標準として残さない。検出時は`deprecated-satellite-mode`
-として扱い、移行対象としてだけ文書化する。移行手順と旧clone削除条件は`tools/BACKUP.md`が所有する。
+IndependentからEmbeddedへの統合は自動既定にしない。外部共同編集、automation、release、Webhook、固定URL
+参照、配布、異なる権限、upstream関係、`retention`上の保持・削除方針がすべて存在しないことを監査し、
+利用者が明示的に廃止・統合を承認した場合だけ実行する。過去に外部identityを持ったrepoは、現在停止中と
+いう理由だけで統合しない。
 
-IndependentからEmbeddedへの統合は自動既定にしない。外部共同編集、automation、release、Webhook、固定URL参照、
-配布、異なる権限、upstream関係、`retention`上の保持・削除方針がすべて存在しないことを監査し、利用者が
-明示的に廃止・統合を承認した場合だけ実行する。過去に外部identityを持ったrepoは、現在停止中という理由だけで
-統合しない。
+### 旧構造からの移行
+
+旧方式を最終標準として残さず、二方式の永久併存も認めない。順序、監査項目、旧clone削除条件は
+[tools/BACKUP.md](../tools/BACKUP.md)が所有する。
+
+- **`projects/<name>/repository/`方式** — root Gitが`PROJECT.md`と`STATE.md`を持ち、child Gitが
+  `repository/`にある旧構造。契約と状態をchild repoへ移し、registryとignore entryを追加し、root
+  indexから旧2ファイルを削除した後、child clone全体を`projects/<name>/`へ一段上へ移す。
+- **agent-directory外の旧clone** — 最終的にclone全体を`projects/<name>/`へ移す。
+
+dirty、staged、untracked、stash、未pushが残るcloneをfresh cloneで置換しない。reset、clean、stash作成、
+force pushで移行しない。machine-localなsource pathはCLI入力と移行手順の中だけで使い、正本へ保存しない。
 
 ## PROJECT.md
 
@@ -365,16 +344,14 @@ name: project-name
 description: 候補選択に使う一行説明
 status: active
 mode: finite
-repository_mode: embedded
 ---
 ```
 
 - `name`はディレクトリ名と一致させる。
 - `description`は200文字以内の一行とし、タブを含めない。
 - `mode`は`finite`または`continuous`だけを使う。
-- `repository_mode`は`embedded`または`independent`だけを使う。Independent追加項目は
-  `projects/PROJECTS.md#repository-mode`に従う。
 - `status`は`active | paused | completed | retired`だけを使う。
+- attachmentはfrontmatterで宣言しない。`projects/PROJECTS.md#Attachment`が判定方法を持つ。
 - パスが恒久IDである。別のID体系や物理archiveを作らない。
 
 ### finite

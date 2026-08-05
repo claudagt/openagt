@@ -78,6 +78,24 @@ tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/agent-context-query.XXXXXX")"
 trap 'rm -rf "$tmp_root"' EXIT
 ranked="$tmp_root/ranked.tsv"
 
+# Independent Projectの本文はroot検索の境界外である。fallbackでもその配下をgrepしない。
+independent_names_file="$tmp_root/independent.names"
+: > "$independent_names_file"
+if [[ -f "$repo_root/projects/REPOSITORIES.md" ]]; then
+  LC_ALL=C awk '
+    {
+      if (substr($0, 1, 3) == "```") { fence = 1 - fence; next }
+      if (fence) next
+      if ($0 ~ /^## `[A-Za-z0-9][A-Za-z0-9._-]*`[ \t]*$/) {
+        heading = $0
+        sub(/^## `/, "", heading)
+        sub(/`[ \t]*$/, "", heading)
+        print heading
+      }
+    }
+  ' "$repo_root/projects/REPOSITORIES.md" > "$independent_names_file"
+fi
+
 awk -F '\t' -v route="$route" -v query="$query" -v include_inactive="$include_inactive" '
   BEGIN { q = tolower(query) }
   NR == 1 { next }
@@ -125,6 +143,17 @@ if [[ ! -s "$ranked" ]]; then
     [[ "$area" == "$route" ]] || continue
     if [[ "$include_inactive" != true && "$status" != 'active' ]]; then
       continue
+    fi
+    if [[ -s "$independent_names_file" ]]; then
+      case "$path" in
+        projects/*)
+          candidate_project="${path#projects/}"
+          candidate_project="${candidate_project%%/*}"
+          if grep -Fqx -- "$candidate_project" "$independent_names_file"; then
+            continue
+          fi
+          ;;
+      esac
     fi
     file="$repo_root/$path"
     [[ -f "$file" ]] || continue

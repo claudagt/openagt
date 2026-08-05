@@ -3,7 +3,6 @@ name: market-review-2025
 description: 2025年の市場判断を保持する完了済み有限Project。
 status: completed
 mode: finite
-repository_mode: embedded
 ---
 
 # `market-review-2025`

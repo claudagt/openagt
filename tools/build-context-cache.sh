@@ -4,6 +4,7 @@ set -euo pipefail
 tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="${AGENT_DIRECTORY_ROOT:-$(cd "$tool_root/.." && pwd)}"
 cache_dir="${AGENT_CACHE_DIR:-$repo_root/.agent-cache}"
+registry_path='projects/REPOSITORIES.md'
 sqlite_knowledge_threshold="${AGENT_SQLITE_KNOWLEDGE_THRESHOLD:-1000}"
 sqlite_catalog_threshold="${AGENT_SQLITE_CATALOG_THRESHOLD:-5000}"
 mode='build'
@@ -74,6 +75,53 @@ sql_quote() {
   sed "s/'/''/g"
 }
 
+# registry entryを "name<TAB>revision" として1行ずつ出す。コードフェンス内は読まない。
+# cacheは派生物なので、壊れたentryは停止せず警告して候補から外す。
+registry_records() {
+  LC_ALL=C awk '
+    function flush_entry() {
+      if (current == "") return
+      if (revision ~ /^[0-9a-f]{40}$/) print current "\t" revision
+      else print "W\t" current
+      current = ""
+    }
+    {
+      if (substr($0, 1, 3) == "```") { fence = 1 - fence; next }
+      if (fence) next
+      if (substr($0, 1, 3) == "## ") {
+        flush_entry()
+        heading = $0
+        revision = ""
+        if (heading ~ /^## `[A-Za-z0-9][A-Za-z0-9._-]*`[ \t]*$/) {
+          sub(/^## `/, "", heading)
+          sub(/`[ \t]*$/, "", heading)
+          current = heading
+        }
+        next
+      }
+      if (current != "" && $0 ~ /^- revision: `[0-9a-f]*`[ \t]*$/) {
+        revision = $0
+        sub(/^- revision: `/, "", revision)
+        sub(/`[ \t]*$/, "", revision)
+      }
+    }
+    END { flush_entry() }
+  ' "$1"
+}
+
+# Embedded Projectはfilesystem全件ではなくroot indexを基準に決める。
+# Gitの外へ置いた隔離fixture rootだけがfilesystemへfallbackする。
+root_index_project_contracts() {
+  local top
+  if top="$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null)" && \
+    [[ "$(cd "$top" 2>/dev/null && pwd -P)" == "$(cd "$repo_root" && pwd -P)" ]]; then
+    git -C "$repo_root" ls-files -- 'projects/*/PROJECT.md'
+  else
+    ( cd "$repo_root" && find projects -mindepth 2 -maxdepth 2 -type f -name 'PROJECT.md' 2>/dev/null ) |
+      LC_ALL=C sort
+  fi
+}
+
 catalog_unsorted="$tmp_root/catalog.unsorted"
 printf 'area\tkind\tstatus\tname\taliases\tdescription\tmode\tpath\tcontent_hash\n' > "$catalog_unsorted"
 
@@ -129,6 +177,35 @@ append_frontmatter_item() {
   append_catalog "$area" "$kind" "$status" "$name" "$aliases" "$description" "$item_mode" "$file"
 }
 
+# Independent Projectは採用revisionのfrontmatter metadataだけをcatalogへ入れる。
+# content_hashへrevisionを混ぜ、採用revisionの変更が必ずfingerprintへ伝わるようにする。
+append_adopted_project() {
+  local project_name="$1"
+  local revision="$2"
+  local adopted_file="$3"
+  local name status description item_mode hash
+  local missing=''
+
+  name="$(frontmatter_value "$adopted_file" 'name')"
+  status="$(frontmatter_value "$adopted_file" 'status')"
+  description="$(frontmatter_value "$adopted_file" 'description')"
+  item_mode="$(frontmatter_value "$adopted_file" 'mode')"
+
+  [[ -n "$name" ]] || missing='name'
+  [[ -n "$status" ]] || missing="${missing:+$missing, }status"
+  if [[ -n "$missing" ]]; then
+    printf 'WARN: projects/%s/PROJECT.md: missing %s; skipping catalog entry\n' \
+      "$project_name" "$missing" >&2
+    return 0
+  fi
+
+  hash="$( { printf '%s\n' "$revision"; cat "$adopted_file"; } | stream_hash )"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    'project' 'project' "$status" "$(printf '%s' "$name" | clean_field)" '' \
+    "$(printf '%s' "$description" | clean_field)" "$item_mode" \
+    "projects/$project_name/PROJECT.md" "$hash" >> "$catalog_unsorted"
+}
+
 meta_files=(
   'AGENTS.md|root-policy|最上位ブートローダー、Route判定、Context Loading'
   'README.md|overview|人間向けの導入と全体像'
@@ -162,12 +239,60 @@ if [[ -d "$repo_root/skills" ]]; then
   done < <(find "$repo_root/skills" -mindepth 2 -maxdepth 2 -type f -name 'SKILL.md' -print0)
 fi
 
-if [[ -d "$repo_root/projects" ]]; then
-  while IFS= read -r -d '' file; do
-    [[ "$file" == "$repo_root/projects/_template/"* ]] && continue
-    append_frontmatter_item 'project' 'project' "$file"
-  done < <(find "$repo_root/projects" -mindepth 2 -maxdepth 2 -type f -name 'PROJECT.md' -print0)
+# Independent Projectはregistryだけを正本として列挙し、本文ではなく採用revisionのfrontmatterを読む。
+independent_names=()
+independent_revisions=()
+independent_paths="$tmp_root/independent.paths"
+: > "$independent_paths"
+if [[ -f "$repo_root/$registry_path" ]]; then
+  while IFS=$'\t' read -r registry_name registry_revision; do
+    [[ -n "$registry_name" ]] || continue
+    if [[ "$registry_name" == 'W' ]]; then
+      printf 'WARN: %s: `%s` has no valid adopted revision; skipping catalog entry\n' \
+        "$registry_path" "$registry_revision" >&2
+      continue
+    fi
+    independent_names+=("$registry_name")
+    independent_revisions+=("$registry_revision")
+    printf 'projects/%s/PROJECT.md\n' "$registry_name" >> "$independent_paths"
+  done < <(registry_records "$repo_root/$registry_path")
 fi
+independent_count="${#independent_names[@]}"
+
+is_independent_project() {
+  local candidate="$1"
+  local index=0
+  while (( index < independent_count )); do
+    [[ "${independent_names[$index]}" != "$candidate" ]] || return 0
+    index=$((index + 1))
+  done
+  return 1
+}
+
+while IFS= read -r project_relative; do
+  [[ -n "$project_relative" ]] || continue
+  case "$project_relative" in projects/_template/*) continue ;; esac
+  project_name="${project_relative#projects/}"
+  project_name="${project_name%%/*}"
+  is_independent_project "$project_name" && continue
+  append_frontmatter_item 'project' 'project' "$repo_root/$project_relative"
+done < <(root_index_project_contracts)
+
+# 採用revisionのPROJECT.mdだけを読む。working treeの未commit内容はroot cacheへ入れない。
+independent_index=0
+while (( independent_index < independent_count )); do
+  independent_name="${independent_names[$independent_index]}"
+  independent_revision="${independent_revisions[$independent_index]}"
+  independent_index=$((independent_index + 1))
+  adopted_contract="$tmp_root/adopted-$independent_name.md"
+  if ! git -C "$repo_root/projects/$independent_name" show \
+    "$independent_revision:PROJECT.md" > "$adopted_contract" 2>/dev/null; then
+    printf 'WARN: projects/%s/PROJECT.md: adopted revision %s is unavailable; skipping catalog entry\n' \
+      "$independent_name" "$independent_revision" >&2
+    continue
+  fi
+  append_adopted_project "$independent_name" "$independent_revision" "$adopted_contract"
+done
 
 catalog="$generated_dir/catalog.tsv"
 head -n 1 "$catalog_unsorted" > "$catalog"
@@ -196,7 +321,12 @@ if (( knowledge_rows >= sqlite_knowledge_threshold || catalog_rows >= sqlite_cat
       while IFS=$'\x1f' read -r area kind status name aliases description item_mode path hash; do
         [[ "$area" == 'area' ]] && continue
         absolute_path="$repo_root/$path"
-        [[ -f "$absolute_path" ]] || continue
+        # Independent Projectの本文はroot索引へ入れない。metadataだけで候補選択する。
+        if grep -Fqx -- "$path" "$independent_paths"; then
+          absolute_path=''
+        elif [[ ! -f "$absolute_path" ]]; then
+          continue
+        fi
         q_area="$(printf '%s' "$area" | sql_quote)"
         q_kind="$(printf '%s' "$kind" | sql_quote)"
         q_status="$(printf '%s' "$status" | sql_quote)"
@@ -206,9 +336,14 @@ if (( knowledge_rows >= sqlite_knowledge_threshold || catalog_rows >= sqlite_cat
         q_mode="$(printf '%s' "$item_mode" | sql_quote)"
         q_path="$(printf '%s' "$path" | sql_quote)"
         q_hash="$(printf '%s' "$hash" | sql_quote)"
-        q_absolute_path="$(printf '%s' "$absolute_path" | sql_quote)"
-        printf "INSERT INTO search VALUES('%s','%s','%s','%s','%s','%s','%s','%s','%s',CAST(readfile('%s') AS TEXT));\n" \
-          "$q_area" "$q_kind" "$q_status" "$q_name" "$q_aliases" "$q_description" "$q_mode" "$q_path" "$q_hash" "$q_absolute_path"
+        if [[ -z "$absolute_path" ]]; then
+          printf "INSERT INTO search VALUES('%s','%s','%s','%s','%s','%s','%s','%s','%s','');\n" \
+            "$q_area" "$q_kind" "$q_status" "$q_name" "$q_aliases" "$q_description" "$q_mode" "$q_path" "$q_hash"
+        else
+          q_absolute_path="$(printf '%s' "$absolute_path" | sql_quote)"
+          printf "INSERT INTO search VALUES('%s','%s','%s','%s','%s','%s','%s','%s','%s',CAST(readfile('%s') AS TEXT));\n" \
+            "$q_area" "$q_kind" "$q_status" "$q_name" "$q_aliases" "$q_description" "$q_mode" "$q_path" "$q_hash" "$q_absolute_path"
+        fi
       done < <(awk -F '\t' 'BEGIN { OFS = sprintf("%c", 31) } { print $1,$2,$3,$4,$5,$6,$7,$8,$9 }' "$catalog")
       printf 'COMMIT;\n'
     } > "$sqlite_sql"
@@ -230,13 +365,14 @@ tail -n +2 "$catalog" | awk -F '\t' '{print $8}' | LC_ALL=C sort -u > "$routeabl
 manifest_unsorted="$tmp_root/manifest.unsorted"
 printf 'path\tkind\tsize_bytes\tcontent_hash\trouteable\timmutable\n' > "$manifest_unsorted"
 
-# Independent Projectのcloneはroot cacheの境界外である。`.git`だけでなくdirectory全体をpruneし、
-# child側の変更がroot fingerprintへ漏れないようにする。shell globは深さ2に固定されるため、
-# Embedded Projectがdocs配下へ置いた同名フォルダを巻き込まない。
+# Independent ProjectのProject rootはroot cacheの境界外である。`.git`だけでなくdirectory全体を
+# pruneし、child側の変更がroot fingerprintへ漏れないようにする。対象はregistry登録名だけなので、
+# Embedded Projectや`projects/REPOSITORIES.md`、`projects/.gitignore`は巻き込まない。
 manifest_prune=( -name '.git' -o -name '.agent-cache' -o -name '.tmp' )
-for independent_repository in "$repo_root"/projects/*/repository; do
-  [[ -d "$independent_repository" ]] || continue
-  manifest_prune+=( -o -path "$independent_repository" )
+independent_index=0
+while (( independent_index < independent_count )); do
+  manifest_prune+=( -o -path "$repo_root/projects/${independent_names[$independent_index]}" )
+  independent_index=$((independent_index + 1))
 done
 
 while IFS= read -r -d '' file; do

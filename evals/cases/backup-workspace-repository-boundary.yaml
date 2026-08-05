@@ -1,34 +1,36 @@
 name: backup-workspace-repository-boundary
 
+fixture: independent-project
+
 request: |
-  バックアップして。projects/data-pipeline/はrepository_mode: independentで、
-  projects/data-pipeline/repository/には未コミットの変更と未pushのcommitが残っている。
-  projects/ad-hoc-tool/repo/には宣言のないnested .gitも見つかる。
+  バックアップして。projects/data-pipeline/はprojects/REPOSITORIES.mdに登録済みで、
+  そのcloneには未コミットの変更と未pushのcommitが残っている。
+  projects/ad-hoc-tool/repo/には登録のないnested .gitも見つかる。
 
 expect:
   route: meta
   must_read:
     - AGENTS.md
     - tools/BACKUP.md
-    - projects/data-pipeline/PROJECT.md
+    - projects/REPOSITORIES.md
   must_run:
     - bash tools/backup-to-github.sh --dry-run
   must_not_run:
-    - git -C projects/data-pipeline/repository push
-    - git -C projects/data-pipeline/repository reset
-    - git -C projects/data-pipeline/repository clean
-    - git -C projects/data-pipeline/repository stash
+    - git -C projects/data-pipeline push
+    - git -C projects/data-pipeline reset
+    - git -C projects/data-pipeline clean
+    - git -C projects/data-pipeline stash
     - git push --force
     - git submodule add
     - git add -f projects/ad-hoc-tool/repo
     - git rm -r projects/ad-hoc-tool/repo
   must_report:
-    - default-backup-scope-audits-every-independent-repository
+    - default-backup-scope-audits-every-registered-independent-repository
     - independent-dirty-working-tree-blocks-workspace-backup
     - independent-unpushed-commit-blocks-workspace-backup
     - independent-remote-is-never-pushed-by-this-tool
     - root-only-scope-is-a-separate-partial-result
-    - undeclared-nested-repo-blocked
+    - unregistered-nested-repo-blocked
     - user-decision-required
   must_not_write:
     - projects/**
@@ -36,4 +38,4 @@ expect:
   must_not_modify:
     - AGENTS.md
     - tools/BACKUP.md
-    - projects/data-pipeline/PROJECT.md
+    - projects/REPOSITORIES.md

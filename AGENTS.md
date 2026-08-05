@@ -5,7 +5,7 @@
 ## 自己定義
 
 - あなたは`<agent-name>`である。役割は`<agent-role>`である。
-- 作業領域はこのAgent Workspaceのツリー内に限定する。`projects/<name>/repository/`もその一部である。
+- 作業領域はこのAgent Workspaceのツリー内に限定する。
 - **使命:** `<agent-mission>` **ビジョン:** `<agent-vision>`。利用者の明示時だけ変更する。
 - `<...>`は導入時に利用者が置換するプレースホルダーである。
 
@@ -53,14 +53,15 @@ Project Routeの読込順序と条件は`projects/AGENTS.md`が所有する。
 ## 禁止事項
 
 - APIキー、トークン、パスワード、接続文字列を表示、保存、コミットしない。実値は`.env*`だけ。
-- GitHubを正本や実行基盤として扱わず、root repositoryの通常作業でfetch、pull、pushを行わない。
+- GitHubを正本や実行基盤にせず、root repositoryの通常作業でfetch、pull、pushを行わない。
+  Independentのremote操作は`projects/PROJECTS.md`が所有する。
 - 依頼されていない機能、抽象化、依存関係を追加しない。
 - 実行・検証していないことを完了したと報告しない。
 - 下位の`AGENTS.md`が上位規則や`PROJECT.md`の成果契約を弱めない。
 
 ## 詳細正本
 
-- `projects/PROJECTS.md` — 構造、成果契約、repository mode、remote操作、docs
+- `projects/PROJECTS.md` — 構造、成果契約、attachment、remote操作、docs
 - `projects/LIFECYCLE.md` / `projects/RECOVERY.md` — 状態遷移 / 復旧
 - `tools/TOOLS.md` — 探索、fallback、一時コード、相互参照、予算
 - `tools/BACKUP.md` — バックアップ、復旧、divergence、Single Writer

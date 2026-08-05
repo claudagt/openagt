@@ -3,7 +3,6 @@ name: market-review
 description: 現在の市場判断をactive Knowledgeから作成する継続Project。
 status: active
 mode: continuous
-repository_mode: embedded
 ---
 
 # `market-review`

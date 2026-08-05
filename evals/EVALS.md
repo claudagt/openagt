@@ -97,8 +97,8 @@ validator内fixture = Toolの実ファイル・Git・cache動作
 nested Git、Independent repositoryの実clone、bare remote、materialization、cache prune、log閾値、
 SQLite切替のような実挙動は、validatorが一時ディレクトリへ組み立てる隔離fixtureが所有する。
 同じ動的Git fixtureをYAML側へ複製せず、YAMLはその状況でエージェントが何を読み、何を拒否し、
-何を報告するかだけを持つ。`evals/fixtures/`の静的Independent fixtureは宣言と状態だけを持ち、
-実`.git`をcommitしない。
+何を報告するかだけを持つ。`evals/fixtures/`の静的Independent fixtureは`projects/REPOSITORIES.md`の登録と
+Project契約だけを持ち、実`.git`をcommitしない。
 
 ## Context trace
 
@@ -126,7 +126,7 @@ SQLite切替のような実挙動は、validatorが一時ディレクトリへ�
 - `AGENTS.md`、`projects/AGENTS.md`、対象`PROJECT.md`、`STATE.md`を読む。対象Projectに`AGENTS.md`が
   あれば`PROJECT.md`より先に読む。
 - 通常のProject実行で`projects/PROJECTS.md`を無条件に読まない。新設、状態遷移、契約種別の変更、
-  repository mode、移行、復旧、規約保守、docs構造の設計、明示参照のいずれかがある場合だけ読む。
+  Independent昇格・移行、remote操作、復旧、規約保守、docs構造の設計、明示参照のいずれかがある場合だけ読む。
 - 個別Projectの`AGENTS.md`へ成果契約、現在状態、Domain Canonの本文を書かず、`PROJECT.md`、`STATE.md`、
   `docs/<DOMAIN>.md`へ書く。
 - 現在目標と検証結果が`PROJECT.md#PC-xx`または`PROJECT.md#status`を参照する。
@@ -147,8 +147,8 @@ SQLite切替のような実挙動は、validatorが一時ディレクトリへ�
 - `<DOMAIN>_SENSE.md`は定性的判断の正本であり、必須仕様、数値合格条件、コマンド、現在状態の保存先に
   しない。ハード仕様は`PROJECT.md`または`docs/<DOMAIN>.md`が所有する。
 - `docs/README.md`、`docs/NOTES.md`、`docs/MISC.md`のような汎用正本を作らない。
-- Independent Projectのroot側envelopeへ`docs/`、`ARCHITECTURE.md`、個別`AGENTS.md`を複製しない。
-  これらは`projects/<name>/repository/`が所有する。
+- Independent Projectの`docs/`、`ARCHITECTURE.md`、個別`AGENTS.md`はProject固有Gitが所有する
+  `projects/<name>/`直下にあり、root Gitへ複製しない。相対pathはattachmentで変わらない。
 
 ## Research・Knowledgeケースの最低条件
 
@@ -176,7 +176,7 @@ SQLite切替のような実挙動は、validatorが一時ディレクトリへ�
 
 - 通常のKnowledge、Skill、Project作業で`tools/BACKUP.md`を読まず、root repositoryのfetch、pull、pushを
   行わない。この禁止はroot repositoryを対象とし、Independent repositoryのremote操作は
-  `projects/PROJECTS.md#remote操作の境界`が所有する。
+  `projects/PROJECTS.md#Remote操作の境界`が所有する。「通常Project作業では一律push禁止」とは扱わない。
 - 利用者がバックアップ、復旧、マシン移行、バックアップ監査を明示した場合だけmeta Routeを選ぶ。
 - バックアップは`tools/backup-to-github.sh`だけで行い、正本の内容を変更しない。
 - remote divergenceでは停止し、pull、merge、rebase、reset、force pushを行わず、
@@ -186,30 +186,35 @@ SQLite切替のような実挙動は、validatorが一時ディレクトリへ�
 - 既定scopeはworkspaceであり、root pushの前に全Independent repositoryを監査する。Independent remoteへは
   pushしない。`--root-only`は明示的な部分結果であり、workspace全体の成功として報告しない。
 - 成功出力は`WORKSPACE_BACKUP_OK`と`ROOT_BACKUP_OK`を区別する。partial materializationでは停止する。
-- 宣言済み`projects/<name>/repository/.git/`以外のnested repoやsubmoduleは追加、削除、ignoreせず、
+- 登録済み`projects/<name>/.git/`以外のnested repoやsubmoduleは追加、削除、ignoreせず、
   停止して利用者へ確認する。
 - IndependentからEmbeddedへの統合は外部identity、連携、`retention`方針を監査し、利用者が明示的に
   廃止・統合を承認した場合だけ行う。現在条件が見えないことを統合の自動既定にしない。
 
 ## Repository境界ケースの最低条件
 
-- Independentの固定pathは`projects/<name>/repository/`である。外部配置、worktree、submodule、symlink、
-  `.git` fileを提案しない。
-- root側envelopeは`PROJECT.md`、`STATE.md`、`repository/`だけを持ち、実装、docs、個別`AGENTS.md`は
-  Independent repositoryが所有する。
-- session rootは一つだけとし、child SHAと検証結果のhandoff後にroot `STATE.md`の採用revisionを更新する。
-  正本へマシン固有のclone pathを書かない。
-- materializationでは採用SHAを最初に再現し、default branchのtipを自動採用しない。全件が揃うまでは
+- Project rootはEmbeddedもIndependentも`projects/<name>/`である。別階層の`repository/`、外部配置、
+  worktree、submodule、symlink、`.git` fileを提案しない。
+- rootが所有するのは`projects/REPOSITORIES.md`と派生projectionの`projects/.gitignore`だけであり、
+  Independentの`PROJECT.md`、`STATE.md`、`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、実装はProject固有Gitが
+  所有する。root Gitはそのpath配下を一つも追跡しない。
+- `PROJECT.md`は`repository_mode`、`repository_url`、`repository_reason`、`repository_default_branch`を
+  持たず、`STATE.md`は`## Repository State`を持たない。attachmentはregistry、`git rev-parse
+  --show-toplevel`、root追跡の有無で判定する。
+- session rootは一つだけとし、child SHAと検証結果のhandoff後にroot sessionが`projects/REPOSITORIES.md`の
+  `revision`だけを更新する。正本へマシン固有のclone pathを書かない。
+- materializationでは採用SHAを最初に再現し、branch tipを自動採用しない。全件が揃うまでは
   partial workspaceとして報告する。
 - rootで`git clean -x`、`git clean -X`、二つ以上の`-f`を提案・実行せず、ignoreされた
-  `projects/*/repository/`が削除対象になる危険を先に報告する。
-- Independent repository本体の本文はroot cache、manifest、catalog、検索結果へ出さない。
+  `projects/<name>/`が削除対象になる危険を先に報告する。
+- Independent Project本体の本文はroot cache、manifest、catalog、検索結果へ出さない。root catalogへは
+  採用revisionのfrontmatter metadataだけが入る。
 - Independent本体の更新は「検証 → commit → `origin`へ通常push → remoteのSHA確認 → handoff →
-  別のroot sessionが`STATE.md`を更新」の順に進む。root remoteへはpushせず、pull、merge、rebase、
+  別のroot sessionがregistryを更新」の順に進む。root remoteへはpushせず、pull、merge、rebase、
   force pushを使わない。
-- 採用revisionはcloneに存在するだけでは足りず、HEADが採用SHAと一致していることまで確認する。
-- `repository_url`に認証情報、query、fragment、ローカルpathを書かない。`repository_default_branch`は
-  remoteに実在するbranchを指す。
+- 採用revisionはcloneに存在するだけでは足りず、materializer、validator、backupの三つすべてで
+  HEADが採用SHAと一致していることまで確認する。
+- registryの`repository_url`に認証情報、query、fragment、ローカルpathを書かない。
 
 ## 実行
 

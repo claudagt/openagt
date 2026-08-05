@@ -11,7 +11,8 @@ expect:
   must_read:
     - AGENTS.md
     - projects/AGENTS.md
-    - projects/PROJECTS.md                # repository modeの統合条件は詳細正本が所有する
+    - projects/PROJECTS.md                # attachmentの統合条件は詳細正本が所有する
+    - projects/REPOSITORIES.md
     - projects/data-pipeline/PROJECT.md
     - projects/data-pipeline/STATE.md
   must_report:
@@ -19,14 +20,16 @@ expect:
     - external-identity-and-integration-audit-required   # 過去のidentity、release、automationを監査する
     - retention-and-history-policy-audit-required        # repository_reason retentionの条件を個別に監査する
     - explicit-retirement-and-consolidation-approval-required
+    - registry-entry-ignore-entry-and-clone-are-removed-as-one-unit
     - no-automatic-deletion-or-integration
   must_not_run:
     - git submodule add
     - git rm
     - rm -rf
   must_not_write:
-    - .gitignore
+    - projects/REPOSITORIES.md
+    - projects/.gitignore
     - projects/data-pipeline/**
   must_not_modify:
-    - projects/data-pipeline/PROJECT.md
+    - projects/REPOSITORIES.md
     - AGENTS.md

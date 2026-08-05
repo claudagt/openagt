@@ -3,6 +3,8 @@ set -euo pipefail
 
 tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd "${AGENT_DIRECTORY_ROOT:-$tool_root/..}" 2>/dev/null && pwd -P)" || repo_root=''
+registry_path='projects/REPOSITORIES.md'
+ignore_path='projects/.gitignore'
 max_blob_bytes="${AGENT_BACKUP_MAX_BLOB_BYTES:-104857600}"
 remote='backup'
 branch='main'
@@ -13,12 +15,10 @@ independent_index=0
 # ローカルbare remoteは隔離fixture検証だけで許可する。通常運用では設定しない。
 allow_local_repository_url="${AGENT_ALLOW_LOCAL_REPOSITORY_URL:-false}"
 
-# 宣言済みIndependent Projectの並行配列。bash 3.2にassociative arrayはない。
+# 登録済みIndependent Projectの並行配列。bash 3.2にassociative arrayはない。
 independent_names=()
-independent_dirs=()
 independent_urls=()
 independent_revisions=()
-independent_branches=()
 
 usage() {
   printf 'Usage: %s [--remote <name>] [--branch <name>] [--dry-run] [--root-only]\n' "${0##*/}" >&2
@@ -40,18 +40,6 @@ note() {
   printf 'DETAIL: %s\n' "$1" >&2
 }
 
-frontmatter_value() {
-  awk -v key="$2" '
-    NR == 1 && $0 != "---" { exit }
-    NR > 1 && $0 == "---" { exit }
-    index($0, key ":") == 1 {
-      sub(/^[^:]+:[[:space:]]*/, "")
-      print
-      exit
-    }
-  ' "$1"
-}
-
 frontmatter_key_count() {
   awk -v key="$2" '
     NR == 1 && $0 != "---" { exit }
@@ -61,26 +49,68 @@ frontmatter_key_count() {
   ' "$1"
 }
 
-repository_state_value() {
-  awk -v key="$2" '
-    $0 == "## Repository State" { in_section = 1; next }
-    in_section && /^## / { exit }
-    in_section && index($0, "- " key ": `") == 1 {
-      value = $0
-      sub("^- " key ": `", "", value)
-      sub(/`$/, "", value)
-      print value
-      exit
+# registry entryを "name<TAB>url<TAB>reason<TAB>revision" として1行ずつ出す。
+# コードフェンス内は読まず、構造上の誤りは "E<TAB>detail" で返す。
+registry_records() {
+  LC_ALL=C awk '
+    function flush_entry() {
+      if (current == "") return
+      if (url_count != 1) print "E\t`" current "` must declare repository_url exactly once"
+      if (reason_count != 1) print "E\t`" current "` must declare repository_reason exactly once"
+      if (revision_count != 1) print "E\t`" current "` must declare revision exactly once"
+      print "R\t" current "\t" url "\t" reason "\t" revision
+      current = ""
     }
+    {
+      if (substr($0, 1, 3) == "```") { fence = 1 - fence; next }
+      if (fence) next
+      if (substr($0, 1, 3) == "## ") {
+        flush_entry()
+        heading = $0
+        url = ""; reason = ""; revision = ""
+        url_count = 0; reason_count = 0; revision_count = 0
+        if (heading ~ /^## `[A-Za-z0-9][A-Za-z0-9._-]*`[ \t]*$/) {
+          sub(/^## `/, "", heading)
+          sub(/`[ \t]*$/, "", heading)
+          current = heading
+          if (current in seen) print "E\tduplicate registry entry: `" current "`"
+          seen[current] = 1
+          if (previous != "" && previous >= current)
+            print "E\tregistry entries must sort ascending: `" previous "` before `" current "`"
+          previous = current
+        } else {
+          print "E\tinvalid registry heading: " $0
+        }
+        next
+      }
+      if (substr($0, 1, 2) == "- ") {
+        field = $0
+        sub(/^- /, "", field)
+        if (field !~ /^[a-z_]+: `[^`]*`[ \t]*$/) next
+        if (current == "") { print "E\tregistry field outside an entry: " $0; next }
+        key = field
+        sub(/:.*$/, "", key)
+        value = field
+        sub(/^[a-z_]+: `/, "", value)
+        sub(/`[ \t]*$/, "", value)
+        if (key == "repository_url") { url = value; url_count++ }
+        else if (key == "repository_reason") { reason = value; reason_count++ }
+        else if (key == "revision") { revision = value; revision_count++ }
+        else print "E\tunsupported registry field in `" current "`: " key
+        next
+      }
+    }
+    END { flush_entry() }
   ' "$1"
 }
 
-repository_state_key_count() {
-  awk -v key="$2" '
-    $0 == "## Repository State" { in_section = 1; next }
-    in_section && /^## / { exit }
-    in_section && index($0, "- " key ": `") == 1 { count++ }
-    END { print count + 0 }
+# projects/.gitignore の managed block に登録された `/<name>/` を1行ずつ出す。
+ignore_block_entries() {
+  [[ -f "$1" ]] || return 0
+  awk '
+    $0 == "# BEGIN INDEPENDENT PROJECTS" { in_block = 1; next }
+    $0 == "# END INDEPENDENT PROJECTS" { in_block = 0; next }
+    in_block && $0 != "" { print }
   ' "$1"
 }
 
@@ -114,7 +144,7 @@ repository_url_is_rejected() {
   return 1
 }
 
-# 宣言時に拒否しているが、DETAIL行でもuserinfoのpassword、query、fragmentを伏せる。
+# 登録時に拒否しているが、DETAIL行でもuserinfoのpassword、query、fragmentを伏せる。
 redact_repository_url() {
   printf '%s' "$1" | sed -E 's|(://[^/:@]+):[^/@]*@|\1:***@|; s|\?.*$|?***|; s|#.*$|#***|'
 }
@@ -126,130 +156,169 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# --- Independent宣言の静的検査 ------------------------------------------------
+# --- registryとignore projectionの静的検査 ------------------------------------
 
-validate_independent_declaration() {
-  local project_md="$1"
-  local repository_url repository_reason repository_branch repository_key
+load_independent_registry() {
+  local record_kind field_a field_b field_c field_d
+  local ignore_entries ignore_entry ignore_name entry_index found
 
-  repository_url="$(frontmatter_value "$repo_root/$project_md" 'repository_url')"
-  repository_reason="$(frontmatter_value "$repo_root/$project_md" 'repository_reason')"
-  repository_branch="$(frontmatter_value "$repo_root/$project_md" 'repository_default_branch')"
-  for repository_key in repository_url repository_reason repository_default_branch; do
-    [[ "$(frontmatter_key_count "$repo_root/$project_md" "$repository_key")" == '1' ]] || \
-      blocked 'invalid-independent-declaration' "$project_md must declare $repository_key exactly once"
+  [[ -f "$repo_root/$registry_path" ]] || blocked 'invalid-registry' \
+    "$registry_path is required; an empty registry is valid but the file must exist"
+
+  while IFS=$'\t' read -r record_kind field_a field_b field_c field_d; do
+    [[ -n "$record_kind" ]] || continue
+    [[ "$record_kind" != 'E' ]] || blocked 'invalid-registry' "$registry_path: $field_a"
+    case "$field_c" in
+      automation|distribution|collaboration|access|identity|upstream|retention) ;;
+      *) blocked 'invalid-registry' \
+        "$registry_path entry \`$field_a\` has an invalid repository_reason: ${field_c:-<empty>}" ;;
+    esac
+    if repository_url_is_rejected "$field_b"; then
+      blocked 'invalid-registry' \
+        "$registry_path entry \`$field_a\` repository_url must be a credential-free remote URL without query, fragment or local path: $(redact_repository_url "$field_b")"
+    fi
+    [[ "$field_d" =~ ^[0-9a-f]{40}$ ]] || blocked 'invalid-registry' \
+      "$registry_path entry \`$field_a\` revision must be a 40-character lowercase commit SHA"
+    independent_names+=("$field_a")
+    independent_urls+=("$field_b")
+    independent_revisions+=("$field_d")
+  done < <(registry_records "$repo_root/$registry_path")
+
+  ignore_entries="$(ignore_block_entries "$repo_root/$ignore_path")"
+  entry_index=0
+  while (( entry_index < ${#independent_names[@]} )); do
+    printf '%s\n' "$ignore_entries" | grep -Fqx "/${independent_names[$entry_index]}/" || \
+      blocked 'invalid-ignore-projection' \
+        "$ignore_path managed block must contain the exact line: /${independent_names[$entry_index]}/"
+    entry_index=$((entry_index + 1))
   done
-  case "$repository_reason" in
-    automation|distribution|collaboration|access|identity|upstream|retention) ;;
-    *) blocked 'invalid-independent-declaration' "$project_md has an invalid repository_reason" ;;
-  esac
-  if repository_url_is_rejected "$repository_url"; then
-    blocked 'invalid-independent-declaration' \
-      "$project_md repository_url must be a credential-free remote URL without query, fragment or local path: $(redact_repository_url "$repository_url")"
-  fi
-  if [[ ! "$repository_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || \
-    ! git check-ref-format --branch "$repository_branch" >/dev/null 2>&1; then
-    blocked 'invalid-independent-declaration' \
-      "$project_md has an invalid repository_default_branch: ${repository_branch:-<empty>}"
-  fi
-  printf '%s' "$repository_url"
+  while IFS= read -r ignore_entry; do
+    [[ -n "$ignore_entry" ]] || continue
+    ignore_name="${ignore_entry#/}"
+    ignore_name="${ignore_name%/}"
+    entry_index=0
+    found=false
+    while (( entry_index < ${#independent_names[@]} )); do
+      [[ "${independent_names[$entry_index]}" != "$ignore_name" ]] || found=true
+      entry_index=$((entry_index + 1))
+    done
+    [[ "$found" == true ]] || blocked 'invalid-ignore-projection' \
+      "$ignore_path managed block holds $ignore_entry, which is not registered in $registry_path"
+  done < <(printf '%s\n' "$ignore_entries")
 }
 
-validate_independent_state() {
-  local state_md="$1"
-  local state_revision retired_key
+# 旧`projects/<name>/repository/`方式と旧frontmatterは、nested-git等より先に名指しで停止させる。
+detect_deprecated_layout() {
+  local project_md project_dir retired_key legacy_dir legacy_tracked
 
-  [[ -f "$repo_root/$state_md" ]] || blocked 'invalid-independent-state' "$state_md is required"
-  [[ "$(repository_state_key_count "$repo_root/$state_md" 'revision')" == '1' ]] || \
-    blocked 'invalid-independent-state' "$state_md must declare Repository State revision exactly once"
-  for retired_key in repository branch remote_verified_at; do
-    [[ "$(repository_state_key_count "$repo_root/$state_md" "$retired_key")" == '0' ]] || \
-      blocked 'invalid-independent-state' \
-        "$state_md Repository State must hold only revision; remove the retired $retired_key field"
-  done
-  state_revision="$(repository_state_value "$repo_root/$state_md" 'revision')"
-  [[ "$state_revision" =~ ^[0-9a-f]{40}$ ]] || \
-    blocked 'invalid-independent-state' \
-      "$state_md must pin a 40-character lowercase commit SHA as the adopted revision"
-  printf '%s' "$state_revision"
+  legacy_tracked="$(git -C "$repo_root" ls-files -- \
+    'projects/*/repository' 'projects/*/repository/*' | head -n 5)"
+  [[ -z "$legacy_tracked" ]] || blocked 'deprecated-repository-layout' \
+    'the retired projects/<name>/repository/ layout is still tracked; migrate it per tools/BACKUP.md' \
+    "$legacy_tracked"
+  legacy_dir="$(find "$repo_root/projects" -mindepth 3 -maxdepth 3 -type d \
+    -path '*/repository/.git' -print 2>/dev/null | head -n 5)"
+  [[ -z "$legacy_dir" ]] || blocked 'deprecated-repository-layout' \
+    'a clone still lives at the retired projects/<name>/repository/ path; migrate it per tools/BACKUP.md' \
+    "$legacy_dir"
+
+  while IFS= read -r project_md; do
+    [[ -n "$project_md" && -f "$repo_root/$project_md" ]] || continue
+    project_dir="${project_md%/PROJECT.md}"
+    for retired_key in repository_mode repository_url repository_reason repository_default_branch; do
+      [[ "$(frontmatter_key_count "$repo_root/$project_md" "$retired_key")" == '0' ]] || \
+        blocked 'deprecated-repository-layout' \
+          "$project_md still declares the retired $retired_key field; attachment now lives in $registry_path"
+    done
+    if [[ -f "$repo_root/$project_dir/STATE.md" ]] && \
+      grep -Fqx '## Repository State' "$repo_root/$project_dir/STATE.md"; then
+      blocked 'deprecated-repository-layout' \
+        "$project_dir/STATE.md still declares the retired ## Repository State section; the adopted revision lives in $registry_path"
+    fi
+  done < <(git -C "$repo_root" ls-files -- 'projects/*/PROJECT.md')
 }
 
-# --- 固定pathへのattachment検査 -----------------------------------------------
+# --- Project rootへのattachment検査 -------------------------------------------
 
 validate_independent_attachment() {
-  local project_dir="$1"
+  local project_name="$1"
   local repository_url="$2"
-  local target="$repo_root/$project_dir/repository"
+  local project_dir="projects/$project_name"
+  local target="$repo_root/$project_dir"
   local child_top child_origin
 
-  [[ ! -L "$repo_root/$project_dir" ]] || blocked 'repository-path-symlink' \
-    "$project_dir must be a real directory, not a symlink"
   [[ ! -L "$target" ]] || blocked 'repository-path-symlink' \
-    "$project_dir/repository must be a real directory, not a symlink"
+    "$project_dir must be a real directory, not a symlink"
   [[ -d "$target" ]] || blocked 'missing-independent-repository' \
-    "$project_dir/repository is missing; run tools/materialize-project-repositories.sh --all"
+    "$project_dir is missing; run tools/materialize-project-repositories.sh --all"
   [[ ! -L "$target/.git" ]] || blocked 'repository-path-symlink' \
-    "$project_dir/repository/.git must be a real directory, not a symlink"
+    "$project_dir/.git must be a real directory, not a symlink"
   if [[ ! -d "$target/.git" ]]; then
     blocked 'repository-gitfile-unsupported' \
-      "$project_dir/repository/.git must be a real directory; .git files and worktrees are unsupported"
+      "$project_dir/.git must be a real directory; .git files and worktrees are unsupported"
   fi
 
   if ! child_top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)"; then
-    blocked 'repository-toplevel-mismatch' "$project_dir/repository is not a Git working tree"
+    blocked 'repository-toplevel-mismatch' "$project_dir is not a Git working tree"
   fi
   child_top="$(cd "$child_top" && pwd -P)"
   [[ "$child_top" == "$target" ]] || blocked 'repository-toplevel-mismatch' \
-    "$project_dir/repository toplevel is $child_top, expected $target"
+    "$project_dir toplevel is $child_top, expected $target"
 
   child_origin="$(git -C "$target" config --get remote.origin.url 2>/dev/null || true)"
   [[ "$child_origin" == "$repository_url" ]] || blocked 'repository-origin-mismatch' \
-    "$project_dir/repository remote.origin.url is $(redact_repository_url "${child_origin:-<unset>}"), expected $(redact_repository_url "$repository_url")"
+    "$project_dir remote.origin.url is $(redact_repository_url "${child_origin:-<unset>}"), expected $(redact_repository_url "$repository_url")"
 }
 
 # --- Independent本体のローカル状態監査 ----------------------------------------
 
 audit_independent_repository() {
-  local project_dir="$1"
-  local target="$repo_root/$project_dir/repository"
-  local child_untracked nested_child attributes_file
+  local project_name="$1"
+  local project_dir="projects/$project_name"
+  local target="$repo_root/$project_dir"
+  local child_untracked nested_child attributes_file contract_file
 
   # 構造的に非対応な状態を先に判定する。cleanlinessより強い停止理由であり、
   # 未追跡ファイルとして報告してしまうと原因が隠れる。
   if git -C "$target" ls-files --stage | awk '$1 == "160000" { found = 1 } END { exit !found }'; then
     blocked 'independent-submodule-unsupported' \
-      "$project_dir/repository contains submodules; their contents are not covered"
+      "$project_dir contains submodules; their contents are not covered"
   fi
   [[ ! -e "$target/.gitmodules" ]] || blocked 'independent-submodule-unsupported' \
-    "$project_dir/repository declares .gitmodules; submodules are unsupported"
+    "$project_dir declares .gitmodules; submodules are unsupported"
 
   nested_child="$(find "$target" -path "$target/.git" -prune -o \
     -mindepth 2 \( -type d -o -type f \) -name .git -print 2>/dev/null | head -n 5)"
   [[ -z "$nested_child" ]] || blocked 'independent-nested-repository' \
-    "$project_dir/repository contains a nested Git repository" "$nested_child"
+    "$project_dir contains a nested Git repository" "$nested_child"
 
   if [[ -f "$target/.gitattributes" ]] && grep -Fq 'filter=lfs' "$target/.gitattributes"; then
-    blocked 'independent-git-lfs-unsupported' "$project_dir/repository uses Git LFS: .gitattributes"
+    blocked 'independent-git-lfs-unsupported' "$project_dir uses Git LFS: .gitattributes"
   fi
   while IFS= read -r attributes_file; do
     [[ -n "$attributes_file" && -f "$target/$attributes_file" ]] || continue
     if grep -Fq 'filter=lfs' "$target/$attributes_file"; then
-      blocked 'independent-git-lfs-unsupported' \
-        "$project_dir/repository uses Git LFS: $attributes_file"
+      blocked 'independent-git-lfs-unsupported' "$project_dir uses Git LFS: $attributes_file"
     fi
   done < <(git -C "$target" ls-files -- '.gitattributes' '*/.gitattributes')
 
+  for contract_file in PROJECT.md STATE.md; do
+    git -C "$target" cat-file -e "HEAD:$contract_file" 2>/dev/null || \
+      blocked 'independent-contract-missing' \
+        "$project_dir does not carry $contract_file at HEAD; the Project contract is owned by its own Git"
+  done
+
   git -C "$target" diff --cached --quiet -- || blocked 'independent-staged-changes' \
-    "$project_dir/repository holds staged changes; commit or unstage them in an Independent session"
+    "$project_dir holds staged changes; commit or unstage them in an Independent session"
   git -C "$target" diff --quiet -- || blocked 'independent-dirty-working-tree' \
-    "$project_dir/repository holds uncommitted tracked changes; commit them in an Independent session"
+    "$project_dir holds uncommitted tracked changes; commit them in an Independent session"
   child_untracked="$(git -C "$target" ls-files --others --exclude-standard)"
   [[ -z "$child_untracked" ]] || blocked 'independent-untracked-files' \
-    "$project_dir/repository holds untracked non-ignored files" \
+    "$project_dir holds untracked non-ignored files" \
     "$(printf '%s\n' "$child_untracked" | head -n 10)"
   if git -C "$target" rev-parse --verify --quiet refs/stash >/dev/null; then
     blocked 'independent-stash-present' \
-      "$project_dir/repository holds stash entries; they are never sent to a remote"
+      "$project_dir holds stash entries; they are never sent to a remote"
   fi
 }
 
@@ -257,11 +326,11 @@ audit_independent_repository() {
 
 # 子cloneを変形せず、隔離した一時bare repositoryだけで到達性を判定する。
 verify_independent_revision() {
-  local project_dir="$1"
+  local project_name="$1"
   local repository_url="$2"
   local state_revision="$3"
-  local repository_branch="$4"
-  local target="$repo_root/$project_dir/repository"
+  local project_dir="projects/$project_name"
+  local target="$repo_root/$project_dir"
   local head_sha fetch_output
 
   if [[ -z "$independent_verify_root" ]]; then
@@ -278,13 +347,9 @@ verify_independent_revision() {
     git -C "$verify_repo" fetch --quiet "$repository_url" \
     "+refs/heads/*:refs/remotes/upstream/*" "+refs/tags/*:refs/tags/*" 2>&1)"; then
     blocked 'independent-remote-unreachable' \
-      "$project_dir/repository declared remote is unreachable: $(redact_repository_url "$repository_url")" \
+      "$project_dir declared remote is unreachable: $(redact_repository_url "$repository_url")" \
       "$fetch_output"
   fi
-  # 宣言したdefault branchがremoteに実在することを、取得済みのrefで確かめる。
-  git -C "$verify_repo" rev-parse --verify --quiet "refs/remotes/upstream/$repository_branch" >/dev/null || \
-    blocked 'independent-default-branch-missing' \
-      "$project_dir declares repository_default_branch: $repository_branch, but the remote has no such branch"
   if ! fetch_output="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true GCM_INTERACTIVE=never \
     git -C "$verify_repo" fetch --quiet --no-tags "$repository_url" "$state_revision" 2>&1)"; then
     blocked 'independent-revision-unavailable' \
@@ -298,34 +363,35 @@ verify_independent_revision() {
   # 採用revisionがremoteに存在することを確かめてから、cloneがそこに固定されているかを見る。
   head_sha="$(git -C "$target" rev-parse --verify --quiet HEAD || true)"
   [[ "$head_sha" == "$state_revision" ]] || blocked 'independent-head-not-adopted' \
-    "$project_dir/repository HEAD is ${head_sha:-none}, but STATE.md adopts $state_revision"
+    "$project_dir HEAD is ${head_sha:-none}, but $registry_path adopts $state_revision"
 
   printf '%s' "$verify_repo"
 }
 
 verify_local_refs_backed_up() {
-  local project_dir="$1"
+  local project_name="$1"
   local verify_repo="$2"
-  local target="$repo_root/$project_dir/repository"
+  local project_dir="projects/$project_name"
+  local target="$repo_root/$project_dir"
   local fetch_output branch_ref branch_sha tag_ref tag_sha remote_tag_sha unpublished
 
   if ! fetch_output="$(git -C "$verify_repo" fetch --quiet --no-tags "$target" \
     "+refs/heads/*:refs/remotes/child/*" "+refs/tags/*:refs/childtags/*" "+HEAD:refs/childhead" 2>&1)"; then
     blocked 'independent-unreachable-local-branch' \
-      "could not read local refs from $project_dir/repository" "$fetch_output"
+      "could not read local refs from $project_dir" "$fetch_output"
   fi
 
   unpublished="$(git -C "$verify_repo" rev-list --count refs/childhead \
     --not --remotes=upstream --tags 2>/dev/null || printf '0')"
   [[ "$unpublished" == '0' ]] || blocked 'independent-unpushed-commit' \
-    "$project_dir/repository HEAD holds $unpublished commit(s) absent from its remote"
+    "$project_dir HEAD holds $unpublished commit(s) absent from its remote"
 
   while IFS=' ' read -r branch_ref branch_sha; do
     [[ -n "$branch_ref" && -n "$branch_sha" ]] || continue
     unpublished="$(git -C "$verify_repo" rev-list --count "$branch_sha" \
       --not --remotes=upstream --tags 2>/dev/null || printf '1')"
     [[ "$unpublished" == '0' ]] || blocked 'independent-unreachable-local-branch' \
-      "$project_dir/repository local branch ${branch_ref#child/} is not reachable from any remote head or tag"
+      "$project_dir local branch ${branch_ref#child/} is not reachable from any remote head or tag"
   done < <(git -C "$verify_repo" for-each-ref --format='%(refname:short) %(objectname)' refs/remotes/child)
 
   while IFS=' ' read -r tag_ref tag_sha; do
@@ -333,14 +399,14 @@ verify_local_refs_backed_up() {
     remote_tag_sha="$(git -C "$verify_repo" rev-parse --verify --quiet \
       "refs/tags/${tag_ref#childtags/}" || true)"
     [[ "$remote_tag_sha" == "$tag_sha" ]] || blocked 'independent-unpushed-tag' \
-      "$project_dir/repository tag ${tag_ref#childtags/} is missing or different on its remote"
+      "$project_dir tag ${tag_ref#childtags/} is missing or different on its remote"
   done < <(git -C "$verify_repo" for-each-ref --format='%(refname:short) %(objectname)' refs/childtags)
 }
 
 # --- root側の所有関係 ----------------------------------------------------------
 
 validate_root_repository_ownership() {
-  local tracked_under_repository gitlink_paths
+  local tracked_under_project gitlink_paths entry_index
 
   # gitlinkを先に判定する。同じpathを平文追跡した場合と停止reasonを区別する。
   gitlink_paths="$(git -C "$repo_root" ls-files --stage | awk '$1 == "160000" { print $4 }' | head -n 10)"
@@ -348,22 +414,18 @@ validate_root_repository_ownership() {
     'the root index holds a gitlink; Independent repositories are plain clones, not submodules' \
     "$gitlink_paths"
 
-  tracked_under_repository="$(git -C "$repo_root" ls-files -- \
-    'projects/*/repository' 'projects/*/repository/*' | head -n 10)"
-  [[ -z "$tracked_under_repository" ]] || blocked 'root-tracks-independent-repository' \
-    'the root repository must not track anything at or under projects/*/repository/' \
-    "$tracked_under_repository"
+  entry_index=0
+  while (( entry_index < ${#independent_names[@]} )); do
+    tracked_under_project="$(git -C "$repo_root" ls-files -- \
+      "projects/${independent_names[$entry_index]}" | head -n 10)"
+    [[ -z "$tracked_under_project" ]] || blocked 'root-tracks-independent-repository' \
+      "the root repository must not track anything under projects/${independent_names[$entry_index]}/" \
+      "$tracked_under_project"
+    entry_index=$((entry_index + 1))
+  done
 
   if git -C "$repo_root" ls-files --error-unmatch -- '.gitmodules' >/dev/null 2>&1; then
     blocked 'unsupported-submodule' 'submodule contents are not covered by this backup; resolve manually'
-  fi
-
-  if (( ${#independent_names[@]} > 0 )); then
-    if [[ ! -f "$repo_root/.gitignore" ]] || \
-      ! grep -Fqx 'projects/*/repository/' "$repo_root/.gitignore"; then
-      blocked 'root-tracks-independent-repository' \
-        'root .gitignore must contain the exact line: projects/*/repository/'
-    fi
   fi
 }
 
@@ -439,7 +501,13 @@ if ! git -C "$repo_root" config --get "remote.$remote.url" >/dev/null 2>&1; then
   blocked 'missing-remote' "remote is not configured: $remote"
 fi
 
-# --- 4. root clean状態 -----------------------------------------------------------
+# --- 4. registryとignore projection ----------------------------------------------
+
+load_independent_registry
+independent_count="${#independent_names[@]}"
+detect_deprecated_layout
+
+# --- 5. root clean状態 -----------------------------------------------------------
 
 git -C "$repo_root" diff --cached --quiet -- || \
   blocked 'staged-changes' 'the index holds uncommitted changes; commit or unstage them first'
@@ -468,25 +536,14 @@ if [[ -n "$unmerged" ]]; then
     "these local branches are not reachable from $branch and would not be backed up:$unmerged"
 fi
 
-# --- 5. root禁止対象 --------------------------------------------------------------
+# --- 6. root禁止対象 --------------------------------------------------------------
 
-# 許可するnested Gitを決めるため、宣言の発見だけを先に行う。検証は次段が担当する。
-# 旧satellite宣言のcloneもここで発見しておき、移行途中の状態が
-# `nested-git-repository`ではなく`deprecated-satellite-mode`として報告されるようにする。
-discovered_dirs=()
-while IFS= read -r discovered_md; do
-  [[ -n "$discovered_md" && -f "$repo_root/$discovered_md" ]] || continue
-  case "$(frontmatter_value "$repo_root/$discovered_md" 'repository_mode')" in
-    independent|satellite) discovered_dirs+=("${discovered_md%/PROJECT.md}") ;;
-    *) continue ;;
-  esac
-done < <(git -C "$repo_root" ls-files -- 'projects/*/PROJECT.md')
-
+# 許可するnested Gitは登録済みIndependent ProjectのProject rootだけである。
 nested_prune=( -path "$repo_root/.git" )
-if (( ${#discovered_dirs[@]} > 0 )); then
+if (( independent_count > 0 )); then
   scan_index=0
-  while (( scan_index < ${#discovered_dirs[@]} )); do
-    nested_prune+=( -o -path "$repo_root/${discovered_dirs[$scan_index]}/repository" )
+  while (( scan_index < independent_count )); do
+    nested_prune+=( -o -path "$repo_root/projects/${independent_names[$scan_index]}" )
     scan_index=$((scan_index + 1))
   done
 fi
@@ -494,7 +551,7 @@ nested_git="$(find "$repo_root" \( "${nested_prune[@]}" \) -prune -o \
   -mindepth 2 \( -type d -o -type f \) -name .git -print | head -n 10)"
 if [[ -n "$nested_git" ]]; then
   blocked 'nested-git-repository' \
-    'nested .git entries are forbidden unless they are declared Independent Project clones' "$nested_git"
+    'nested .git entries are forbidden unless they are registered Independent Project clones' "$nested_git"
 fi
 
 forbidden=''
@@ -535,49 +592,6 @@ if [[ -n "$oversized" ]]; then
     "$(printf '%s\n' "$oversized" | head -n 10)"
 fi
 
-# --- 6. Project metadataの検証 -----------------------------------------------------
-
-while IFS= read -r project_md; do
-  [[ -n "$project_md" && -f "$repo_root/$project_md" ]] || continue
-  repository_mode="$(frontmatter_value "$repo_root/$project_md" 'repository_mode')"
-  [[ "$(frontmatter_key_count "$repo_root/$project_md" 'repository_mode')" == '1' ]] || \
-    blocked 'invalid-project-repository-mode' "$project_md must declare repository_mode exactly once"
-  project_dir="${project_md%/PROJECT.md}"
-  case "$repository_mode" in
-    embedded)
-      [[ ! -e "$repo_root/$project_dir/repository" ]] || blocked 'invalid-project-repository-mode' \
-        "$project_dir is embedded but holds a repository/ directory"
-      continue
-      ;;
-    independent) ;;
-    satellite)
-      blocked 'deprecated-satellite-mode' \
-        "$project_md uses the retired satellite mode; migrate it to repository_mode: independent"
-      ;;
-    *) blocked 'invalid-project-repository-mode' \
-      "$project_md must declare repository_mode: embedded or repository_mode: independent" ;;
-  esac
-
-  project_url="$(validate_independent_declaration "$project_md")"
-  project_revision="$(validate_independent_state "$project_dir/STATE.md")"
-
-  # 固定path自体がindexへ入っている場合はroot ownership検査がreasonを切り分ける。
-  unexpected_root_contents="$(git -C "$repo_root" ls-files -- "$project_dir" |
-    awk -v project_md="$project_md" -v state_md="$project_dir/STATE.md" \
-      -v repository="$project_dir/repository" \
-      '$0 != project_md && $0 != state_md && $0 != repository')"
-  [[ -z "$unexpected_root_contents" ]] || blocked 'root-tracks-independent-repository' \
-    "$project_dir may track only PROJECT.md and STATE.md" "$unexpected_root_contents"
-
-  independent_names+=("${project_dir##*/}")
-  independent_dirs+=("$project_dir")
-  independent_urls+=("$project_url")
-  independent_revisions+=("$project_revision")
-  independent_branches+=("$(frontmatter_value "$repo_root/$project_md" 'repository_default_branch')")
-done < <(git -C "$repo_root" ls-files -- 'projects/*/PROJECT.md')
-
-independent_count="${#independent_names[@]}"
-
 # --- 7. root ownership／gitlink ---------------------------------------------------
 
 validate_root_repository_ownership
@@ -585,23 +599,21 @@ validate_root_repository_ownership
 # --- 8. workspace scopeならIndependent repositoryを監査 ---------------------------
 
 if [[ "$root_only" == true ]]; then
-  note "root-only scope: $independent_count declared Independent repository(ies) were not audited"
+  note "root-only scope: $independent_count registered Independent repository(ies) were not audited"
 else
   audit_index=0
   while (( audit_index < independent_count )); do
-    audit_dir="${independent_dirs[$audit_index]}"
+    audit_name="${independent_names[$audit_index]}"
     audit_url="${independent_urls[$audit_index]}"
     audit_revision="${independent_revisions[$audit_index]}"
-    audit_branch="${independent_branches[$audit_index]}"
-    validate_independent_attachment "$audit_dir" "$audit_url"
-    audit_independent_repository "$audit_dir"
-    audit_verify_repo="$(verify_independent_revision \
-      "$audit_dir" "$audit_url" "$audit_revision" "$audit_branch")"
-    verify_local_refs_backed_up "$audit_dir" "$audit_verify_repo"
-    note "independent repository verified: $(redact_repository_url "$audit_url")@$audit_revision at $audit_dir/repository"
+    validate_independent_attachment "$audit_name" "$audit_url"
+    audit_independent_repository "$audit_name"
+    audit_verify_repo="$(verify_independent_revision "$audit_name" "$audit_url" "$audit_revision")"
+    verify_local_refs_backed_up "$audit_name" "$audit_verify_repo"
+    note "independent repository verified: $(redact_repository_url "$audit_url")@$audit_revision at projects/$audit_name"
     audit_index=$((audit_index + 1))
   done
-  note "declared Independent repositories: $independent_count (audited, never pushed by this tool)"
+  note "registered Independent repositories: $independent_count (audited, never pushed by this tool)"
 fi
 
 # --- 9. root remote divergence -----------------------------------------------------

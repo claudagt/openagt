@@ -69,11 +69,16 @@ Project選択の単位は`PROJECT.md`である。`ARCHITECTURE.md`とProject doc
 routeable catalogへ入れず、通常検索結果へ全件投入しない。対象Projectを確定した後、個別`AGENTS.md`の
 Docs RouteからDomain Canonへ進む。`knowledge/raw/`配下もmanifestへ登録するが意味検索catalogへ入れない。
 
-`projects/*/repository/`はdirectory全体をpruneする。`.git`だけでなくIndependent repository本体を
-manifest、catalog、fingerprint、SQLiteのいずれからも除外し、catalogへはroot側の`projects/*/PROJECT.md`
-だけを登録する。したがってchild側のファイルを変更してもroot cacheのfingerprintは変わらず、
-root側の`PROJECT.md`と`STATE.md`を変更したときだけ変わる。`find-context.sh`はcatalogとrouteable正本だけを
-検索するため、この境界はbuilderのpruneで成立する。
+Embedded Projectはfilesystem全件findではなくroot indexの`projects/*/PROJECT.md`から決める。
+Independent Projectは`projects/REPOSITORIES.md`のentryから列挙し、working treeの未commit内容ではなく
+`git -C projects/<name> show <revision>:PROJECT.md`で採用revisionのfrontmatterを読み、
+name、description、status、mode、pathだけをcatalogへ登録する。content_hashへ採用revisionを混ぜる。
+
+登録済みの`projects/<name>/`はdirectory全体をpruneする。Independent Project本体をmanifest、
+fingerprint、SQLite bodyのいずれからも除外し、root側の`projects/REPOSITORIES.md`と`projects/.gitignore`は
+manifestへ入れる。したがってchild側のcodeや未commitの`PROJECT.md`を変更してもroot fingerprintは変わらず、
+採用revisionが変わったときだけ変わる。`find-context.sh`はcatalogとrouteable正本だけを検索し、fallbackでも
+Independent Project配下をrecursive grepしない。
 
 環境変数`AGENT_DIRECTORY_ROOT`で検査対象root、`AGENT_CACHE_DIR`で出力先を差し替えられる。
 fixtureや隔離検証以外では既定値を使う。
@@ -143,24 +148,26 @@ bash tools/materialize-project-repositories.sh --project <name>
 bash tools/materialize-project-repositories.sh --all --check
 ```
 
-Independent Projectの宣言と採用revisionから、固定path`projects/<name>/repository/`へ通常cloneを再現する。
+`projects/REPOSITORIES.md`の登録と採用revisionから、Project root`projects/<name>/`へ通常cloneを再現する。
 復旧、マシン移行、partial materializationの解消で使う。
 
 - 入力: `--all`または`--project <name>`のいずれか一つ、任意の`--check`。`AGENT_DIRECTORY_ROOT`で
-  隔離fixture rootへ差し替えられる。root Gitが追跡する`PROJECT.md`と`STATE.md`だけを対象とする。
+  隔離fixture rootへ差し替えられる。Independent Projectの列挙は`projects/REPOSITORIES.md`だけを
+  正本とし、`PROJECT.md`のfrontmatterを走査しない。
   `AGENT_ALLOW_LOCAL_REPOSITORY_URL=true`はローカルbare remoteを許す隔離fixture専用の上書きであり、
   通常運用では設定しない。
 - 出力: 成功`MATERIALIZATION_OK total=<n> cloned=<n> verified=<n>`をstdoutへ1行。
   停止時は`MATERIALIZATION_BLOCKED reason=<reason> project=<name>`をstderrへ出し、終了コードを非0にする。
-- 動作: targetが無いときだけ`--no-checkout`でcloneし、`origin`を宣言値と完全一致させ、採用revisionを
-  detached checkoutする。default branchのtipへ勝手に進めない。`--check`はcloneせず整合だけを検査する。
+- 動作: registryとignore projectionの整合を先に検査し、targetが無いときだけ`--no-checkout`でcloneして
+  採用revisionをdetached checkoutする。branch tipへ勝手に進めない。cloneの直後にtoplevel、`origin`、
+  HEAD、採用commitの`PROJECT.md`と`STATE.md`を検査する。`--check`はcloneせず整合だけを検査する。
 - 既存targetをreset、clean、stash、merge、rebaseしない。dirtyなら停止する。non-emptyな非repoを上書きせず、
   target・parent・`.git`のsymlinkと`.git` fileを拒否する。認証情報を保存せず、絶対pathを正本へ書かない。
-- 主な停止reason: `not-agent-directory-root`、`invalid-project`、`invalid-independent-declaration`、
-  `invalid-independent-state`、`target-path-symlink`、`target-not-empty`、
-  `repository-gitfile-unsupported`、`repository-origin-mismatch`、`repository-dirty`、
-  `repository-staged`、`repository-untracked`、`repository-stash-present`、
-  `repository-head-not-adopted`、`revision-unavailable`、`default-branch-missing`、
+- 主な停止reason: `not-agent-directory-root`、`invalid-project`、`invalid-registry`、
+  `invalid-ignore-projection`、`target-path-symlink`、`target-not-empty`、
+  `repository-gitfile-unsupported`、`repository-toplevel-mismatch`、`repository-origin-mismatch`、
+  `repository-dirty`、`repository-staged`、`repository-untracked`、`repository-stash-present`、
+  `repository-head-not-adopted`、`repository-contract-missing`、`revision-unavailable`、
   `authentication-required`、`remote-unreachable`。`--check`で未materializeを検出した場合は
   `missing-independent-repository`とし、backup Toolと語彙を揃える。
 - 既存cloneでは採用revisionの存在だけでなく、HEADが採用SHAと一致することまで検査する。
@@ -190,11 +197,15 @@ bash tools/validate-agent-directory.sh --full --base main
   旧小文字パスがGit indexにも実ファイル名にも戻っていない。
 - 利用者が作る`knowledge/wiki/sources/`と`knowledge/wiki/topics/`のページが小文字ケバブケースである。
 - frontmatterを欠く正本があってもcache生成が停止せず、対象パスと欠落キーを警告して候補から外す。
-- Independent Projectは固定path`projects/<name>/repository/`にsymlinkでない実cloneを持ち、
-  `.git`が実directoryで、toplevelと`remote.origin.url`が宣言と完全一致する。
-- root `.gitignore`が`projects/*/repository/`を持ち、root indexが`repository/`配下も
-  mode 160000のgitlinkも持たず、root側envelopeが`PROJECT.md`、`STATE.md`、`repository/`だけを持つ。
-- 宣言済みの`projects/<name>/repository/.git/`以外のnested `.git`は、directoryでもfileでも停止させる。
+- `PROJECT.md`に`repository_mode`、`repository_url`、`repository_reason`、`repository_default_branch`が
+  残らず、`STATE.md`に`## Repository State`が残らない。
+- `projects/REPOSITORIES.md`のheading、name、昇順、field数、reason enum、safe URL、40文字SHA、
+  Project pathとの対応が成立し、`projects/.gitignore`のmanaged blockと登録集合が完全一致する。
+- Independent Projectは`projects/<name>/`にsymlinkでない実cloneを持ち、`.git`が実directoryで、
+  toplevelと`remote.origin.url`とHEADが登録と完全一致し、`PROJECT.md`と`STATE.md`を自ら持つ。
+- root indexが登録済みProject root配下もmode 160000のgitlinkも持たず、Embedded Projectとregistry、
+  ignore projection自身がignoreされていない。旧`projects/<name>/repository/`は追跡でも実体でも停止させる。
+- 登録済みの`projects/<name>/.git/`以外のnested `.git`は、directoryでもfileでも停止させる。
 
 AGENTS三層とProject docsの完全な構造規則は`projects/PROJECTS.md`が所有する。validatorはその境界と
 サイズだけを固定し、`docs/`より下のフォルダ名と見出し構成はProjectが決める。

@@ -3,8 +3,8 @@
 長期稼働するAIエージェント1体ごとに持つ、ローカルファーストのAgent Workspaceテンプレート。
 Knowledge、Skill、Projectを正本として育てながら、1タスクの読込量は総量から切り離す。
 
-これは複数の外部リポジトリを束ねるHubではなく、一体のAgent Workspaceである。独立したremote identityが
-必要なProjectも、cloneはこのツリー内の固定pathへ置く。
+これは複数の外部リポジトリを束ねる集約点ではなく、一体のAgent Workspaceである。独立したremote identityが
+必要なProjectも、cloneはこのツリー内の`projects/<name>/`へ置く。
 
 `AGENTS.md`は百科事典ではなく、ブートローダー兼ルーター兼目次である。Routeを一つ決めたら、その領域を
 所有する正本へ引き継ぐ。詳細契約は各正本が持ち、READMEはそこへの入口だけを持つ。
@@ -13,8 +13,8 @@ Knowledge、Skill、Projectを正本として育てながら、1タスクの読�
 
 A local-first Agent Workspace template for one long-running AI agent. Canonical Markdown and source files may
 grow, while deterministic, status-aware retrieval keeps each task's working context bounded. It is a single
-workspace, not a hub of external repositories: a Project that needs its own remote identity is cloned to the
-fixed in-tree path `projects/<name>/repository/`.
+workspace, not a hub of external repositories: every Project root is `projects/<name>/`, and a Project that
+needs its own remote identity is cloned onto that same path so only the owning Git differs.
 
 `AGENTS.md` is a bootloader and router, not an encyclopedia. It resolves one Route, then hands off to the
 canonical file that owns that domain's rules. The repository is model- and client-agnostic: Codex, Claude Code,
@@ -76,6 +76,8 @@ agent-directory/
 │   ├── AGENTS.md                 # Project作業共通の薄い入口
 │   ├── CLAUDE.md                 # @AGENTS.md
 │   ├── PROJECTS.md               # Projectシステムの詳細正本。条件付きで読む
+│   ├── REPOSITORIES.md           # Independent Projectのattachment registry
+│   ├── .gitignore                # registryから導出するignore projection
 │   ├── LIFECYCLE.md              # 状態遷移時だけ読む
 │   ├── RECOVERY.md               # 目的不一致の復旧時だけ読む
 │   ├── _template/                # PROJECT.mdとSTATE.mdだけ
@@ -84,36 +86,39 @@ agent-directory/
 └── tools/                        # TOOLS.md、BACKUP.md、6つのTool
 ```
 
-## Repository境界
+## Attachment境界
 
-すべてのProjectは`repository_mode: embedded`で開始し、独立したremote identityが必要になった場合だけ
-`independent`へ昇格する。Independentの通常cloneは必ず次の固定pathへ置く。普通の`git clone`であり、
-`repository/.git`は実directoryとする。worktree、submodule、symlink、`.git` fileは使わない。
+Project root、実装root、通常の作業cwdは、EmbeddedでもIndependentでも`projects/<name>/`である。違いは
+pathではなく、どのGitがそれを所有するかだけである。すべてのProjectはEmbeddedで開始し、独立したremote
+identityが必要になった場合だけIndependentへ昇格する。worktree、submodule、symlink、`.git` file、
+外部配置、下位の`repository/`階層は使わない。
 
 ```text
-projects/<embedded-project>/      # root Gitが全体を追跡する
-├── PROJECT.md
+projects/<embedded-project>/      # Git top-level = Agent Workspace root
+├── PROJECT.md                    # root Gitが全体を追跡する
 ├── STATE.md
 ├── ARCHITECTURE.md               # 任意
 ├── docs/                         # 任意
 └── outputs/
 
-projects/<independent-project>/   # root Gitが追跡するのは2ファイルだけ
-├── PROJECT.md                    # remote URL、reason、default branch
-├── STATE.md                      # ## Repository State に採用revisionだけ
-└── repository/                   # 普通のclone。root Gitはignore、Independent Gitのroot
-    ├── .git/                     # 実directory
-    ├── AGENTS.md / ARCHITECTURE.md / docs/
-    └── src/ tests/ …
+projects/<independent-project>/   # Git top-level = このディレクトリ自身
+├── .git/                         # 実directory。普通のclone
+├── PROJECT.md                    # Project固有Gitが全体を追跡する
+├── STATE.md
+├── AGENTS.md / ARCHITECTURE.md / docs/
+└── src/ tests/ …
 ```
 
 | 所有 | 対象 |
 |---|---|
-| root Gitが追跡 | 全Embedded Project、Independentの`PROJECT.md`と`STATE.md` |
-| Independent Gitが追跡 | コード、tests、Project固有`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、実行・release設定、Git履歴 |
-| root Gitがignore | `projects/*/repository/`。gitlinkもmanifest登録も検索候補も持たない |
+| root Gitが追跡 | 全Embedded Project、`projects/REPOSITORIES.md`、`projects/.gitignore` |
+| Independent Gitが追跡 | `PROJECT.md`、`STATE.md`、`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、コード、tests、Git履歴 |
+| root Gitがignore | 登録済みの`projects/<name>/`。gitlinkもmanifest登録も検索候補も持たない |
 
-statusにかかわらず全Independent repositoryが固定pathへmaterialize済みであることを健全な状態とする。
+`PROJECT.md`はattachmentを宣言しない。root側の正本は`projects/REPOSITORIES.md`のattachment registryだけで、
+name、`repository_url`、`repository_reason`、採用`revision`を持つ。`projects/.gitignore`のmanaged blockは
+その派生projectionである。statusにかかわらず全Independent repositoryがmaterialize済みであることを健全な
+状態とする。
 
 ```bash
 bash tools/materialize-project-repositories.sh --all --check
@@ -121,8 +126,9 @@ bash tools/materialize-project-repositories.sh --all
 bash tools/materialize-project-repositories.sh --project <name>
 ```
 
-昇格条件、`repository_reason`、session rootとSHA handoffは[projects/PROJECTS.md](projects/PROJECTS.md)が
-所有する。agent-directory外へcloneを置く旧Satellite方式は現役modeとして許可せず、移行対象としてだけ
+昇格条件、`repository_reason`、session rootとSHA handoff、remote操作の境界は
+[projects/PROJECTS.md](projects/PROJECTS.md)が所有する。旧`projects/<name>/repository/`方式と
+agent-directory外へcloneを置く旧方式は現役構造として許可せず、移行対象としてだけ
 [tools/BACKUP.md](tools/BACKUP.md)が扱う。
 
 ## コンテキスト探索
@@ -182,8 +188,8 @@ bash tools/backup-to-github.sh --root-only
 | 既定（workspace） | root push前に全Independent repositoryを監査。Independent remoteへはpushしない | `WORKSPACE_BACKUP_OK` |
 | `--root-only` | root repositoryだけ。Independentのnetwork、dirty、unpushは検査しない部分結果 | `ROOT_BACKUP_OK` |
 
-停止条件、divergence時の禁止操作、Single Writer、root `git clean`の禁止、復旧・移行手順、旧Satellite
-cloneの移行は[tools/BACKUP.md](tools/BACKUP.md)が所有し、バックアップ・復旧・移行を扱うときだけ読む。
+停止条件、divergence時の禁止操作、Single Writer、root `git clean`の禁止、復旧・移行手順、旧構造からの
+移行は[tools/BACKUP.md](tools/BACKUP.md)が所有し、バックアップ・復旧・移行を扱うときだけ読む。
 
 ## 正本
 
@@ -193,7 +199,8 @@ cloneの移行は[tools/BACKUP.md](tools/BACKUP.md)が所有し、バックア�
 | [knowledge/KNOWLEDGE.md](knowledge/KNOWLEDGE.md) | 四層構造、保存先、不変規則、命名、限定取得、INDEX、LOG |
 | [skills/SKILLS.md](skills/SKILLS.md) | Skillの選択、frontmatter、Knowledge参照、構造 |
 | [projects/AGENTS.md](projects/AGENTS.md) | Project作業共通の着手・実行・完了手順 |
-| [projects/PROJECTS.md](projects/PROJECTS.md) | 成果契約、Project docs、Domain Canon、Research昇格、repository mode |
+| [projects/PROJECTS.md](projects/PROJECTS.md) | 成果契約、Project docs、Domain Canon、Research昇格、attachment |
+| [projects/REPOSITORIES.md](projects/REPOSITORIES.md) | Independent Projectのattachment registryとentry形式 |
 | [projects/LIFECYCLE.md](projects/LIFECYCLE.md) / [projects/RECOVERY.md](projects/RECOVERY.md) | 状態遷移と削除条件 / 目的不一致からの復旧 |
 | [evals/EVALS.md](evals/EVALS.md) | 振る舞いevalの契約、ケースschema、fixture、最低条件 |
 | [tools/TOOLS.md](tools/TOOLS.md) | Toolの入出力、fallback、相互参照、サイズ予算、規模拡大 |

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Independent Projectの宣言と採用revisionから、固定path projects/<name>/repository/ へ
-# 通常cloneを再現する。既存cloneは検証だけを行い、reset/clean/stash/merge/rebaseで変形しない。
+# projects/REPOSITORIES.md の登録と採用revisionから、Project root projects/<name>/ へ通常cloneを
+# 再現する。既存cloneは検証だけを行い、reset/clean/stash/merge/rebaseで変形しない。
 
 tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd "${AGENT_DIRECTORY_ROOT:-$tool_root/..}" 2>/dev/null && pwd -P)" || repo_root=''
+registry_path='projects/REPOSITORIES.md'
+ignore_path='projects/.gitignore'
 select_all=false
 only_project=''
 check_only=false
@@ -30,58 +32,86 @@ blocked() {
   exit 1
 }
 
-# 途中で失敗したcloneだけを片づける。固定path以外は決して削除しない。
+# 途中で失敗したfresh cloneだけを片づける。Project root以外は決して削除しない。
 cleanup() {
   local status=$?
   if (( status != 0 )) && [[ -n "$pending_target" && -d "$pending_target" ]]; then
     case "$pending_target" in
-      "$repo_root"/projects/*/repository) rm -rf -- "$pending_target" ;;
+      */*/*) ;;
+      *) return 0 ;;
+    esac
+    case "${pending_target#"$repo_root"/projects/}" in
+      */*|'') return 0 ;;
+    esac
+    case "$pending_target" in
+      "$repo_root"/projects/*) rm -rf -- "$pending_target" ;;
     esac
   fi
 }
 trap cleanup EXIT
 
-frontmatter_value() {
-  awk -v key="$2" '
-    NR == 1 && $0 != "---" { exit }
-    NR > 1 && $0 == "---" { exit }
-    index($0, key ":") == 1 {
-      sub(/^[^:]+:[[:space:]]*/, "")
-      print
-      exit
+# registry entryを "name<TAB>url<TAB>reason<TAB>revision" として1行ずつ出す。
+# コードフェンス内は読まず、構造上の誤りは "E<TAB>detail" で返す。
+registry_records() {
+  LC_ALL=C awk '
+    function flush_entry() {
+      if (current == "") return
+      if (url_count != 1) print "E\t`" current "` must declare repository_url exactly once"
+      if (reason_count != 1) print "E\t`" current "` must declare repository_reason exactly once"
+      if (revision_count != 1) print "E\t`" current "` must declare revision exactly once"
+      print "R\t" current "\t" url "\t" reason "\t" revision
+      current = ""
     }
-  ' "$1"
-}
-
-frontmatter_key_count() {
-  awk -v key="$2" '
-    NR == 1 && $0 != "---" { exit }
-    NR > 1 && $0 == "---" { exit }
-    index($0, key ":") == 1 { count++ }
-    END { print count + 0 }
-  ' "$1"
-}
-
-repository_state_value() {
-  awk -v key="$2" '
-    $0 == "## Repository State" { in_section = 1; next }
-    in_section && /^## / { exit }
-    in_section && index($0, "- " key ": `") == 1 {
-      value = $0
-      sub("^- " key ": `", "", value)
-      sub(/`$/, "", value)
-      print value
-      exit
+    {
+      if (substr($0, 1, 3) == "```") { fence = 1 - fence; next }
+      if (fence) next
+      if (substr($0, 1, 3) == "## ") {
+        flush_entry()
+        heading = $0
+        url = ""; reason = ""; revision = ""
+        url_count = 0; reason_count = 0; revision_count = 0
+        if (heading ~ /^## `[A-Za-z0-9][A-Za-z0-9._-]*`[ \t]*$/) {
+          sub(/^## `/, "", heading)
+          sub(/`[ \t]*$/, "", heading)
+          current = heading
+          if (current in seen) print "E\tduplicate registry entry: `" current "`"
+          seen[current] = 1
+          if (previous != "" && previous >= current)
+            print "E\tregistry entries must sort ascending: `" previous "` before `" current "`"
+          previous = current
+        } else {
+          print "E\tinvalid registry heading: " $0
+        }
+        next
+      }
+      if (substr($0, 1, 2) == "- ") {
+        field = $0
+        sub(/^- /, "", field)
+        if (field !~ /^[a-z_]+: `[^`]*`[ \t]*$/) next
+        if (current == "") { print "E\tregistry field outside an entry: " $0; next }
+        key = field
+        sub(/:.*$/, "", key)
+        value = field
+        sub(/^[a-z_]+: `/, "", value)
+        sub(/`[ \t]*$/, "", value)
+        if (key == "repository_url") { url = value; url_count++ }
+        else if (key == "repository_reason") { reason = value; reason_count++ }
+        else if (key == "revision") { revision = value; revision_count++ }
+        else print "E\tunsupported registry field in `" current "`: " key
+        next
+      }
     }
+    END { flush_entry() }
   ' "$1"
 }
 
-repository_state_key_count() {
-  awk -v key="$2" '
-    $0 == "## Repository State" { in_section = 1; next }
-    in_section && /^## / { exit }
-    in_section && index($0, "- " key ": `") == 1 { count++ }
-    END { print count + 0 }
+# projects/.gitignore の managed block に登録された `/<name>/` を1行ずつ出す。
+ignore_block_entries() {
+  [[ -f "$1" ]] || return 0
+  awk '
+    $0 == "# BEGIN INDEPENDENT PROJECTS" { in_block = 1; next }
+    $0 == "# END INDEPENDENT PROJECTS" { in_block = 0; next }
+    in_block && $0 != "" { print }
   ' "$1"
 }
 
@@ -115,7 +145,7 @@ repository_url_is_rejected() {
   return 1
 }
 
-# 宣言時に拒否しているが、報告経路でもuserinfoのpassword、query、fragmentを伏せる。
+# 登録時に拒否しているが、報告経路でもuserinfoのpassword、query、fragmentを伏せる。
 redact_repository_url() {
   printf '%s' "$1" | sed -E 's|(://[^/:@]+):[^/@]*@|\1:***@|; s|\?.*$|?***|; s|#.*$|#***|'
 }
@@ -176,97 +206,118 @@ if [[ ! -f "$repo_root/AGENTS.md" || ! -f "$repo_root/tools/validate-agent-direc
   blocked 'not-agent-directory-root' '-' \
     "AGENTS.md and tools/validate-agent-directory.sh are required at $repo_root"
 fi
+[[ -f "$repo_root/$registry_path" ]] || blocked 'invalid-registry' '-' \
+  "$registry_path is required; an empty registry is valid but the file must exist"
+
+# --- registryの読み込みと静的検査 -------------------------------------------------
+
+registry_names=()
+registry_urls=()
+registry_reasons=()
+registry_revisions=()
+
+while IFS=$'\t' read -r record_kind field_a field_b field_c field_d; do
+  [[ -n "$record_kind" ]] || continue
+  if [[ "$record_kind" == 'E' ]]; then
+    blocked 'invalid-registry' '-' "$registry_path: $field_a"
+  fi
+  registry_names+=("$field_a")
+  registry_urls+=("$field_b")
+  registry_reasons+=("$field_c")
+  registry_revisions+=("$field_d")
+done < <(registry_records "$repo_root/$registry_path")
+
+registry_count="${#registry_names[@]}"
+
+ignore_entries=''
+if (( registry_count > 0 )) || [[ -f "$repo_root/$ignore_path" ]]; then
+  ignore_entries="$(ignore_block_entries "$repo_root/$ignore_path")"
+fi
+
+entry_index=0
+while (( entry_index < registry_count )); do
+  entry_name="${registry_names[$entry_index]}"
+  entry_url="${registry_urls[$entry_index]}"
+  entry_reason="${registry_reasons[$entry_index]}"
+  entry_revision="${registry_revisions[$entry_index]}"
+
+  case "$entry_reason" in
+    automation|distribution|collaboration|access|identity|upstream|retention) ;;
+    *) blocked 'invalid-registry' "$entry_name" \
+      "$registry_path has an invalid repository_reason: ${entry_reason:-<empty>}" ;;
+  esac
+  if repository_url_is_rejected "$entry_url"; then
+    blocked 'invalid-registry' "$entry_name" \
+      "$registry_path repository_url must be a credential-free remote URL without query, fragment or local path: $(redact_repository_url "$entry_url")"
+  fi
+  [[ "$entry_revision" =~ ^[0-9a-f]{40}$ ]] || blocked 'invalid-registry' "$entry_name" \
+    "$registry_path revision must be a 40-character lowercase commit SHA"
+  printf '%s\n' "$ignore_entries" | grep -Fqx "/$entry_name/" || \
+    blocked 'invalid-ignore-projection' "$entry_name" \
+      "$ignore_path managed block must contain the exact line: /$entry_name/"
+  entry_index=$((entry_index + 1))
+done
+
+while IFS= read -r ignore_entry; do
+  [[ -n "$ignore_entry" ]] || continue
+  ignore_name="${ignore_entry#/}"
+  ignore_name="${ignore_name%/}"
+  entry_index=0
+  found_ignore=false
+  while (( entry_index < registry_count )); do
+    [[ "${registry_names[$entry_index]}" != "$ignore_name" ]] || found_ignore=true
+    entry_index=$((entry_index + 1))
+  done
+  [[ "$found_ignore" == true ]] || blocked 'invalid-ignore-projection' "$ignore_name" \
+    "$ignore_path managed block holds $ignore_entry, which is not registered in $registry_path"
+done < <(printf '%s\n' "$ignore_entries")
 
 if [[ -n "$only_project" ]]; then
-  if ! git -C "$repo_root" ls-files --error-unmatch -- "projects/$only_project/PROJECT.md" \
-    >/dev/null 2>&1; then
-    blocked 'invalid-project' "$only_project" \
-      "projects/$only_project/PROJECT.md is not tracked by the root repository"
-  fi
+  entry_index=0
+  found_project=false
+  while (( entry_index < registry_count )); do
+    [[ "${registry_names[$entry_index]}" != "$only_project" ]] || found_project=true
+    entry_index=$((entry_index + 1))
+  done
+  [[ "$found_project" == true ]] || blocked 'invalid-project' "$only_project" \
+    "projects/$only_project is not registered in $registry_path"
 fi
+
+# --- materializationと既存targetの検証 -------------------------------------------
 
 total=0
 cloned=0
 verified=0
+entry_index=0
 
-while IFS= read -r project_md; do
-  [[ -n "$project_md" && -f "$repo_root/$project_md" ]] || continue
-  project_dir="${project_md%/PROJECT.md}"
-  project_name="${project_dir##*/}"
+while (( entry_index < registry_count )); do
+  project_name="${registry_names[$entry_index]}"
+  repository_url="${registry_urls[$entry_index]}"
+  state_revision="${registry_revisions[$entry_index]}"
+  entry_index=$((entry_index + 1))
   [[ -z "$only_project" || "$project_name" == "$only_project" ]] || continue
 
-  repository_mode="$(frontmatter_value "$repo_root/$project_md" 'repository_mode')"
-  [[ "$(frontmatter_key_count "$repo_root/$project_md" 'repository_mode')" == '1' ]] || \
-    blocked 'invalid-independent-declaration' "$project_name" \
-      "$project_md must declare repository_mode exactly once"
-  case "$repository_mode" in
-    embedded) continue ;;
-    independent) ;;
-    *) blocked 'invalid-independent-declaration' "$project_name" \
-      "$project_md declares an unsupported repository_mode: ${repository_mode:-<empty>}" ;;
-  esac
-
-  repository_url="$(frontmatter_value "$repo_root/$project_md" 'repository_url')"
-  repository_reason="$(frontmatter_value "$repo_root/$project_md" 'repository_reason')"
-  repository_branch="$(frontmatter_value "$repo_root/$project_md" 'repository_default_branch')"
-  for repository_key in repository_url repository_reason repository_default_branch; do
-    [[ "$(frontmatter_key_count "$repo_root/$project_md" "$repository_key")" == '1' ]] || \
-      blocked 'invalid-independent-declaration' "$project_name" \
-        "$project_md must declare $repository_key exactly once"
-  done
-  case "$repository_reason" in
-    automation|distribution|collaboration|access|identity|upstream|retention) ;;
-    *) blocked 'invalid-independent-declaration' "$project_name" \
-      "$project_md has an invalid repository_reason: ${repository_reason:-<empty>}" ;;
-  esac
-  if repository_url_is_rejected "$repository_url"; then
-    blocked 'invalid-independent-declaration' "$project_name" \
-      "$project_md repository_url must be a credential-free remote URL without query, fragment or local path: $(redact_repository_url "$repository_url")"
-  fi
-  if [[ ! "$repository_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || \
-    ! git check-ref-format --branch "$repository_branch" >/dev/null 2>&1; then
-    blocked 'invalid-independent-declaration' "$project_name" \
-      "$project_md has an invalid repository_default_branch: ${repository_branch:-<empty>}"
-  fi
-
-  state_md="$project_dir/STATE.md"
-  git -C "$repo_root" ls-files --error-unmatch -- "$state_md" >/dev/null 2>&1 || \
-    blocked 'invalid-independent-state' "$project_name" \
-      "$state_md must be tracked by the root repository"
-  state_revision="$(repository_state_value "$repo_root/$state_md" 'revision')"
-  [[ "$(repository_state_key_count "$repo_root/$state_md" 'revision')" == '1' ]] || \
-    blocked 'invalid-independent-state' "$project_name" \
-      "$state_md must declare Repository State revision exactly once"
-  for retired_key in repository branch remote_verified_at; do
-    [[ "$(repository_state_key_count "$repo_root/$state_md" "$retired_key")" == '0' ]] || \
-      blocked 'invalid-independent-state' "$project_name" \
-        "$state_md Repository State must hold only revision; remove the retired $retired_key field"
-  done
-  [[ "$state_revision" =~ ^[0-9a-f]{40}$ ]] || \
-    blocked 'invalid-independent-state' "$project_name" \
-      "$state_md Repository State revision must be a 40-character lowercase commit SHA"
-
   total=$((total + 1))
-  parent="$repo_root/$project_dir"
-  target="$parent/repository"
-  [[ ! -L "$parent" ]] || blocked 'target-path-symlink' "$project_name" \
-    "$project_dir must be a real directory, not a symlink"
+  project_dir="projects/$project_name"
+  target="$repo_root/$project_dir"
+  [[ ! -L "$repo_root/projects" ]] || blocked 'target-path-symlink' "$project_name" \
+    'projects/ must be a real directory, not a symlink'
   [[ ! -L "$target" ]] || blocked 'target-path-symlink' "$project_name" \
-    "$project_dir/repository must be a real directory, not a symlink"
+    "$project_dir must be a real directory, not a symlink"
 
   if [[ -e "$target" ]]; then
     [[ -d "$target" ]] || blocked 'target-not-empty' "$project_name" \
-      "$project_dir/repository exists but is not a directory"
+      "$project_dir exists but is not a directory"
     [[ ! -L "$target/.git" ]] || blocked 'target-path-symlink' "$project_name" \
-      "$project_dir/repository/.git must be a real directory, not a symlink"
+      "$project_dir/.git must be a real directory, not a symlink"
     if [[ -e "$target/.git" && ! -d "$target/.git" ]]; then
       blocked 'repository-gitfile-unsupported' "$project_name" \
-        "$project_dir/repository/.git must be a real directory; .git files are unsupported"
+        "$project_dir/.git must be a real directory; .git files and worktrees are unsupported"
     fi
     if [[ ! -d "$target/.git" ]]; then
       if [[ -n "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
         blocked 'target-not-empty' "$project_name" \
-          "$project_dir/repository is not empty and is not a Git repository"
+          "$project_dir is not empty and is not a Git repository"
       fi
     fi
   fi
@@ -275,26 +326,26 @@ while IFS= read -r project_md; do
     child_top=''
     if ! child_top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)"; then
       blocked 'repository-gitfile-unsupported' "$project_name" \
-        "$project_dir/repository does not resolve to a Git working tree"
+        "$project_dir does not resolve to a Git working tree"
     fi
     child_top="$(cd "$child_top" && pwd -P)"
-    [[ "$child_top" == "$target" ]] || blocked 'repository-origin-mismatch' "$project_name" \
-      "$project_dir/repository toplevel is $child_top, expected $target"
+    [[ "$child_top" == "$target" ]] || blocked 'repository-toplevel-mismatch' "$project_name" \
+      "$project_dir toplevel is $child_top, expected $target"
 
     child_origin="$(git -C "$target" config --get remote.origin.url 2>/dev/null || true)"
     [[ "$child_origin" == "$repository_url" ]] || blocked 'repository-origin-mismatch' "$project_name" \
-      "remote.origin.url is ${child_origin:-<unset>}, expected $repository_url"
+      "remote.origin.url is $(redact_repository_url "${child_origin:-<unset>}"), expected $(redact_repository_url "$repository_url")"
 
     git -C "$target" diff --cached --quiet -- || blocked 'repository-staged' "$project_name" \
-      "$project_dir/repository holds staged changes; resolve them in an Independent session"
+      "$project_dir holds staged changes; resolve them in an Independent session"
     git -C "$target" diff --quiet -- || blocked 'repository-dirty' "$project_name" \
-      "$project_dir/repository holds uncommitted tracked changes; resolve them in an Independent session"
+      "$project_dir holds uncommitted tracked changes; resolve them in an Independent session"
     child_untracked="$(git -C "$target" ls-files --others --exclude-standard)"
     [[ -z "$child_untracked" ]] || blocked 'repository-untracked' "$project_name" \
-      "$project_dir/repository holds untracked files" "$(printf '%s\n' "$child_untracked" | head -n 10)"
+      "$project_dir holds untracked files" "$(printf '%s\n' "$child_untracked" | head -n 10)"
     if git -C "$target" rev-parse --verify --quiet refs/stash >/dev/null; then
       blocked 'repository-stash-present' "$project_name" \
-        "$project_dir/repository holds stash entries; resolve them in an Independent session"
+        "$project_dir holds stash entries; resolve them in an Independent session"
     fi
     git -C "$target" cat-file -e "${state_revision}^{commit}" 2>/dev/null || \
       blocked 'revision-unavailable' "$project_name" \
@@ -304,7 +355,12 @@ while IFS= read -r project_md; do
     child_head="$(git -C "$target" rev-parse --verify --quiet HEAD || true)"
     [[ "$child_head" == "$state_revision" ]] || \
       blocked 'repository-head-not-adopted' "$project_name" \
-        "$project_dir/repository HEAD is ${child_head:-none}, but STATE.md adopts $state_revision"
+        "$project_dir HEAD is ${child_head:-none}, but $registry_path adopts $state_revision"
+    for contract_file in PROJECT.md STATE.md; do
+      git -C "$target" cat-file -e "${state_revision}:${contract_file}" 2>/dev/null || \
+        blocked 'repository-contract-missing' "$project_name" \
+          "$project_dir does not carry $contract_file at the adopted revision $state_revision"
+    done
 
     verified=$((verified + 1))
     continue
@@ -312,54 +368,57 @@ while IFS= read -r project_md; do
 
   if [[ "$check_only" == true ]]; then
     blocked 'missing-independent-repository' "$project_name" \
-      "$project_dir/repository is missing; run without --check to materialize it"
+      "$project_dir is missing; run without --check to materialize it"
   fi
 
-  mkdir -p "$parent"
   pending_target="$target"
   clone_output=''
   if ! clone_output="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true GCM_INTERACTIVE=never \
     git clone --quiet --no-checkout -- "$repository_url" "$target" 2>&1)"; then
     blocked "$(classify_remote_failure "$clone_output")" "$project_name" \
-      "could not clone $(redact_repository_url "$repository_url") into $project_dir/repository" "$clone_output"
+      "could not clone $(redact_repository_url "$repository_url") into $project_dir" "$clone_output"
   fi
 
+  [[ -d "$target/.git" && ! -L "$target/.git" ]] || blocked 'repository-gitfile-unsupported' \
+    "$project_name" "$project_dir/.git must be a real directory after cloning"
+  cloned_top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null || true)"
+  [[ -n "$cloned_top" ]] && cloned_top="$(cd "$cloned_top" && pwd -P)"
+  [[ "$cloned_top" == "$target" ]] || blocked 'repository-toplevel-mismatch' "$project_name" \
+    "$project_dir toplevel is ${cloned_top:-<unset>}, expected $target"
   cloned_origin="$(git -C "$target" config --get remote.origin.url 2>/dev/null || true)"
   [[ "$cloned_origin" == "$repository_url" ]] || blocked 'repository-origin-mismatch' "$project_name" \
-    "remote.origin.url is ${cloned_origin:-<unset>}, expected $(redact_repository_url "$repository_url")"
-
-  # 宣言したdefault branchがremoteに実在することを、cloneで取得済みのrefで確かめる。
-  git -C "$target" rev-parse --verify --quiet "refs/remotes/origin/$repository_branch" >/dev/null || \
-    blocked 'default-branch-missing' "$project_name" \
-      "$project_md declares repository_default_branch: $repository_branch, but the remote has no such branch"
+    "remote.origin.url is $(redact_repository_url "${cloned_origin:-<unset>}"), expected $(redact_repository_url "$repository_url")"
 
   if ! git -C "$target" cat-file -e "${state_revision}^{commit}" 2>/dev/null; then
     fetch_output=''
     if ! fetch_output="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true GCM_INTERACTIVE=never \
       git -C "$target" fetch --quiet --no-tags origin "$state_revision" 2>&1)"; then
       blocked 'revision-unavailable' "$project_name" \
-        "the adopted revision is not fetchable from $repository_url: $state_revision" "$fetch_output"
+        "the adopted revision is not fetchable from $(redact_repository_url "$repository_url"): $state_revision" \
+        "$fetch_output"
     fi
     git -C "$target" cat-file -e "${state_revision}^{commit}" 2>/dev/null || \
       blocked 'revision-unavailable' "$project_name" \
         "the adopted revision did not resolve to a commit: $state_revision"
   fi
 
-  # default branchのtipではなく、採用revisionだけをdetachedで再現する。
+  # branchの現在tipではなく、採用revisionだけをdetachedで再現する。
   checkout_output=''
   if ! checkout_output="$(git -C "$target" checkout --quiet --detach "$state_revision" 2>&1)"; then
     blocked 'revision-unavailable' "$project_name" \
       "could not check out the adopted revision: $state_revision" "$checkout_output"
   fi
+  cloned_head="$(git -C "$target" rev-parse --verify --quiet HEAD || true)"
+  [[ "$cloned_head" == "$state_revision" ]] || blocked 'repository-head-not-adopted' "$project_name" \
+    "$project_dir HEAD is ${cloned_head:-none}, but $registry_path adopts $state_revision"
+  for contract_file in PROJECT.md STATE.md; do
+    [[ -f "$target/$contract_file" ]] || blocked 'repository-contract-missing' "$project_name" \
+      "$project_dir does not carry $contract_file at the adopted revision $state_revision"
+  done
 
   pending_target=''
   cloned=$((cloned + 1))
-  printf 'DETAIL: materialized %s at %s\n' "$project_dir/repository" "$state_revision" >&2
-done < <(git -C "$repo_root" ls-files -- 'projects/*/PROJECT.md')
-
-if [[ -n "$only_project" && $total -eq 0 ]]; then
-  blocked 'invalid-project' "$only_project" \
-    "projects/$only_project is not declared as repository_mode: independent"
-fi
+  printf 'DETAIL: materialized %s at %s\n' "$project_dir" "$state_revision" >&2
+done
 
 printf 'MATERIALIZATION_OK total=%s cloned=%s verified=%s\n' "$total" "$cloned" "$verified"
