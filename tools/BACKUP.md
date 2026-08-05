@@ -1,8 +1,8 @@
 # BACKUP.md — 遠隔バックアップと復旧
 
-backup trigger、remote分類、失敗、divergence、復旧、マシン移行、バックアップ監査を扱うときに読む。
-通常のKnowledge、Skill、Project作業では読まない。設定済みの自動backupを実行するだけなら、
-`tools/TOOLS.md#backup-to-github.sh`の1項目で足り、このファイルの全文読込を必要としない。
+backup trigger、remote分類、失敗、divergence、復旧、マシン移行、監査を扱うときに読む。
+通常のKnowledge、Skill、Project作業では読まず、設定済み自動backupの実行だけなら
+`tools/TOOLS.md#backup-to-github.sh`で足りる。
 
 ## 目的と非ゴール
 
@@ -19,11 +19,11 @@ backup trigger、remote分類、失敗、divergence、復旧、マシン移行�
 
 ## 用語
 
-- **Active Local Copy** — 現在稼働中のローカルリポジトリ。唯一の書込可能な正本。通常作業はここだけで完結する。
+- **Active Local Copy** — 稼働中のローカルリポジトリ。唯一の書込可能な正本。
 - **Remote Backup** — エージェント1体ごとに用意する別のGitHub Privateリポジトリ。最後に正常pushされた
   `main`コミットの受動的な復旧コピー。直接編集しない。
-- **Recovery Point** — backup Toolがpush後に確認した、ローカルHEADとremote `main`が一致するコミットSHA。
-  リポジトリ内に動的な最終バックアップSHAファイルを作らず、Tool出力と`git ls-remote`から再確認する。
+- **Recovery Point** — push後に確認した、ローカルHEADとremote `main`が一致するコミットSHA。
+  SHA追跡ファイルを作らず、Tool出力と`git ls-remote`から再確認する。
 - **Agent Workspace** — agent-directoryのツリー全体。root repositoryと、materializeされた
   全Independent repositoryを含む。
 - **root repository** — Agent Workspace rootのGit。Embedded Projectの履歴とattachment registryを持つ。
@@ -42,24 +42,21 @@ Git追跡されていること。対象外は次である。復旧は別経路�
 - `.tmp/`、`.agent-cache/`、`.DS_Store`、製品側AIメモリ
 - 未コミット変更、未追跡ファイル、`git stash`
 - `main`から到達できないローカルbranch、reflogだけに存在するコミット
-- Independent repository本体。cloneは`projects/.gitignore`のmanaged blockでignoreされ、履歴の保全は
-  そのrepositoryのremoteが持つ。rootは`projects/REPOSITORIES.md`のentryだけを保全する。
-  ただし既定scopeでは、root pushの前に各Independent repositoryが実際にremoteから復旧可能かを監査する。
+- Independent repository本体。履歴の保全はそのremoteが持ち、rootはregistry entryだけを保全する。
+  既定scopeではroot push前に各repositoryの復旧可能性を監査する。
 
 永続正本を`.gitignore`へ追加してバックアップ対象外にすることは禁止する。対象外にしたい情報は、
 そもそも正本として置かない。
 
-許可されるnested Gitは、登録済みIndependent Projectの`projects/<name>/.git/`だけである。
-それ以外のネストGitリポジトリはignore状態にかかわらず`nested-git-repository`、submoduleは
-`unsupported-submodule`でToolが停止する。
-エージェントは追加、削除、ignore、submodule化のいずれでも回避せず、Independent Projectとして宣言するか
-どうかを利用者へ確認する。
+許可されるnested Gitは登録済みの`projects/<name>/.git/`だけで、それ以外のnested Gitとsubmoduleは
+ignore状態にかかわらずToolが停止する。エージェントは追加、削除、ignore、submodule化で回避せず、
+Independent化するかを利用者へ確認する。
 
 ## リポジトリ構成
 
 - エージェント1体につきGitHub Privateリポジトリを1つ用意する。共用しない。
 - remote名の既定値は`backup`、branchは`main`とする。
-- GitHub Web UI、Codespaces、別マシンからremoteを直接編集しない。remoteは常にpush先であり編集先ではない。
+- GitHub Web UI、Codespaces、別マシンからremoteを直接編集しない。remoteは常にpush先である。
 - Private可視性はセットアップ契約であり、利用者が作成時に確認する。Toolは可視性を照会・変更しない。
 
 ## backup Tool
@@ -74,10 +71,10 @@ bash tools/backup-to-github.sh --dry-run
 bash tools/backup-to-github.sh --root-only
 ```
 
-既定のworkspace scopeは、root repositoryをpushする前に全Independent repositoryを監査する。Independent
-repository自体はpushしない。全repositoryがremoteから復旧可能な場合だけ成功とし、partial materializationでは
-停止する。`--root-only`はrootだけを検査・pushし、Independentのnetwork、dirty、unpushを検査しない。静的
-metadataとroot ownership違反は検査する。これは明示的な部分結果であり、workspace全体の成功として報告しない。
+既定のworkspace scopeは、root pushの前に全Independent repositoryを監査し、Independent自体はpushしない。
+全repositoryがremoteから復旧可能な場合だけ成功とし、partial materializationでは停止する。`--root-only`は
+rootだけを検査・pushし、Independentのnetwork、dirty、unpushを検査しない部分結果である（静的metadataと
+root ownership違反は検査する）。workspace全体の成功として報告しない。
 
 | scope | 成功（終了コード0） | dry-run成功 |
 |---|---|---|
@@ -113,26 +110,16 @@ root前提条件は次である。ひとつでも満たさない場合、Toolは
 4. **到達性** — remoteへ到達でき採用revisionをfetchでき、HEADが採用revisionと一致し、HEADと全local
    branch tipがremote headまたはtagから到達でき、local-onlyなtagがない。
 
-構造的に非対応な状態（2）はcleanliness（3）より先に判定する。未追跡ファイルとして報告してしまうと
-原因が隠れるためである。
+構造的に非対応な状態（2）はcleanliness（3）より先に判定し、原因を未追跡ファイル報告で隠さない。
 
 停止reasonの網羅的な正本はTool出力とvalidatorの隔離fixtureであり、ここでは分類だけを固定する。
+rootのreasonは実行前提、cleanliness、禁止内容、registry整合、remoteに分かれる。Independent関連は
+未materialize（`missing-independent-repository`、`workspace-partially-materialized`）、attachment不一致の
+`repository-*`、root ownership違反、子cloneの構造・cleanliness・到達性を表す`independent-*`に分かれる。
 
-rootのreasonは実行前提（`not-agent-directory-root`、`detached-head`、`branch-mismatch`、`missing-remote`）、
-cleanliness（`staged-changes`、`dirty-working-tree`、`untracked-files`、`stash-present`、
-`unreachable-local-branch`）、禁止内容（`forbidden-tracked-file`、`nested-git-repository`、
-`unsupported-submodule`、`unsupported-git-lfs`、`oversized-git-object`、`deprecated-repository-layout`）、
-registry整合（`invalid-registry`、`invalid-ignore-projection`）、remote（`remote-unreachable`、
-`remote-diverged`、`push-failed`、`remote-verification-mismatch`）に分かれる。
-
-Independent関連は、未materializeの`missing-independent-repository`と`workspace-partially-materialized`、
-attachment不一致の`repository-*`、root ownership違反の`root-tracks-independent-repository`と
-`unsupported-root-gitlink`、子cloneの構造・cleanliness・到達性を表す`independent-*`に分かれる。
-
-Toolはfast-forward pushだけを`HEAD:refs/heads/<branch>`の明示refspecで行い、push後に`git ls-remote`で
-remote SHAを再取得してローカルHEADとの完全一致を確認する。`--dry-run`はremoteへ一切書き込まない。
-成功時とdry-run時は各`URL@SHA`と件数を`DETAIL:`へ列挙する。Toolは保存値だけを信用せず毎回remoteを
-再確認する。
+Toolはfast-forward pushだけを行い、push後に`git ls-remote`でremote SHAを再取得してローカルHEADとの
+完全一致を確認する。成功時とdry-run時は各`URL@SHA`と件数を`DETAIL:`へ列挙し、保存値だけを信用せず
+毎回remoteを再確認する。
 
 `AGENT_BACKUP_MAX_BLOB_BYTES`は隔離fixture検証だけで使う閾値上書きであり、通常運用では設定しない。
 
@@ -161,9 +148,9 @@ remoteを目的ごとに分け、許可操作と承認を混同しない。
 force push禁止は全分類へ適用する。Independent側の条件とpush policyは
 `projects/PROJECTS.md#Remote操作の境界`が所有する。
 
-registryの`repository_url`には認証情報、query、fragment、`file://`、ローカルpathを書かない。Toolはこれらと
-`-`で始まるURLを`invalid-registry`で拒否し、報告経路でもuserinfoのpasswordを伏せる。
-`AGENT_ALLOW_LOCAL_REPOSITORY_URL=true`はローカルbare remoteを使う隔離fixture専用の上書きである。
+registryの`repository_url`規則は`projects/REPOSITORIES.md`が所有する。Toolは違反と`-`で始まるURLを
+`invalid-registry`で拒否し、報告経路でもuserinfoのpasswordを伏せる。
+`AGENT_ALLOW_LOCAL_REPOSITORY_URL=true`は隔離fixture専用。
 
 ## Single Writer
 
@@ -183,7 +170,7 @@ Single WriterはAgent単位ではなくGitリポジトリ単位の制約であ�
 
 これらは未pushのIndependent commit、stash、未追跡の作業を不可逆に削除しうる。掃除が必要な場合は
 対象pathを明示した最小のコマンドを利用者へ提示し、削除対象と失われる範囲を先に報告する。
-危険性の検証は破棄前提の一時fixtureだけで行い、実作業rootで実行しない。
+危険性の検証は破棄前提の一時fixtureだけで行う。
 
 ## 実行trigger
 
@@ -224,14 +211,14 @@ backup失敗をタスクの失敗として報告せず、逆にbackup成功を�
 remote SHAがローカルHEADのancestorでない場合、Toolは何も変更せず`remote-diverged`で停止し、
 remote SHAとlocal SHAを報告する。
 
-このときエージェントは、pull、merge、rebase、reset、force pushのいずれも行わない。分岐は、
-別マシンからの書込、GitHub上での直接編集、Single Writer違反のいずれかを意味する。原因の特定と
-どちらを採用するかの決定は利用者が行う。エージェントは事実だけを報告して停止する。
+エージェントはpull、merge、rebase、reset、force pushを行わない。分岐は別マシンからの書込、GitHub上の
+直接編集、Single Writer違反のいずれかを意味し、原因特定と採用の決定は利用者が行う。エージェントは
+事実だけを報告して停止する。
 
 ## マシン移行
 
 1. 旧マシンで作業を確定し、`bash tools/backup-to-github.sh`が`WORKSPACE_BACKUP_OK`を出すまで実行する。
-2. 旧マシンでの書込を停止する。以後、旧マシンは読み取り専用として扱う。
+2. 旧マシンの書込を停止し、以後読み取り専用として扱う。
 3. 新マシンでPrivate backupから新しいディレクトリへcloneする。
 4. `git remote rename origin backup`で新マシンでもremote名を`backup`にする。
 5. `git rev-parse HEAD`と`git ls-remote --heads backup main`が一致することを確認する。
@@ -241,8 +228,7 @@ remote SHAとlocal SHAを報告する。
 9. `.env`などの秘密情報をパスワードマネージャー等の別経路から復旧する。
 10. 新マシンを唯一の書込者へ昇格し、旧マシンのcloneを破棄するか読み取り専用のまま残す。
 
-Independent repositoryは`projects/<name>/`自体へ通常cloneし、agent-directoryの外や下位階層へ置かない。
-root sessionとIndependent sessionは同じGit rootへ書き込まない。全件が揃うまではpartial materializationである。
+Independent cloneは`projects/<name>/`自体へ置き、全件が揃うまではpartial materializationである。
 
 昇格が完了するまで新旧両方から書き込まない。並行編集はdivergenceを作り、自動解決しない。
 
@@ -255,9 +241,8 @@ root sessionとIndependent sessionは同じGit rootへ書き込まない。全�
   利用者へ明示する。
 - 秘密情報はリポジトリに存在しないため、必ず別経路から再設定する。
 - 復旧直後は`.agent-cache/`が存在しない。正本から再生成し、cacheを正本として扱わない。
-- 復旧直後は登録済みの`projects/<name>/`も存在しない。`projects/REPOSITORIES.md`の`repository_url`と
-  採用SHAからmaterializerで再現する。branchの現在tipではなく、まず採用SHAを再現し、その後の更新採否は
-  別のProject作業として扱う。
+- 復旧直後は登録済みの`projects/<name>/`も存在しない。registryからmaterializerで再現し、
+  branch tipではなくまず採用SHAを再現する。
 
 復旧後、最初の書込前に`bash tools/validate-agent-directory.sh`で構造の健全性を確認する。
 
@@ -276,22 +261,19 @@ root Gitが`PROJECT.md`と`STATE.md`を持ち、child Gitが`repository/`にあ�
 4. child repoで両ファイルを含めて検証、commit、`origin`へ通常pushし、commit SHAを取得する。
 5. rootへregistry entryと`projects/.gitignore`のmanaged entryを追加する。
 6. root indexから旧`PROJECT.md`と`STATE.md`を削除し、root commitを作成する。
-7. child cloneを一時安全pathへ退避する。
-8. `projects/<name>/`を消失させない形で、child clone全体を一段上へ移動する。
-9. `.git`が`projects/<name>/.git/`にあること、`PROJECT.md`、`STATE.md`、`origin`、HEAD、全refを再確認する。
-10. validator、cache、`bash tools/backup-to-github.sh --dry-run`を実行する。
-11. `bash tools/backup-to-github.sh`が`WORKSPACE_BACKUP_OK`を出すことを確認する。
-12. 利用者の明示承認を得た後だけ旧一時copyを削除する。
+7. child cloneを一時退避し、`projects/<name>/`を消失させない形でclone全体を一段上へ移動する。
+8. `.git`が`projects/<name>/.git/`にあること、`PROJECT.md`、`STATE.md`、`origin`、HEAD、全refを再確認する。
+9. validatorとcacheを実行し、`bash tools/backup-to-github.sh`が`WORKSPACE_BACKUP_OK`を出すことを確認する。
+10. 利用者の明示承認を得た後だけ旧一時copyを削除する。
 
 ### B. agent-directory外の旧clone
 
-外部cloneも最終的にclone全体を`projects/<name>/`へ移す。手順はAの2〜12と同じで、差分は移動元が
-ツリー外である点だけである。cleanで全refがremote-backedなsourceに限り、fresh cloneで置き換えてよい。
+外部cloneも手順はAの2〜10と同じで、差分は移動元がツリー外である点だけである。cleanで全refが
+remote-backedなsourceに限り、fresh cloneで置き換えてよい。
 
-どちらでも、dirty、staged、untracked、stash、未pushが残るcloneをfresh cloneで置換せず、reset、clean、
-stash作成、force pushで移行しない。旧copyの削除は、新cloneが実`.git`と一致する`origin`を持ち、旧copyの
-全refがそこかremoteから到達でき、旧copyがcleanで、利用者が明示承認した場合だけ行う。マシン固有の
-source pathはCLI入力と移行手順の中だけで使い、正本へ保存しない。
+どちらでも、dirty、staged、untracked、stash、未pushが残るcloneを置換せず、reset、clean、stash作成、
+force pushで移行しない。旧copyの削除は、新cloneが一致する`origin`を持ち、旧copyの全refが到達可能かつ
+cleanで、利用者が明示承認した場合だけ行う。マシン固有のsource pathを正本へ保存しない。
 
 ## 大容量ファイル
 
@@ -299,7 +281,7 @@ Git LFSは既定構成へ導入しない。
 
 - 通常のバックアップ対象はテキスト、コード、設定、文書、軽量成果物とする。
 - 100MiB以上のGit objectはbackup Toolが`oversized-git-object`で停止する。
-- 大量の動画、音声、モデル、データセット、生成物は通常Gitへ入れない。外部artifact保管先とchecksumの
-  定義は`projects/PROJECTS.md`のとおりProject側が持ち、その実装は本規約の範囲外とする。
+- 大量の動画、音声、モデル、データセット、生成物は通常Gitへ入れず、外部artifact保管先とchecksumは
+  Project側が定義する（`projects/PROJECTS.md`）。
 - submoduleまたはGit LFSを検出した場合、完全バックアップを保証できないため自動処理せず、
   未対応として停止・報告する。

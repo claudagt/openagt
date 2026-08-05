@@ -35,14 +35,14 @@ Project Route順序は`projects/AGENTS.md`が所有。
 - 明示相対パスを最優先。
 - 探索は`tools/find-context.sh`が所有。確定後に正本を読む。
 - 台帳、INDEX、LOG、履歴、`runs/`、`docs/**`、`.agent-cache/`を一括読込しない。
-- 24KiB超の正本は見出し・検索で絞り必要部分のみ読む。
-- 読込予算は`min(16,000 tokens, 25%)`（計32KiB・12ファイル）。到達時は停止報告。
+- 24KiB超の正本は見出し・検索で絞って読む。
+- 読込予算は`min(16,000 tokens, コンテキストの25%)`＝32KiB・12ファイル。到達時は停止報告。
 
 ## 自律実行
 
 Human-on-the-loop。変更前に**Route**、**Owner**（パス）、**Target**（契約）、**Verify**（検証）を一意特定。sessionの書込Git rootは1つとし判定は`projects/AGENTS.md`が所有。
 
-4つが一意、依頼範囲内、リポジトリ完結、可逆、外部影響なし、契約不変、正本衝突・秘密情報なし、既存検証で確認できる操作は確認せず完了・事後報告。フロー: `対象確定 → 最小読込 → 変更 → 自己検査 → 検証 → 状態更新 → commit → push → 報告`。
+4つが一意、依頼範囲内、リポジトリ完結、可逆、外部影響なし、契約不変、正本衝突・秘密情報なし、既存検証で確認できる操作は確認せず完了・事後報告。フロー: `対象確定 → 最小読込 → 変更 → 自己検査 → 検証 → 状態更新 → commit → policy準拠push/backup → 報告`。
 
 処理一意時は選択肢を返さず質問しない。基準は`tools/TOOLS.md`が所有。
 
@@ -53,7 +53,7 @@ Human-on-the-loop。変更前に**Route**、**Owner**（パス）、**Target**�
 | 例外 | 代表例 | 正本 |
 |---|---|---|
 | 方針・契約 | 目的、`PC-xx`、成功指標、優先順位、Project新設・廃止 | `projects/LIFECYCLE.md` |
-| 不可逆 | 原資料・成果物の永久削除、履歴改変、force push、reset | `tools/BACKUP.md` |
+| 不可逆 | 永久削除、履歴改変、force push、reset | `tools/BACKUP.md` |
 | 外部影響 | 公開、本番、送信、権限、deploy、承認push | `projects/PROJECTS.md` |
 | 安全性・衝突 | divergence、Single Writer違反、秘密情報、所有者不明変更 | `tools/TOOLS.md` |
 

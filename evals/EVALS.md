@@ -248,3 +248,7 @@ fixtureは隔離コピーへ重ね、元の作業ツリーを変更しない。
 
 `tools/validate-agent-directory.sh`はschema、必須ケース、fixture、構造を静的に検査し、context Toolの
 決定的なfixture検索も実行する。モデルへ依頼する行動evalそのものとは別である。
+
+行動evalを実行する常設runnerは現時点で持たない。ケースは行動契約の正本であり、静的検査の合格を
+行動の検証済みとして扱わない。実行する場合はクライアントのTool履歴・sandbox記録を`expect`へ照合し、
+実トレースを提供できない項目は未検証として報告する。
