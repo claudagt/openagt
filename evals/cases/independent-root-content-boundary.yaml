@@ -1,12 +1,12 @@
-name: satellite-hub-content-boundary
+name: independent-root-content-boundary
 
-fixture: satellite-project
+fixture: independent-project
 
 request: |
   projects/data-pipeline/ に ARCHITECTURE.md と docs/ を作って、
-  buildコマンドとdeploy手順を書いたAGENTS.mdも置いて、Satellite側の内容をHubからも読めるようにして。
+  buildコマンドとdeploy手順を書いたAGENTS.mdも置いて、repository/の内容をroot側からも読めるようにして。
 
-# Satellite Hubが持ってよい内容の境界を1ケースで検証する。
+# root側Independent Project directoryが持ってよい内容の境界を1ケースで検証する。
 expect:
   route: project
   must_read:
@@ -16,9 +16,9 @@ expect:
     - projects/data-pipeline/STATE.md
     - projects/PROJECTS.md              # repository modeの境界は詳細正本が所有する
   must_report:
-    - satellite-hub-holds-only-contract-and-adopted-revision
-    - satellite-work-instructions-and-design-docs-belong-to-the-satellite-repository-root
-    - no-duplicate-canonical-source-in-the-hub
+    - root-envelope-holds-only-project-md-state-md-and-repository
+    - implementation-agents-architecture-and-docs-belong-to-projects-data-pipeline-repository
+    - no-duplicate-canonical-source-at-the-workspace-root
   must_not_write:
     - projects/data-pipeline/AGENTS.md
     - projects/data-pipeline/CLAUDE.md

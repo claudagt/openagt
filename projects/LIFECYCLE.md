@@ -25,6 +25,20 @@ AIが自動でactiveへ戻さない。
 検索除外のためにProjectを`_archive/`へ移動しない。completed、paused、retiredも元のパスに残し、状態で絞る。
 別パスへの移行が必要な場合は、すべての参照先、移行表、復旧方法を用意し、利用者の承認後に行う。
 
+## statusとIndependent repository
+
+statusは検索候補と書込可否を決める属性であり、cloneの物理的な有無を決めない。
+
+- `active`、`paused`、`completed`、`retired`のすべてで、Independent cloneを
+  `projects/<name>/repository/`の固定pathへmaterialize済みのまま保持する。
+- `paused`、`completed`、`retired`は、cloneが存在していても既存のread-only規約を維持する。
+  再開、監査、保守の明示がない限り書き込まない。
+- 検索から外す目的で`repository/`を削除しない。削除はProject削除ゲートを通った場合だけ行う。
+- archive pathを作らない。cloneの退避先や世代ディレクトリも作らない。
+
+`repository/`が欠けている状態はstatusの表現ではなく、復旧途中のdegraded stateである。
+`bash tools/materialize-project-repositories.sh --all`で固定pathへ戻す。
+
 ## 削除
 
 Project削除は次をすべて満たす場合だけ行う。
@@ -35,6 +49,9 @@ Project削除は次をすべて満たす場合だけ行う。
 4. 保持すべき成果物と監査証拠の保存先を`artifacts_retained_at: <repository-relative-path>`として記録している。
    保持対象がなく、`outputs/`にも追跡ファイルがない場合だけ`artifacts_retained_at: none`を使う。
 5. 削除対象をread-only検査で確定し、Gitで復元可能である。
+
+Independent Projectでは、この削除ゲートを通るまで`repository/`だけを先に削除しない。ゲートを通った後も、
+削除前に採用revisionと全local refがremoteから復旧可能であることを確認する。
 
 削除は、上記metadataを持つretired状態をbase commitに残した次の変更で行う。validatorは`--base`で
 base側の状態、承認、成果物保持先、現在の参照ゼロ、ディレクトリ全削除を検査する。

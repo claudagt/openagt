@@ -1,5 +1,6 @@
 .tmp/
 .agent-cache/
+projects/*/repository/
 .env*
 !.env.example
 .DS_Store

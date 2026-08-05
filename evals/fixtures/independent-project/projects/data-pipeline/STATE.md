@@ -6,7 +6,7 @@ updated_at: 2026-08-03
 
 ## 現在の到達点
 
-Satelliteの採用revisionを固定参照している。
+Independent repositoryの採用revisionを固定参照している。
 
 ## 現在の目標
 
@@ -27,10 +27,7 @@ Satelliteの採用revisionを固定参照している。
 
 ## Repository State
 
-- repository: `git@github.com:example/data-pipeline.git`
 - revision: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
-- branch: `main`
-- remote_verified_at: `2026-08-03`
 
 ## 未完了・ブロッカー
 
@@ -38,7 +35,7 @@ Satelliteの採用revisionを固定参照している。
 
 ## 現在有効な決定
 
-- Hubは採用revisionだけを保持する。
+- rootは採用revisionだけを保持する。
 
 ## 失敗・却下済み
 

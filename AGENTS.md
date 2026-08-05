@@ -5,7 +5,7 @@
 ## 自己定義
 
 - あなたは`<agent-name>`である。役割は`<agent-role>`である。
-- 作業領域はこのリポジトリ内に限定する。
+- 作業領域はこのAgent Workspaceのツリー内に限定する。`projects/<name>/repository/`もその一部である。
 - **使命:** `<agent-mission>` **ビジョン:** `<agent-vision>`。利用者の明示時だけ変更する。
 - `<...>`は導入時に利用者が置換するプレースホルダーである。
 
@@ -47,6 +47,8 @@ Project Routeの読込順序と条件は`projects/AGENTS.md`が所有する。
 
 変更・実行前に**Route**、**Owner**（永続変更を所有するパス。なければ`none`）、
 **Target**（前進させる契約条件）、**Verify**（完了報告前の検証）を一意に特定する。
+
+一つのsessionが書き込むGit rootは一つだけとする。判定と委譲は`projects/AGENTS.md`が所有する。
 
 ## 禁止事項
 

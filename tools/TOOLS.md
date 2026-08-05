@@ -1,9 +1,16 @@
 # TOOLS.md — 構造保守と限定取得
 
-`tools/`は利用者の成果を作るSkillではなく、このディレクトリ自体を保守するmeta層である。
-固定Toolは依存関係を増やさず、入出力、fallback、検証方法を明記する。
+`tools/`は利用者の成果を作るSkillではなく、このAgent Workspace自体を保守するmeta層である。
+固定Toolは6つあり、依存関係を増やさず、入出力、fallback、検証方法を明記する。
 macOS標準のbash 3.2で動くことを最低条件とする。`set -u`下では空配列の展開が失敗するため、
-配列は件数で守ってから展開する。変更時は`/bin/bash tools/*.sh`でも検証する。
+配列は件数で守ってから展開する。GNU専用option、associative array、`mapfile`、`readarray`を使わず、
+BSD `find`と`sed`で動かす。変更時は`/bin/bash tools/*.sh`でも検証する。
+
+```text
+build-context-cache.sh   find-context.sh   append-knowledge-log.sh
+backup-to-github.sh      validate-agent-directory.sh
+materialize-project-repositories.sh
+```
 
 ## 正本と派生物
 
@@ -62,6 +69,12 @@ Project選択の単位は`PROJECT.md`である。`ARCHITECTURE.md`とProject doc
 routeable catalogへ入れず、通常検索結果へ全件投入しない。対象Projectを確定した後、個別`AGENTS.md`の
 Docs RouteからDomain Canonへ進む。`knowledge/raw/`配下もmanifestへ登録するが意味検索catalogへ入れない。
 
+`projects/*/repository/`はdirectory全体をpruneする。`.git`だけでなくIndependent repository本体を
+manifest、catalog、fingerprint、SQLiteのいずれからも除外し、catalogへはroot側の`projects/*/PROJECT.md`
+だけを登録する。したがってchild側のファイルを変更してもroot cacheのfingerprintは変わらず、
+root側の`PROJECT.md`と`STATE.md`を変更したときだけ変わる。`find-context.sh`はcatalogとrouteable正本だけを
+検索するため、この境界はbuilderのpruneで成立する。
+
 環境変数`AGENT_DIRECTORY_ROOT`で検査対象root、`AGENT_CACHE_DIR`で出力先を差し替えられる。
 fixtureや隔離検証以外では既定値を使う。
 
@@ -98,24 +111,57 @@ tools/append-knowledge-log.sh --type ingest --target knowledge/wiki/topics/examp
 
 ```bash
 bash tools/backup-to-github.sh
-bash tools/backup-to-github.sh --remote backup --branch main
+bash tools/backup-to-github.sh --dry-run
+bash tools/backup-to-github.sh --root-only
 bash tools/backup-to-github.sh --remote backup --branch main --dry-run
 ```
 
 meta層のToolであり、通常のKnowledge、Skill、Project作業から自動実行しない。利用者がバックアップ、
 マシン移行、破壊的変更前の復旧点作成、チェックポイント保存を明示した場合だけ実行する。
 
-- 入力: `--remote`（既定`backup`）、`--branch`（既定`main`）、`--dry-run`。
+- 入力: `--remote`（既定`backup`）、`--branch`（既定`main`）、`--dry-run`、`--root-only`。
   `AGENT_DIRECTORY_ROOT`で対象root、`AGENT_BACKUP_MAX_BLOB_BYTES`でblob上限を差し替えられる。
   上限の差し替えは隔離fixture検証だけで使う。
-- 出力: 成功`BACKUP_OK remote=<name> branch=<name> sha=<40文字SHA>`、
-  dry-run成功`BACKUP_READY ...`をstdoutへ1行。停止時は`BACKUP_BLOCKED reason=<reason>`をstderrへ出し、
-  終了コードを非0にする。補足はstderrの`DETAIL:`行に出す。
-- remoteへpushする唯一の標準経路であり、pushは`HEAD:refs/heads/<branch>`の明示refspecによる
-  通常のfast-forward pushだけとする。コミットを作らず、`--dry-run`はremoteへ一切書き込まない。
-- 前提条件、停止reasonの一覧、divergence時の禁止操作、Satellite採用SHAの扱い、復旧・移行手順は
-  `tools/BACKUP.md`が所有し、バックアップ・復旧・移行を扱うときだけ読む。
+- scope: 既定はworkspace scopeで、root pushの前に全Independent repositoryを監査する。`--root-only`は
+  rootだけを検査・pushする部分結果であり、Independentのnetwork、dirty、unpushを検査しない。
+- 出力: workspace成功`WORKSPACE_BACKUP_OK remote=<name> branch=<name> sha=<40文字SHA> independent=<count>`、
+  dry-run`WORKSPACE_BACKUP_READY ...`、root-only成功`ROOT_BACKUP_OK ... scope=root-only`、
+  dry-run`ROOT_BACKUP_READY ... scope=root-only`をstdoutへ1行。停止時は`BACKUP_BLOCKED reason=<reason>`を
+  stderrへ出し、終了コードを非0にする。補足はstderrの`DETAIL:`行に出す。
+- root remoteへpushする唯一の標準経路であり、pushは`HEAD:refs/heads/<branch>`の明示refspecによる
+  通常のfast-forward pushだけとする。Independent remoteへは決してpushしない。コミットを作らず、
+  `--dry-run`はremoteへ一切書き込まない。
+- 前提条件、停止reasonの一覧、divergence時の禁止操作、Independent監査項目、Single Writer、
+  root `git clean`の禁止、復旧・移行手順は`tools/BACKUP.md`が所有し、扱うときだけ読む。
 - 検証: 一時ディレクトリのローカルbare remoteを使う隔離fixtureで、実GitHub接続なしに再現できる。
+
+## materialize-project-repositories.sh
+
+```bash
+bash tools/materialize-project-repositories.sh --all
+bash tools/materialize-project-repositories.sh --project <name>
+bash tools/materialize-project-repositories.sh --all --check
+```
+
+Independent Projectの宣言と採用revisionから、固定path`projects/<name>/repository/`へ通常cloneを再現する。
+復旧、マシン移行、partial materializationの解消で使う。
+
+- 入力: `--all`または`--project <name>`のいずれか一つ、任意の`--check`。`AGENT_DIRECTORY_ROOT`で
+  隔離fixture rootへ差し替えられる。root Gitが追跡する`PROJECT.md`と`STATE.md`だけを対象とする。
+- 出力: 成功`MATERIALIZATION_OK total=<n> cloned=<n> verified=<n>`をstdoutへ1行。
+  停止時は`MATERIALIZATION_BLOCKED reason=<reason> project=<name>`をstderrへ出し、終了コードを非0にする。
+- 動作: targetが無いときだけ`--no-checkout`でcloneし、`origin`を宣言値と完全一致させ、採用revisionを
+  detached checkoutする。default branchのtipへ勝手に進めない。`--check`はcloneせず整合だけを検査する。
+- 既存targetをreset、clean、stash、merge、rebaseしない。dirtyなら停止する。non-emptyな非repoを上書きせず、
+  target・parent・`.git`のsymlinkと`.git` fileを拒否する。認証情報を保存せず、絶対pathを正本へ書かない。
+- 主な停止reason: `not-agent-directory-root`、`invalid-project`、`invalid-independent-declaration`、
+  `invalid-independent-state`、`target-path-symlink`、`target-not-empty`、
+  `repository-gitfile-unsupported`、`repository-origin-mismatch`、`repository-dirty`、
+  `repository-staged`、`repository-untracked`、`repository-stash-present`、`revision-unavailable`、
+  `authentication-required`、`remote-unreachable`。`--check`で未materializeを検出した場合は
+  `missing-independent-repository`とし、backup Toolと語彙を揃える。
+- 検証: 一時ディレクトリのローカルbare remoteを使う隔離fixtureで、fresh clone、採用SHAのdetached checkout、
+  `--check`の冪等性、dirty targetの停止を実GitHub接続なしに再現できる。
 
 ## validate-agent-directory.sh
 
@@ -126,7 +172,7 @@ bash tools/validate-agent-directory.sh --full --base main
 ```
 
 - 通常: 必須構造、`AGENTS.md`/`CLAUDE.md`の階層、metadata、Project契約、STATE、Project docs境界、
-  サイズ、INDEX/LOG、eval schema、cache再生成を検査
+  Independentのattachmentとroot ownership、サイズ、INDEX/LOG、eval schema、cache再生成を検査
 - `--strict`: 導入後に残してはいけない自己定義・Skillプレースホルダーも失敗にする
 - `--full`: 全参照、全Knowledge/Skill/Project、context Tool fixtureを検査
 - `--base <ref>`: Git差分から`knowledge/raw/`、閉鎖済みlog、Project物理移動の禁止を検査
@@ -139,6 +185,11 @@ bash tools/validate-agent-directory.sh --full --base main
   旧小文字パスがGit indexにも実ファイル名にも戻っていない。
 - 利用者が作る`knowledge/wiki/sources/`と`knowledge/wiki/topics/`のページが小文字ケバブケースである。
 - frontmatterを欠く正本があってもcache生成が停止せず、対象パスと欠落キーを警告して候補から外す。
+- Independent Projectは固定path`projects/<name>/repository/`にsymlinkでない実cloneを持ち、
+  `.git`が実directoryで、toplevelと`remote.origin.url`が宣言と完全一致する。
+- root `.gitignore`が`projects/*/repository/`を持ち、root indexが`repository/`配下も
+  mode 160000のgitlinkも持たず、root側envelopeが`PROJECT.md`、`STATE.md`、`repository/`だけを持つ。
+- 宣言済みの`projects/<name>/repository/.git/`以外のnested `.git`は、directoryでもfileでも停止させる。
 
 AGENTS三層とProject docsの完全な構造規則は`projects/PROJECTS.md`が所有する。validatorはその境界と
 サイズだけを固定し、`docs/`より下のフォルダ名と見出し構成はProjectが決める。

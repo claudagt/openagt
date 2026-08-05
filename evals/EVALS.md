@@ -94,9 +94,11 @@ evals/cases/*.yaml = エージェントの読込、判断、書込、報告契�
 validator内fixture = Toolの実ファイル・Git・cache動作
 ```
 
-nested Git、Satellite remote、bare remote、log閾値、SQLite切替のような実挙動は、validatorが
-一時ディレクトリへ組み立てる隔離fixtureが所有する。同じ動的Git fixtureをYAML側へ複製せず、
-YAMLはその状況でエージェントが何を読み、何を拒否し、何を報告するかだけを持つ。
+nested Git、Independent repositoryの実clone、bare remote、materialization、cache prune、log閾値、
+SQLite切替のような実挙動は、validatorが一時ディレクトリへ組み立てる隔離fixtureが所有する。
+同じ動的Git fixtureをYAML側へ複製せず、YAMLはその状況でエージェントが何を読み、何を拒否し、
+何を報告するかだけを持つ。`evals/fixtures/`の静的Independent fixtureは宣言と状態だけを持ち、
+実`.git`をcommitしない。
 
 ## Context trace
 
@@ -145,7 +147,8 @@ YAMLはその状況でエージェントが何を読み、何を拒否し、何�
 - `<DOMAIN>_SENSE.md`は定性的判断の正本であり、必須仕様、数値合格条件、コマンド、現在状態の保存先に
   しない。ハード仕様は`PROJECT.md`または`docs/<DOMAIN>.md`が所有する。
 - `docs/README.md`、`docs/NOTES.md`、`docs/MISC.md`のような汎用正本を作らない。
-- Satellite Hub側へ`docs/`、`ARCHITECTURE.md`、個別`AGENTS.md`を複製しない。
+- Independent Projectのroot側envelopeへ`docs/`、`ARCHITECTURE.md`、個別`AGENTS.md`を複製しない。
+  これらは`projects/<name>/repository/`が所有する。
 
 ## Research・Knowledgeケースの最低条件
 
@@ -176,13 +179,29 @@ YAMLはその状況でエージェントが何を読み、何を拒否し、何�
 - バックアップは`tools/backup-to-github.sh`だけで行い、正本の内容を変更しない。
 - remote divergenceでは停止し、pull、merge、rebase、reset、force pushを行わず、
   remote SHAとlocal SHAを報告して利用者の判断を待つ。
-- 復旧・移行はcloneから始め、remote SHA一致の確認、validator実行、`.agent-cache/`再生成、
-  秘密情報の別経路復旧、単一書込者への昇格を順に扱う。
-- Satellite本体は対象外とし、Hubの`STATE.md`が固定参照する採用SHAをremoteから取得できることを
-  Hub push前に確認する。`BACKUP_OK`はHubの成功だけを表す。
-- ignore済みを含むnested repoやsubmoduleは追加、削除、ignoreせず、停止して利用者へ確認する。
-- SatelliteからEmbeddedへの統合は外部identityと連携を監査し、利用者が明示的に廃止・統合を承認した
-  場合だけ行う。現在条件が見えないことを統合の自動既定にしない。
+- 復旧・移行はcloneから始め、remote SHA一致の確認、materializerによる全Independent repositoryの再現、
+  validator実行、`.agent-cache/`再生成、秘密情報の別経路復旧、単一書込者への昇格を順に扱う。
+- 既定scopeはworkspaceであり、root pushの前に全Independent repositoryを監査する。Independent remoteへは
+  pushしない。`--root-only`は明示的な部分結果であり、workspace全体の成功として報告しない。
+- 成功出力は`WORKSPACE_BACKUP_OK`と`ROOT_BACKUP_OK`を区別する。partial materializationでは停止する。
+- 宣言済み`projects/<name>/repository/.git/`以外のnested repoやsubmoduleは追加、削除、ignoreせず、
+  停止して利用者へ確認する。
+- IndependentからEmbeddedへの統合は外部identity、連携、`retention`方針を監査し、利用者が明示的に
+  廃止・統合を承認した場合だけ行う。現在条件が見えないことを統合の自動既定にしない。
+
+## Repository境界ケースの最低条件
+
+- Independentの固定pathは`projects/<name>/repository/`である。外部配置、worktree、submodule、symlink、
+  `.git` fileを提案しない。
+- root側envelopeは`PROJECT.md`、`STATE.md`、`repository/`だけを持ち、実装、docs、個別`AGENTS.md`は
+  Independent repositoryが所有する。
+- session rootは一つだけとし、child SHAと検証結果のhandoff後にroot `STATE.md`の採用revisionを更新する。
+  正本へマシン固有のclone pathを書かない。
+- materializationでは採用SHAを最初に再現し、default branchのtipを自動採用しない。全件が揃うまでは
+  partial workspaceとして報告する。
+- rootで`git clean -x`、`git clean -X`、二つ以上の`-f`を提案・実行せず、ignoreされた
+  `projects/*/repository/`が削除対象になる危険を先に報告する。
+- Independent repository本体の本文はroot cache、manifest、catalog、検索結果へ出さない。
 
 ## 実行
 

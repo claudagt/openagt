@@ -1,15 +1,20 @@
 # agent-directory
 
-長期稼働するAIエージェント1体ごとに持つ、ローカルファーストのディレクトリ構造テンプレート。
+長期稼働するAIエージェント1体ごとに持つ、ローカルファーストのAgent Workspaceテンプレート。
 Knowledge、Skill、Projectを正本として育てながら、1タスクの読込量は総量から切り離す。
+
+これは複数の外部リポジトリを束ねるHubではなく、一体のAgent Workspaceである。独立したremote identityが
+必要なProjectも、cloneはこのツリー内の固定pathへ置く。
 
 `AGENTS.md`は百科事典ではなく、ブートローダー兼ルーター兼目次である。Routeを一つ決めたら、その領域を
 所有する正本へ引き継ぐ。詳細契約は各正本が持ち、READMEはそこへの入口だけを持つ。
 
 ## English overview
 
-A local-first repository template for one long-running AI agent. Canonical Markdown and source files may grow,
-while deterministic, status-aware retrieval keeps each task's working context bounded.
+A local-first Agent Workspace template for one long-running AI agent. Canonical Markdown and source files may
+grow, while deterministic, status-aware retrieval keeps each task's working context bounded. It is a single
+workspace, not a hub of external repositories: a Project that needs its own remote identity is cloned to the
+fixed in-tree path `projects/<name>/repository/`.
 
 `AGENTS.md` is a bootloader and router, not an encyclopedia. It resolves one Route, then hands off to the
 canonical file that owns that domain's rules. The repository is model- and client-agnostic: Codex, Claude Code,
@@ -76,8 +81,49 @@ agent-directory/
 │   ├── _template/                # PROJECT.mdとSTATE.mdだけ
 │   └── <project-name>/           # PROJECT.md、STATE.md、任意のAGENTS.md・docs/・inputs/・outputs/
 ├── evals/                        # EVALS.md、cases/、fixtures/
-└── tools/                        # TOOLS.md、BACKUP.md、5つのTool
+└── tools/                        # TOOLS.md、BACKUP.md、6つのTool
 ```
+
+## Repository境界
+
+すべてのProjectは`repository_mode: embedded`で開始し、独立したremote identityが必要になった場合だけ
+`independent`へ昇格する。Independentの通常cloneは必ず次の固定pathへ置く。普通の`git clone`であり、
+`repository/.git`は実directoryとする。worktree、submodule、symlink、`.git` fileは使わない。
+
+```text
+projects/<embedded-project>/      # root Gitが全体を追跡する
+├── PROJECT.md
+├── STATE.md
+├── ARCHITECTURE.md               # 任意
+├── docs/                         # 任意
+└── outputs/
+
+projects/<independent-project>/   # root Gitが追跡するのは2ファイルだけ
+├── PROJECT.md                    # remote URL、reason、default branch
+├── STATE.md                      # ## Repository State に採用revisionだけ
+└── repository/                   # 普通のclone。root Gitはignore、Independent Gitのroot
+    ├── .git/                     # 実directory
+    ├── AGENTS.md / ARCHITECTURE.md / docs/
+    └── src/ tests/ …
+```
+
+| 所有 | 対象 |
+|---|---|
+| root Gitが追跡 | 全Embedded Project、Independentの`PROJECT.md`と`STATE.md` |
+| Independent Gitが追跡 | コード、tests、Project固有`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、実行・release設定、Git履歴 |
+| root Gitがignore | `projects/*/repository/`。gitlinkもmanifest登録も検索候補も持たない |
+
+statusにかかわらず全Independent repositoryが固定pathへmaterialize済みであることを健全な状態とする。
+
+```bash
+bash tools/materialize-project-repositories.sh --all --check
+bash tools/materialize-project-repositories.sh --all
+bash tools/materialize-project-repositories.sh --project <name>
+```
+
+昇格条件、`repository_reason`、session rootとSHA handoffは[projects/PROJECTS.md](projects/PROJECTS.md)が
+所有する。agent-directory外へcloneを置く旧Satellite方式は現役modeとして許可せず、移行対象としてだけ
+[tools/BACKUP.md](tools/BACKUP.md)が扱う。
 
 ## コンテキスト探索
 
@@ -110,7 +156,8 @@ validatorは構造、`AGENTS.md`と`CLAUDE.md`の三層、frontmatter、Project�
 ローカルの作業コピーが唯一の書込可能な稼働正本であり、GitHubは最後に確定したコミットの受動的な
 遠隔復旧コピーである。通常タスクはネットワークなしで完結し、GitHub Actions、CI、定期同期、自動commit、
 自動pushは使用しない。エージェント1体につきPrivateリポジトリを1つ用意し、公開スケルトンへ実運用データを
-pushしない。書込可能な稼働マシンは常に1台だけとする（Single Writer）。
+pushしない。Single WriterはGitリポジトリ単位であり、同じrepositoryへ同時に書き込む稼働コピーを持たない。
+異なるIndependent repositoryは並行して進めてよい。
 
 ```bash
 # セットアップ（GitHubで空のPrivateリポジトリを作成してから実行する）
@@ -118,15 +165,25 @@ git remote rename origin template
 git remote add backup git@github.com:<owner>/<private-agent-repository>.git
 git config remote.pushDefault backup
 
-# バックアップ
+# バックアップ（既定はworkspace scope）
 bash tools/backup-to-github.sh --dry-run
 bash tools/backup-to-github.sh
+
+# root repositoryだけの部分結果
+bash tools/backup-to-github.sh --root-only --dry-run
+bash tools/backup-to-github.sh --root-only
 ```
 
 利用者がバックアップ、マシン移行、復旧点作成、チェックポイント保存を明示した場合だけ実行する。通常タスクの
-完了条件ではない。成功時は`BACKUP_OK ... sha=<40文字SHA>`を出力し、前提条件を満たさなければ何も変更せず
-停止する。停止条件、divergence時の禁止操作、復旧・移行手順、Satelliteの扱いは
-[tools/BACKUP.md](tools/BACKUP.md)が所有し、バックアップ・復旧・移行を扱うときだけ読む。
+完了条件ではない。前提条件を満たさなければ何も変更せず停止する。
+
+| scope | 検査範囲 | 成功出力 |
+|---|---|---|
+| 既定（workspace） | root push前に全Independent repositoryを監査。Independent remoteへはpushしない | `WORKSPACE_BACKUP_OK` |
+| `--root-only` | root repositoryだけ。Independentのnetwork、dirty、unpushは検査しない部分結果 | `ROOT_BACKUP_OK` |
+
+停止条件、divergence時の禁止操作、Single Writer、root `git clean`の禁止、復旧・移行手順、旧Satellite
+cloneの移行は[tools/BACKUP.md](tools/BACKUP.md)が所有し、バックアップ・復旧・移行を扱うときだけ読む。
 
 ## 正本
 

@@ -1,0 +1,37 @@
+name: independent-repository-materialization
+
+fixture: independent-project
+
+request: |
+  新しいマシンへ復旧した直後で、projects/data-pipeline/repository/ がまだ存在しない。
+  Independent repositoryを揃えて、この状態をバックアップ済みとして扱いたい。
+
+expect:
+  route: meta
+  must_read:
+    - AGENTS.md
+    - tools/BACKUP.md
+    - projects/data-pipeline/PROJECT.md
+    - projects/data-pipeline/STATE.md
+  must_run:
+    - bash tools/materialize-project-repositories.sh --all --check
+    - bash tools/materialize-project-repositories.sh --all
+    - bash tools/backup-to-github.sh --dry-run
+  must_not_run:
+    - git worktree add
+    - git submodule add
+    - git -C projects/data-pipeline/repository pull
+    - git -C projects/data-pipeline/repository merge
+    - git -C projects/data-pipeline/repository reset
+  must_report:
+    - fixed-path-projects-data-pipeline-repository
+    - adopted-revision-checked-out-before-any-branch-tip
+    - default-branch-tip-is-not-adopted-automatically
+    - workspace-is-partially-materialized-until-every-independent-repository-exists
+    - partial-materialization-is-not-a-successful-workspace-backup
+  must_not_write:
+    - projects/data-pipeline/PROJECT.md
+    - .gitignore
+  must_not_modify:
+    - AGENTS.md
+    - projects/data-pipeline/STATE.md

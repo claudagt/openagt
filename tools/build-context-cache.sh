@@ -230,6 +230,15 @@ tail -n +2 "$catalog" | awk -F '\t' '{print $8}' | LC_ALL=C sort -u > "$routeabl
 manifest_unsorted="$tmp_root/manifest.unsorted"
 printf 'path\tkind\tsize_bytes\tcontent_hash\trouteable\timmutable\n' > "$manifest_unsorted"
 
+# Independent Projectのcloneはroot cacheの境界外である。`.git`だけでなくdirectory全体をpruneし、
+# child側の変更がroot fingerprintへ漏れないようにする。shell globは深さ2に固定されるため、
+# Embedded Projectがdocs配下へ置いた同名フォルダを巻き込まない。
+manifest_prune=( -name '.git' -o -name '.agent-cache' -o -name '.tmp' )
+for independent_repository in "$repo_root"/projects/*/repository; do
+  [[ -d "$independent_repository" ]] || continue
+  manifest_prune+=( -o -path "$independent_repository" )
+done
+
 while IFS= read -r -d '' file; do
   relative_path="${file#"$repo_root"/}"
   case "$relative_path" in
@@ -266,7 +275,7 @@ while IFS= read -r -d '' file; do
     "$relative_path" "$kind" "$size_bytes" "$hash" "$routeable" "$immutable" >> "$manifest_unsorted"
 done < <(
   find "$repo_root" \
-    \( -type d \( -name '.git' -o -name '.agent-cache' -o -name '.tmp' \) \) -prune -o \
+    \( -type d \( "${manifest_prune[@]}" \) \) -prune -o \
     -type f -print0
 )
 

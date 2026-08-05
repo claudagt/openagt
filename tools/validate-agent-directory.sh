@@ -315,8 +315,8 @@ validate_project_agents_file() {
   check_size "$agents_file" 2048 'Project AGENTS.md'
 
   repository_mode="$(frontmatter_value "$project_dir/PROJECT.md" 'repository_mode')"
-  if [[ "$repository_mode" == 'satellite' ]]; then
-    fail "$(relative_path "$agents_file") is forbidden in a Satellite Hub directory; the Satellite repository root owns it"
+  if [[ "$repository_mode" == 'independent' ]]; then
+    fail "$(relative_path "$agents_file") is forbidden in an Independent Project envelope; projects/<name>/repository/ owns it"
   fi
   if [[ "$project_dir" == "$repo_root/projects/_template" ]]; then
     fail 'projects/_template must not carry AGENTS.md; per-Project差分は自動複製しない'
@@ -457,6 +457,54 @@ validate_project_docs() {
   fi
 }
 
+# Independentの固定pathは普通のcloneであり、`.git`は実directoryでなければならない。
+# evals/fixtures配下の静的fixtureは宣言と状態だけを持ち、実cloneを要求しない。
+# 実Gitの挙動はvalidator内のintegration fixtureが所有する。
+validate_independent_attachment() {
+  local project_file="$1"
+  local repository_url="$2"
+  local project_dir rel_project target child_top child_origin
+  project_dir="$(dirname "$project_file")"
+  case "$project_dir" in
+    "$repo_root"/projects/*) ;;
+    *) return 0 ;;
+  esac
+  rel_project="$(relative_path "$project_dir")"
+  target="$project_dir/repository"
+
+  if [[ -L "$project_dir" || -L "$target" ]]; then
+    fail "$rel_project/repository must be a real directory, not a symlink"
+    return 0
+  fi
+  if [[ ! -d "$target" ]]; then
+    fail "$rel_project declares repository_mode: independent but $rel_project/repository/ is missing; run bash tools/materialize-project-repositories.sh --project ${rel_project##*/}"
+    return 0
+  fi
+  if [[ -L "$target/.git" ]]; then
+    fail "$rel_project/repository/.git must be a real directory, not a symlink"
+    return 0
+  fi
+  if [[ -e "$target/.git" && ! -d "$target/.git" ]]; then
+    fail "$rel_project/repository/.git must be a real directory; .git files, worktrees and submodules are unsupported"
+    return 0
+  fi
+  if [[ ! -d "$target/.git" ]]; then
+    fail "$rel_project/repository must be a normal git clone carrying its own .git directory"
+    return 0
+  fi
+  command -v git >/dev/null 2>&1 || return 0
+  if ! child_top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)"; then
+    fail "$rel_project/repository does not resolve to a Git working tree"
+    return 0
+  fi
+  child_top="$(cd "$child_top" && pwd -P)"
+  [[ "$child_top" == "$(cd "$target" && pwd -P)" ]] || \
+    fail "$rel_project/repository toplevel must be the fixed path itself, but Git reports $child_top"
+  child_origin="$(git -C "$target" config --get remote.origin.url 2>/dev/null || true)"
+  [[ "$child_origin" == "$repository_url" ]] || \
+    fail "$rel_project/repository remote.origin.url is ${child_origin:-<unset>}, expected $repository_url"
+}
+
 validate_project_contract() {
   local project_file="$1"
   local criterion_heading mode name status description project_dir knowledge_required skill_required
@@ -502,30 +550,37 @@ validate_project_contract() {
         (( $(frontmatter_key_count "$project_file" 'repository_url') + \
            $(frontmatter_key_count "$project_file" 'repository_reason') + \
            $(frontmatter_key_count "$project_file" 'repository_default_branch') > 0 )); then
-        fail "$(relative_path "$project_file") embedded Project must not declare Satellite repository fields"
+        fail "$(relative_path "$project_file") embedded Project must not declare Independent repository fields"
       fi
+      [[ ! -e "$(dirname "$project_file")/repository" ]] || \
+        fail "$(relative_path "$project_file") is embedded but holds a repository/ directory; promote it or remove the clone"
       ;;
-    satellite)
+    independent)
       for repository_key in repository_url repository_reason repository_default_branch; do
         [[ "$(frontmatter_key_count "$project_file" "$repository_key")" == '1' ]] || \
-          fail "$(relative_path "$project_file") must declare $repository_key exactly once for Satellite mode"
+          fail "$(relative_path "$project_file") must declare $repository_key exactly once for Independent mode"
       done
       if [[ -z "$repository_url" || "$repository_url" =~ [[:space:]\`] || \
             "$repository_url" =~ ^https?://[^/@]+@ ]]; then
-        fail "$(relative_path "$project_file") Satellite repository_url must be a non-empty, whitespace-free Git URL"
+        fail "$(relative_path "$project_file") Independent repository_url must be a non-empty, whitespace-free Git URL"
       fi
       case "$repository_reason" in
-        automation|distribution|collaboration|access|identity|upstream) ;;
+        automation|distribution|collaboration|access|identity|upstream|retention) ;;
         *) fail "$(relative_path "$project_file") has an invalid repository_reason" ;;
       esac
       if [[ ! "$repository_default_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
         fail "$(relative_path "$project_file") has an invalid repository_default_branch"
       fi
+      # root側envelopeが持ってよいのは契約、状態、固定pathのcloneだけである。
       while IFS= read -r unexpected_entry; do
         [[ -n "$unexpected_entry" ]] || continue
-        fail "$(relative_path "$project_file") Satellite Hub directory may contain only PROJECT.md and STATE.md: $unexpected_entry"
+        fail "$(relative_path "$project_file") Independent Project envelope may contain only PROJECT.md, STATE.md and repository/: $unexpected_entry"
       done < <(find "$(dirname "$project_file")" -mindepth 1 -maxdepth 1 \
-        ! -name PROJECT.md ! -name STATE.md -print 2>/dev/null)
+        ! -name PROJECT.md ! -name STATE.md ! -name repository -print 2>/dev/null)
+      validate_independent_attachment "$project_file" "$repository_url"
+      ;;
+    satellite)
+      fail "$(relative_path "$project_file") uses the retired satellite mode; migrate it to repository_mode: independent (deprecated-satellite-mode)"
       ;;
     *) fail "$(relative_path "$project_file") has an invalid repository_mode" ;;
   esac
@@ -582,7 +637,7 @@ validate_project_contract() {
 validate_project_state() {
   local state_file="$1"
   local contract_targets verification_targets project_file target updated_at project_status project_mode criterion
-  local repository_mode repository_url repository_default_branch state_repository state_revision state_branch remote_verified_at
+  local repository_mode state_revision repository_state_key
   local headings=(
     '## 現在の到達点' '## 現在の目標' '## 目標の合格条件' '## 検証結果'
     '## 未完了・ブロッカー' '## 現在有効な決定' '## 失敗・却下済み' '## 次の一手'
@@ -645,26 +700,18 @@ validate_project_state() {
         fail "$(relative_path "$state_file") embedded Project must not declare Repository State"
       fi
       ;;
-    satellite)
+    independent)
+      # Repository Stateは採用revisionだけを持つ。remote URLとbranchはPROJECT.mdが所有する。
       require_fixed_line "$state_file" '## Repository State'
-      repository_url="$(frontmatter_value "$project_file" 'repository_url')"
-      repository_default_branch="$(frontmatter_value "$project_file" 'repository_default_branch')"
-      state_repository="$(repository_state_value "$state_file" 'repository')"
       state_revision="$(repository_state_value "$state_file" 'revision')"
-      state_branch="$(repository_state_value "$state_file" 'branch')"
-      remote_verified_at="$(repository_state_value "$state_file" 'remote_verified_at')"
-      for repository_state_key in repository revision branch remote_verified_at; do
-        [[ "$(repository_state_key_count "$state_file" "$repository_state_key")" == '1' ]] || \
-          fail "$(relative_path "$state_file") must declare Repository State $repository_state_key exactly once"
+      [[ "$(repository_state_key_count "$state_file" 'revision')" == '1' ]] || \
+        fail "$(relative_path "$state_file") must declare Repository State revision exactly once"
+      for repository_state_key in repository branch remote_verified_at; do
+        [[ "$(repository_state_key_count "$state_file" "$repository_state_key")" == '0' ]] || \
+          fail "$(relative_path "$state_file") Repository State must hold only revision; remove the retired $repository_state_key field"
       done
-      [[ "$state_repository" == "$repository_url" ]] || \
-        fail "$(relative_path "$state_file") Repository State repository must match PROJECT.md repository_url"
       [[ "$state_revision" =~ ^[0-9a-f]{40}$ ]] || \
-        fail "$(relative_path "$state_file") Repository State revision must be a 40-character commit SHA"
-      [[ "$state_branch" == "$repository_default_branch" ]] || \
-        fail "$(relative_path "$state_file") Repository State branch must match PROJECT.md repository_default_branch"
-      [[ "$remote_verified_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
-        fail "$(relative_path "$state_file") Repository State remote_verified_at must be YYYY-MM-DD"
+        fail "$(relative_path "$state_file") Repository State revision must be a 40-character lowercase commit SHA"
       ;;
   esac
   if [[ "$state_file" != "$repo_root/projects/_template/STATE.md" ]] && contains_template_placeholder "$state_file"; then
@@ -815,13 +862,27 @@ validate_deleted_project() {
   [[ ! -e "$repo_root/$project_dir" ]] || fail "Project deletion left files behind: $project_dir"
   if command -v rg >/dev/null 2>&1; then
     inbound_refs="$(rg -l -F --hidden --glob '!.git/**' --glob '!.agent-cache/**' --glob '!.tmp/**' \
-      "$project_dir/" "$repo_root" 2>/dev/null || true)"
+      --glob '!projects/*/repository/**' "$project_dir/" "$repo_root" 2>/dev/null || true)"
   else
     inbound_refs="$(grep -RIlF --exclude-dir=.git --exclude-dir=.agent-cache --exclude-dir=.tmp \
-      "$project_dir/" "$repo_root" 2>/dev/null || true)"
+      --exclude-dir=repository "$project_dir/" "$repo_root" 2>/dev/null || true)"
   fi
   [[ -z "$inbound_refs" ]] || fail "deleted Project still has inbound reference(s): $project_dir"
 }
+
+# 宣言済みIndependent repositoryの本体はroot validatorの走査対象外である。directoryごとpruneし、
+# 許可された `projects/<name>/repository/.git/` 以外のnested Gitは停止させる。
+# 配列は set -u 下でも安全なよう、既存pruneと重複する無害な項目で常に非空にする。
+repository_prune=( -path "$repo_root/.git" )
+repository_prune_or=( -o -path "$repo_root/.git" )
+for declared_contract in "$repo_root"/projects/*/PROJECT.md; do
+  [[ -f "$declared_contract" ]] || continue
+  [[ "$(frontmatter_value "$declared_contract" 'repository_mode')" == 'independent' ]] || continue
+  declared_repository="$(dirname "$declared_contract")/repository"
+  [[ -d "$declared_repository" ]] || continue
+  repository_prune+=( -o -path "$declared_repository" )
+  repository_prune_or+=( -o -path "$declared_repository" )
+done
 
 required_files=(
   'AGENTS.md' 'CLAUDE.md' 'projects/AGENTS.md' 'projects/CLAUDE.md'
@@ -830,6 +891,7 @@ required_files=(
   'projects/_template/PROJECT.md' 'projects/_template/STATE.md' 'evals/EVALS.md' 'tools/TOOLS.md'
   'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/append-knowledge-log.sh'
   'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
+  'tools/materialize-project-repositories.sh' '.gitignore'
   "$knowledge_source_template_path" "$knowledge_topic_template_path"
 )
 for path in "${required_files[@]}"; do require_file "$repo_root/$path"; done
@@ -887,7 +949,7 @@ while IFS= read -r -d '' docs_readme; do
   fail "$(relative_path "$docs_readme") is forbidden; enter docs/ through an uppercase Domain Canon such as docs/DESIGN.md"
 done < <(find "$repo_root" \
   \( -type d \( -name '.git' -o -name '.agent-cache' -o -name '.tmp' -o -name 'inputs' \) \
-     -o -path "$repo_root/knowledge/raw" \) -prune -o \
+     -o -path "$repo_root/knowledge/raw" "${repository_prune_or[@]}" \) -prune -o \
   -type f -path '*/projects/*/docs/README.md' -print0)
 
 # Project templateへ docs/、ARCHITECTURE.md、AGENTS.md を常設しない。
@@ -958,18 +1020,37 @@ fi
 while IFS= read -r -d '' project_agents_file; do
   [[ -f "$(dirname "$project_agents_file")/PROJECT.md" ]] || continue
   validate_project_agents_file "$project_agents_file"
-done < <(find "$repo_root/projects" "$repo_root/evals/fixtures" -type f -name 'AGENTS.md' -print0)
+done < <(find "$repo_root/projects" "$repo_root/evals/fixtures" \
+  \( "${repository_prune[@]}" \) -prune -o -type f -name 'AGENTS.md' -print0)
 
 while IFS= read -r -d '' orphan_claude_file; do
   [[ -f "$(dirname "$orphan_claude_file")/PROJECT.md" ]] || continue
   [[ -f "$(dirname "$orphan_claude_file")/AGENTS.md" ]] || \
     fail "$(relative_path "$orphan_claude_file") exists without a sibling AGENTS.md to import"
-done < <(find "$repo_root/projects" "$repo_root/evals/fixtures" -type f -name 'CLAUDE.md' -print0)
+done < <(find "$repo_root/projects" "$repo_root/evals/fixtures" \
+  \( "${repository_prune[@]}" \) -prune -o -type f -name 'CLAUDE.md' -print0)
 
 while IFS= read -r -d '' nested_git; do
-  fail "nested Git repository is forbidden even when ignored: $(relative_path "$nested_git")"
-done < <(find "$repo_root" -path "$repo_root/.git" -prune -o \
+  fail "nested Git repository is forbidden unless it is a declared Independent Project clone: $(relative_path "$nested_git")"
+done < <(find "$repo_root" \( "${repository_prune[@]}" \) -prune -o \
   -mindepth 2 \( -type d -o -type f \) -name .git -print0)
+
+# root Gitは`repository/`本体を追跡せず、gitlinkもsubmoduleも持たない。
+require_fixed_line "$repo_root/.gitignore" 'projects/*/repository/'
+if [[ -n "$tracked_files_snapshot" ]]; then
+  while IFS= read -r tracked_child; do
+    [[ -n "$tracked_child" ]] || continue
+    fail "the root repository must not track Independent repository contents: $tracked_child"
+  done < <(printf '%s\n' "$tracked_files_snapshot" | grep -E '^projects/[^/]+/repository/' | head -n 5 || true)
+fi
+if git -C "$repo_root" rev-parse --show-toplevel >/dev/null 2>&1; then
+  while IFS= read -r gitlink_path; do
+    [[ -n "$gitlink_path" ]] || continue
+    fail "root index holds a gitlink (mode 160000): $gitlink_path — Independent repositories are plain clones"
+  done < <(git -C "$repo_root" ls-files --stage | awk '$1 == "160000" { print $4 }')
+fi
+[[ ! -e "$repo_root/.gitmodules" ]] || \
+  fail '.gitmodules is forbidden; Independent repositories are plain clones, not submodules'
 
 validate_project_contract "$repo_root/projects/_template/PROJECT.md"
 validate_project_state "$repo_root/projects/_template/STATE.md"
@@ -978,13 +1059,15 @@ while IFS= read -r -d '' project_file; do
   validate_project_contract "$project_file"
   validate_project_state "$(dirname "$project_file")/STATE.md"
   validate_project_docs "$(dirname "$project_file")"
-done < <(find "$repo_root/projects" "$repo_root/evals/fixtures" -type f -name 'PROJECT.md' -print0)
+done < <(find "$repo_root/projects" "$repo_root/evals/fixtures" \
+  \( "${repository_prune[@]}" \) -prune -o -type f -name 'PROJECT.md' -print0)
 
 validate_skill "$repo_root/skills/_template/SKILL.md"
 while IFS= read -r -d '' skill_file; do
   [[ "$skill_file" == "$repo_root/skills/_template/SKILL.md" ]] && continue
   validate_skill "$skill_file"
-done < <(find "$repo_root/skills" "$repo_root/evals/fixtures" -type f -name 'SKILL.md' -print0)
+done < <(find "$repo_root/skills" "$repo_root/evals/fixtures" \
+  \( "${repository_prune[@]}" \) -prune -o -type f -name 'SKILL.md' -print0)
 
 while IFS= read -r -d '' page; do
   case "$page" in */README.md) continue ;; esac
@@ -1023,15 +1106,31 @@ required_cases=(
   large-file-section-read ambiguous-target-no-broad-scan meta-route-validator-change
   knowledge-log-auto-rotation scale-sqlite-auto-enable
   backup-explicit-only backup-divergence-refusal restore-single-writer
-  backup-external-repo-boundary satellite-consolidation-audit satellite-promotion-session-boundary
+  backup-workspace-repository-boundary independent-consolidation-audit
+  independent-promotion-session-boundary independent-repository-materialization
+  root-clean-independent-repository-safety
   root-agents-router-scope project-agents-optional project-agents-diff-only
   project-agents-no-contract-copy project-agents-claude-bridge
   knowledge-internal-record-storage knowledge-external-source-storage
   research-question-to-project research-method-to-skill project-research-knowledge-promotion
   project-docs-route-required project-docs-design-entry project-architecture-entry
-  project-domain-sense-not-spec project-docs-readme-forbidden satellite-hub-content-boundary
+  project-domain-sense-not-spec project-docs-readme-forbidden independent-root-content-boundary
   canonical-area-entry-names
 )
+
+# 改名した旧ケース名が必須一覧や文書へ残っていないことを同じ作業内で保証する。
+retired_case_names=(
+  backup-external-repo-boundary satellite-consolidation-audit
+  satellite-promotion-session-boundary satellite-hub-content-boundary
+)
+for retired_case in "${retired_case_names[@]}"; do
+  [[ ! -e "$repo_root/evals/cases/$retired_case.yaml" ]] || \
+    fail "retired eval case must not exist: evals/cases/$retired_case.yaml"
+  if [[ -n "$tracked_files_snapshot" ]] && \
+    printf '%s\n' "$tracked_files_snapshot" | grep -Fqx -- "evals/cases/$retired_case.yaml"; then
+    fail "retired eval case is still tracked in the Git index: evals/cases/$retired_case.yaml"
+  fi
+done
 for case_name in "${required_cases[@]}"; do require_file "$repo_root/evals/cases/$case_name.yaml"; done
 
 while IFS= read -r -d '' case_file; do
@@ -1123,12 +1222,45 @@ if [[ -f "$backup_tool" ]]; then
   fi
 fi
 
+materialize_tool="$repo_root/tools/materialize-project-repositories.sh"
+if [[ -f "$materialize_tool" ]]; then
+  [[ -x "$materialize_tool" ]] || fail 'tools/materialize-project-repositories.sh is not executable'
+  bash -n "$materialize_tool" 2>/dev/null || \
+    fail 'tools/materialize-project-repositories.sh fails bash -n'
+  for forbidden_flag in --force --mirror --hard; do
+    if grep -Fq -- "$forbidden_flag" "$materialize_tool"; then
+      fail "tools/materialize-project-repositories.sh must not use $forbidden_flag"
+    fi
+  done
+  # 既存cloneをreset/clean/stash/merge/rebaseで変形しない。
+  for forbidden_subcommand in reset clean stash merge rebase pull; do
+    if grep -Eq "git[^#]*[[:space:]]$forbidden_subcommand[[:space:]]" "$materialize_tool"; then
+      fail "tools/materialize-project-repositories.sh must not run git $forbidden_subcommand"
+    fi
+  done
+  grep -Fq 'MATERIALIZATION_OK' "$materialize_tool" || \
+    fail 'tools/materialize-project-repositories.sh does not emit MATERIALIZATION_OK'
+  grep -Fq 'MATERIALIZATION_BLOCKED' "$materialize_tool" || \
+    fail 'tools/materialize-project-repositories.sh does not emit MATERIALIZATION_BLOCKED'
+fi
+
 grep -Fq 'tools/backup-to-github.sh' "$repo_root/README.md" || \
   fail 'README.md does not register tools/backup-to-github.sh'
 grep -Fq 'tools/BACKUP.md' "$repo_root/README.md" || fail 'README.md does not register tools/BACKUP.md'
+grep -Fq 'tools/materialize-project-repositories.sh' "$repo_root/README.md" || \
+  fail 'README.md does not register tools/materialize-project-repositories.sh'
 grep -Fq 'backup-to-github.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register backup-to-github.sh'
+grep -Fq 'materialize-project-repositories.sh' "$repo_root/tools/TOOLS.md" || \
+  fail 'tools/TOOLS.md does not register materialize-project-repositories.sh'
 grep -Fq 'BACKUP.md' "$repo_root/tools/TOOLS.md" || fail 'tools/TOOLS.md does not register BACKUP.md'
+for scope_token in WORKSPACE_BACKUP_OK ROOT_BACKUP_OK; do
+  grep -Fq "$scope_token" "$repo_root/tools/BACKUP.md" || \
+    fail "tools/BACKUP.md does not document the $scope_token result line"
+done
+if grep -Eq '(^|[^_])BACKUP_(OK|READY)' "$repo_root/tools/backup-to-github.sh"; then
+  fail 'tools/backup-to-github.sh must not emit the retired BACKUP_OK/BACKUP_READY result lines'
+fi
 grep -Fq 'tools/BACKUP.md' "$repo_root/AGENTS.md" || \
   fail 'AGENTS.md does not delegate backup details to tools/BACKUP.md'
 
@@ -1262,8 +1394,10 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_work="$backup_fixture_dir/work"
   backup_remote_dir="$backup_fixture_dir/remote.git"
   backup_peer="$backup_fixture_dir/peer"
-  satellite_work="$backup_fixture_dir/satellite-work"
-  satellite_remote_dir="$backup_fixture_dir/satellite.git"
+  independent_seed="$backup_fixture_dir/independent-seed"
+  independent_remote_dir="$backup_fixture_dir/independent.git"
+  independent_clone="$backup_work/projects/data-pipeline/repository"
+  independent_cache_dir="$backup_fixture_dir/independent-cache"
   backup_env=(
     HOME="$backup_fixture_dir" GIT_CONFIG_NOSYSTEM=1
     GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
@@ -1273,120 +1407,404 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_status=0
 
   backup_git() { env "${backup_env[@]}" git -C "$backup_work" "$@"; }
+  child_git() { env "${backup_env[@]}" git -C "$independent_clone" "$@"; }
+  seed_git() { env "${backup_env[@]}" git -C "$independent_seed" "$@"; }
   backup_run() {
     set +e
     backup_output="$(env "${backup_env[@]}" AGENT_DIRECTORY_ROOT="$backup_work" bash "$backup_tool" "$@" 2>&1)"
     backup_status=$?
     set -e
   }
+  materialize_run() {
+    set +e
+    backup_output="$(env "${backup_env[@]}" AGENT_DIRECTORY_ROOT="$backup_work" \
+      bash "$materialize_tool" "$@" 2>&1)"
+    backup_status=$?
+    set -e
+  }
+  build_fixture_cache() {
+    set +e
+    env "${backup_env[@]}" AGENT_DIRECTORY_ROOT="$backup_work" AGENT_CACHE_DIR="$independent_cache_dir" \
+      bash "$repo_root/tools/build-context-cache.sh" >/dev/null 2>&1
+    backup_status=$?
+    set -e
+  }
+  fixture_fingerprint() {
+    sed -n 's/^content_fingerprint=//p' "$independent_cache_dir/cache.meta" | head -n 1
+  }
   backup_expect_blocked() {
     if (( backup_status == 0 )); then
       fail "backup fixture: $2 unexpectedly succeeded"
     elif ! printf '%s\n' "$backup_output" | grep -Fqx "BACKUP_BLOCKED reason=$1"; then
-      fail "backup fixture: $2 did not report reason=$1"
+      fail "backup fixture: $2 did not report reason=$1: $(printf '%s' "$backup_output" | head -n 2 | tr '\n' ' ')"
+    fi
+  }
+  backup_expect_line() {
+    if (( backup_status != 0 )); then
+      fail "backup fixture: $2 failed: $backup_output"
+    elif ! printf '%s\n' "$backup_output" | grep -Fqx "$1"; then
+      fail "backup fixture: $2 did not emit: $1"
+    fi
+  }
+  materialize_expect_blocked() {
+    if (( backup_status == 0 )); then
+      fail "materializer fixture: $3 unexpectedly succeeded"
+    elif ! printf '%s\n' "$backup_output" | grep -Fqx "MATERIALIZATION_BLOCKED reason=$1 project=$2"; then
+      fail "materializer fixture: $3 did not report reason=$1: $(printf '%s' "$backup_output" | head -n 2 | tr '\n' ' ')"
+    fi
+  }
+  materialize_expect_line() {
+    if (( backup_status != 0 )); then
+      fail "materializer fixture: $2 failed: $backup_output"
+    elif ! printf '%s\n' "$backup_output" | grep -Fqx "$1"; then
+      fail "materializer fixture: $2 did not emit: $1"
     fi
   }
   backup_remote_sha() {
     env "${backup_env[@]}" git -C "$backup_remote_dir" rev-parse --verify --quiet refs/heads/main || true
   }
+  independent_remote_sha() {
+    env "${backup_env[@]}" git -C "$independent_remote_dir" rev-parse --verify --quiet refs/heads/main || true
+  }
+  adopt_revision() {
+    {
+      printf '%s\n' '---' 'updated_at: 2026-08-03' '---' '' '## Repository State' ''
+      printf -- '- revision: `%s`\n' "$1"
+    } > "$backup_work/projects/data-pipeline/STATE.md"
+    backup_git add projects/data-pipeline/STATE.md
+    backup_git commit -q -m 'fixture: adopt revision'
+  }
 
   env "${backup_env[@]}" git init -q --bare "$backup_remote_dir"
   env "${backup_env[@]}" git -C "$backup_remote_dir" symbolic-ref HEAD refs/heads/main
-  env "${backup_env[@]}" git init -q --bare "$satellite_remote_dir"
-  env "${backup_env[@]}" git -C "$satellite_remote_dir" symbolic-ref HEAD refs/heads/main
-  env "${backup_env[@]}" git init -q "$satellite_work"
-  env "${backup_env[@]}" git -C "$satellite_work" symbolic-ref HEAD refs/heads/main
-  printf 'verified Satellite revision\n' > "$satellite_work/source.txt"
-  env "${backup_env[@]}" git -C "$satellite_work" add source.txt
-  env "${backup_env[@]}" git -C "$satellite_work" commit -q -m 'fixture: satellite revision'
-  env "${backup_env[@]}" git -C "$satellite_work" remote add origin "$satellite_remote_dir"
-  env "${backup_env[@]}" git -C "$satellite_work" push -q origin main
-  satellite_revision="$(env "${backup_env[@]}" git -C "$satellite_work" rev-parse HEAD)"
+  env "${backup_env[@]}" git init -q --bare "$independent_remote_dir"
+  env "${backup_env[@]}" git -C "$independent_remote_dir" symbolic-ref HEAD refs/heads/main
+  # branchやtagから到達できないcommitを採用する負ケースのため、SHA指定fetchを許可する。
+  env "${backup_env[@]}" git -C "$independent_remote_dir" config uploadpack.allowAnySHA1InWant true
+
+  env "${backup_env[@]}" git init -q "$independent_seed"
+  seed_git symbolic-ref HEAD refs/heads/main
+  printf 'verified independent revision\n' > "$independent_seed/source.txt"
+  seed_git add source.txt
+  seed_git commit -q -m 'fixture: independent revision'
+  seed_git remote add origin "$independent_remote_dir"
+  seed_git push -q origin main
+  independent_revision="$(seed_git rev-parse HEAD)"
+
   env "${backup_env[@]}" git init -q "$backup_work"
   backup_git symbolic-ref HEAD refs/heads/main
   mkdir -p "$backup_work/tools" "$backup_work/projects/data-pipeline"
   printf 'fixture agent directory\n' > "$backup_work/AGENTS.md"
-  printf '.tmp/\n.agent-cache/\n.env*\n!.env.example\n.DS_Store\nignored-dir/\n' > "$backup_work/.gitignore"
+  printf '.tmp/\n.agent-cache/\n.env*\n!.env.example\n.DS_Store\nprojects/*/repository/\nignored-dir/\n' \
+    > "$backup_work/.gitignore"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$backup_work/tools/validate-agent-directory.sh"
   {
     printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
-    printf '%s\n' 'repository_mode: satellite' "repository_url: $satellite_remote_dir"
+    printf '%s\n' 'repository_mode: independent' "repository_url: $independent_remote_dir"
     printf '%s\n' 'repository_reason: automation' 'repository_default_branch: main' '---'
   } > "$backup_work/projects/data-pipeline/PROJECT.md"
   {
-    printf '%s\n\n' '---' 'updated_at: 2026-08-03' '---' '## Repository State'
-    printf -- '- repository: `%s`\n' "$satellite_remote_dir"
-    printf -- '- revision: `%s`\n' "$satellite_revision"
-    printf '%s\n' '- branch: `main`' '- remote_verified_at: `2026-08-03`'
+    printf '%s\n' '---' 'updated_at: 2026-08-03' '---' '' '## Repository State' ''
+    printf -- '- revision: `%s`\n' "$independent_revision"
   } > "$backup_work/projects/data-pipeline/STATE.md"
   backup_git add -A
   backup_git commit -q -m 'fixture: initial commit'
   backup_git remote add backup "$backup_remote_dir"
   backup_head="$(backup_git rev-parse HEAD)"
 
-  backup_run --remote backup --branch main --dry-run
-  if (( backup_status != 0 )); then
-    fail "backup fixture: dry run on a clean tree failed: $backup_output"
-  elif ! printf '%s\n' "$backup_output" | grep -Fqx "BACKUP_READY remote=backup branch=main sha=$backup_head"; then
-    fail 'backup fixture: dry run did not emit the BACKUP_READY result line'
-  elif ! printf '%s\n' "$backup_output" | grep -Fq "satellite recovery point verified: $satellite_remote_dir@$satellite_revision"; then
-    fail 'backup fixture: dry run did not verify and report the Satellite recovery point'
-  fi
-  [[ -z "$(backup_remote_sha)" ]] || fail 'backup fixture: dry run wrote to the remote'
+  # --- 未materialize状態 -------------------------------------------------------
+  backup_run --dry-run
+  backup_expect_blocked 'missing-independent-repository' 'workspace backup before materialization'
+  materialize_run --all --check
+  materialize_expect_blocked 'missing-independent-repository' 'data-pipeline' '--check on a missing clone'
+  backup_run --root-only --dry-run
+  backup_expect_line "ROOT_BACKUP_READY remote=backup branch=main sha=$backup_head scope=root-only" \
+    'root-only dry run while the Independent clone is missing'
+
+  # --- materializer ------------------------------------------------------------
+  materialize_run --all
+  materialize_expect_line 'MATERIALIZATION_OK total=1 cloned=1 verified=0' 'fresh clone'
+  [[ -d "$independent_clone/.git" && ! -L "$independent_clone/.git" ]] || \
+    fail 'materializer fixture: repository/.git is not a real directory'
+  [[ ! -e "$independent_clone/.gitmodules" ]] || \
+    fail 'materializer fixture: the clone was materialized as a submodule'
+  [[ "$(child_git rev-parse HEAD)" == "$independent_revision" ]] || \
+    fail 'materializer fixture: HEAD is not the adopted revision'
+  [[ -z "$(child_git symbolic-ref --quiet HEAD 2>/dev/null || true)" ]] || \
+    fail 'materializer fixture: the adopted revision was not checked out detached'
+  materialize_run --all --check
+  materialize_expect_line 'MATERIALIZATION_OK total=1 cloned=0 verified=1' 'idempotent --check'
+
+  # remoteのtipが進んでも採用revisionを勝手に更新しない。
+  printf 'later work\n' > "$independent_seed/later.txt"
+  seed_git add later.txt
+  seed_git commit -q -m 'fixture: newer branch tip'
+  seed_git push -q origin main
+  independent_tip="$(seed_git rev-parse HEAD)"
+  materialize_run --all --check
+  materialize_expect_line 'MATERIALIZATION_OK total=1 cloned=0 verified=1' '--check against a newer branch tip'
+  [[ "$(child_git rev-parse HEAD)" == "$independent_revision" ]] || \
+    fail 'materializer fixture: the clone was advanced to the branch tip instead of the adopted revision'
+
+  # --- 正常なworkspace backup ----------------------------------------------------
+  independent_remote_before="$(independent_remote_sha)"
+  backup_run --dry-run
+  backup_expect_line "WORKSPACE_BACKUP_READY remote=backup branch=main sha=$backup_head independent=1" \
+    'workspace dry run on a materialized workspace'
+  [[ -z "$(backup_remote_sha)" ]] || fail 'backup fixture: dry run wrote to the root remote'
 
   backup_run
-  if (( backup_status != 0 )); then
-    fail "backup fixture: initial push on a clean tree failed: $backup_output"
-  elif ! printf '%s\n' "$backup_output" | grep -Eq '^BACKUP_OK remote=backup branch=main sha=[0-9a-f]{40}$'; then
-    fail 'backup fixture: successful backup did not emit the BACKUP_OK result line'
-  elif ! printf '%s\n' "$backup_output" | grep -Fqx "BACKUP_OK remote=backup branch=main sha=$backup_head"; then
-    fail 'backup fixture: BACKUP_OK reported a SHA other than local HEAD'
-  fi
+  backup_expect_line "WORKSPACE_BACKUP_OK remote=backup branch=main sha=$backup_head independent=1" \
+    'workspace backup on a materialized workspace'
   [[ "$(backup_remote_sha)" == "$backup_head" ]] || \
-    fail 'backup fixture: remote main does not match local HEAD after push'
+    fail 'backup fixture: the root remote does not match local HEAD after push'
+  [[ "$(independent_remote_sha)" == "$independent_remote_before" ]] || \
+    fail 'backup fixture: the workspace backup pushed to the Independent remote'
 
-  sed -i.bak "s/$satellite_revision/0000000000000000000000000000000000000000/" \
-    "$backup_work/projects/data-pipeline/STATE.md"
-  rm -f "$backup_work/projects/data-pipeline/STATE.md.bak"
-  backup_git add projects/data-pipeline/STATE.md
-  backup_git commit -q -m 'fixture: unavailable Satellite revision'
-  backup_run
-  backup_expect_blocked 'satellite-revision-unavailable' 'Satellite revision absent from the declared remote'
+  backup_run --root-only --dry-run
+  backup_expect_line "ROOT_BACKUP_READY remote=backup branch=main sha=$backup_head scope=root-only" \
+    'root-only dry run'
+  backup_run --root-only
+  backup_expect_line "ROOT_BACKUP_OK remote=backup branch=main sha=$backup_head scope=root-only" \
+    'root-only backup'
+  [[ "$(independent_remote_sha)" == "$independent_remote_before" ]] || \
+    fail 'backup fixture: the root-only backup pushed to the Independent remote'
+
+  # --- cacheの境界 ----------------------------------------------------------------
+  build_fixture_cache
+  if (( backup_status != 0 )); then
+    fail 'cache fixture: build-context-cache.sh failed on a materialized workspace'
+  else
+    if grep -Fq 'projects/data-pipeline/repository/' "$independent_cache_dir/manifest.tsv"; then
+      fail 'cache fixture: manifest.tsv registers Independent repository contents'
+    fi
+    grep -Fq 'projects/data-pipeline/PROJECT.md' "$independent_cache_dir/catalog.tsv" || \
+      fail 'cache fixture: catalog.tsv does not register the root-side PROJECT.md'
+    fingerprint_before="$(fixture_fingerprint)"
+
+    printf 'child-only change\n' >> "$independent_clone/source.txt"
+    build_fixture_cache
+    [[ "$(fixture_fingerprint)" == "$fingerprint_before" ]] || \
+      fail 'cache fixture: an Independent body change altered the root cache fingerprint'
+    child_git checkout -q -- source.txt
+
+    printf '\n<!-- fixture root metadata change -->\n' >> "$backup_work/projects/data-pipeline/PROJECT.md"
+    build_fixture_cache
+    [[ "$(fixture_fingerprint)" != "$fingerprint_before" ]] || \
+      fail 'cache fixture: a root PROJECT.md change did not alter the cache fingerprint'
+    backup_git checkout -q -- projects/data-pipeline/PROJECT.md
+  fi
+
+  # --- Independent本体の負ケース ----------------------------------------------------
+  mkdir -p "$independent_clone/nested/.git"
+  backup_run --dry-run
+  backup_expect_blocked 'independent-nested-repository' 'a nested repository inside the Independent clone'
+  rm -rf "$independent_clone/nested"
+
+  printf '[submodule "vendor"]\n\tpath = vendor\n' > "$independent_clone/.gitmodules"
+  backup_run --dry-run
+  backup_expect_blocked 'independent-submodule-unsupported' 'a submodule declaration inside the clone'
+  rm -f "$independent_clone/.gitmodules"
+
+  printf '*.bin filter=lfs diff=lfs merge=lfs -text\n' > "$independent_clone/.gitattributes"
+  backup_run --dry-run
+  backup_expect_blocked 'independent-git-lfs-unsupported' 'Git LFS inside the Independent clone'
+  rm -f "$independent_clone/.gitattributes"
+
+  printf 'dirty\n' >> "$independent_clone/source.txt"
+  backup_run --dry-run
+  backup_expect_blocked 'independent-dirty-working-tree' 'a dirty Independent working tree'
+  backup_run --root-only --dry-run
+  backup_expect_line "ROOT_BACKUP_READY remote=backup branch=main sha=$backup_head scope=root-only" \
+    'root-only scope ignoring a dirty Independent clone'
+  child_git checkout -q -- source.txt
+
+  printf 'staged\n' >> "$independent_clone/source.txt"
+  child_git add source.txt
+  backup_run --dry-run
+  backup_expect_blocked 'independent-staged-changes' 'a staged Independent change'
+  child_git reset -q --hard HEAD
+
+  printf 'stray\n' > "$independent_clone/stray.txt"
+  backup_run --dry-run
+  backup_expect_blocked 'independent-untracked-files' 'an untracked Independent file'
+  rm -f "$independent_clone/stray.txt"
+
+  printf 'stashed\n' >> "$independent_clone/source.txt"
+  child_git stash push -q
+  backup_run --dry-run
+  backup_expect_blocked 'independent-stash-present' 'an Independent stash entry'
+  child_git stash drop -q
+
+  child_git tag fixture-local-only "$independent_revision"
+  backup_run --dry-run
+  backup_expect_blocked 'independent-unpushed-tag' 'a local-only tag'
+  child_git tag -d fixture-local-only >/dev/null
+
+  child_git checkout -q -b fixture-unpublished
+  child_git commit -q --allow-empty -m 'fixture: unpublished commit'
+  child_git checkout -q --detach "$independent_revision"
+  backup_run --dry-run
+  backup_expect_blocked 'independent-unreachable-local-branch' 'a local branch absent from the remote'
+  child_git branch -q -D fixture-unpublished
+
+  # remoteはobjectを持つが、branchからもtagからも到達できないcommitを採用させる。
+  seed_git commit -q --allow-empty -m 'fixture: unreferenced revision'
+  unreferenced_revision="$(seed_git rev-parse HEAD)"
+  seed_git push -q origin 'HEAD:refs/hidden/unreferenced'
+  seed_git checkout -q --detach "$independent_tip"
+  child_git fetch -q origin "$unreferenced_revision"
+  child_git checkout -q --detach "$unreferenced_revision"
+  adopt_revision "$unreferenced_revision"
+  backup_run --dry-run
+  backup_expect_blocked 'independent-unpushed-commit' 'a HEAD commit no remote head or tag reaches'
+  backup_git reset -q --hard HEAD~1
+  child_git checkout -q --detach "$independent_revision"
+
+  adopt_revision '0000000000000000000000000000000000000000'
+  backup_run --dry-run
+  backup_expect_blocked 'independent-revision-unavailable' 'an adopted revision absent from the remote'
   backup_git reset -q --hard HEAD~1
 
+  child_git checkout -q --detach "$independent_tip"
+  backup_run --dry-run
+  backup_expect_blocked 'independent-head-not-adopted' 'a HEAD that is not the adopted revision'
+  child_git checkout -q --detach "$independent_revision"
+
+  child_git remote set-url origin "$backup_remote_dir"
+  backup_run --dry-run
+  backup_expect_blocked 'repository-origin-mismatch' 'a clone pointing at a different remote'
+  child_git remote set-url origin "$independent_remote_dir"
+
+  env "${backup_env[@]}" git -C "$independent_remote_dir" config uploadpack.allowAnySHA1InWant false
+  # --- attachmentの負ケース ---------------------------------------------------------
+  mv "$independent_clone/.git" "$backup_fixture_dir/detached-git"
+  printf 'gitdir: %s\n' "$backup_fixture_dir/detached-git" > "$independent_clone/.git"
+  backup_run --dry-run
+  backup_expect_blocked 'repository-gitfile-unsupported' 'a .git file instead of a real directory'
+  rm -f "$independent_clone/.git"
+  mv "$backup_fixture_dir/detached-git" "$independent_clone/.git"
+
+  mv "$independent_clone/.git" "$backup_fixture_dir/relocated-git"
+  ln -s "$backup_fixture_dir/relocated-git" "$independent_clone/.git"
+  backup_run --dry-run
+  backup_expect_blocked 'repository-path-symlink' 'a symlinked .git inside the Independent clone'
+  rm -f "$independent_clone/.git"
+  mv "$backup_fixture_dir/relocated-git" "$independent_clone/.git"
+
+  # 固定path自体をsymlinkへ置き換えると、`projects/*/repository/` のignoreはdirectoryにしか
+  # 一致しないため、attachment検査へ届く前にroot側のuntracked検査が停止させる。
+  # 停止することが安全性の要件であり、reasonはrootの検査が先に確定する。
+  mv "$independent_clone" "$backup_fixture_dir/moved-clone"
+  ln -s "$backup_fixture_dir/moved-clone" "$independent_clone"
+  backup_run --dry-run
+  backup_expect_blocked 'untracked-files' 'a symlinked Independent clone path'
+  rm -f "$independent_clone"
+  mv "$backup_fixture_dir/moved-clone" "$independent_clone"
+
+  # --- root ownershipの負ケース -------------------------------------------------------
+  # 埋め込みrepository配下は `git add` が拒否するため、indexへ直接blobを登録して再現する。
+  # 作業ツリーと同じ内容を登録し、root側がdirtyにならない純粋な所有関係違反にする。
+  fixture_tracked_blob="$(backup_git hash-object -w -- projects/data-pipeline/repository/source.txt)"
+  backup_git update-index --add \
+    --cacheinfo "100644,$fixture_tracked_blob,projects/data-pipeline/repository/source.txt"
+  backup_git commit -q -m 'fixture: root tracks the Independent body'
+  backup_run --root-only --dry-run
+  backup_expect_blocked 'root-tracks-independent-repository' 'the root tracking Independent contents'
+  backup_git reset -q --soft HEAD~1
+  backup_git reset -q
+
+  backup_git update-index --add --cacheinfo "160000,$independent_revision,projects/data-pipeline/repository"
+  backup_git commit -q -m 'fixture: root gitlink'
+  backup_run --root-only --dry-run
+  backup_expect_blocked 'unsupported-root-gitlink' 'a gitlink in the root index'
+  backup_git reset -q --soft HEAD~1
+  backup_git reset -q
+
+  # --- 宣言の負ケース -------------------------------------------------------------------
+  fixture_project_backup="$backup_fixture_dir/PROJECT.md.orig"
+  cp "$backup_work/projects/data-pipeline/PROJECT.md" "$fixture_project_backup"
+  {
+    printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
+    printf '%s\n' 'repository_mode: independent' "repository_url: $independent_remote_dir"
+    printf '%s\n' 'repository_reason: because-we-want-to' 'repository_default_branch: main' '---'
+  } > "$backup_work/projects/data-pipeline/PROJECT.md"
+  backup_git commit -q -a -m 'fixture: malformed independent declaration'
+  backup_run --root-only --dry-run
+  backup_expect_blocked 'invalid-independent-declaration' 'an invalid repository_reason'
+  backup_git reset -q --hard HEAD~1
+
+  {
+    printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
+    printf '%s\n' 'repository_mode: satellite' "repository_url: $independent_remote_dir"
+    printf '%s\n' 'repository_reason: automation' 'repository_default_branch: main' '---'
+  } > "$backup_work/projects/data-pipeline/PROJECT.md"
+  backup_git commit -q -a -m 'fixture: deprecated satellite mode'
+  backup_run --root-only --dry-run
+  backup_expect_blocked 'deprecated-satellite-mode' 'the retired satellite repository mode'
+  backup_git reset -q --hard HEAD~1
+
+  {
+    printf '%s\n' '---' 'updated_at: 2026-08-03' '---' '' '## Repository State' ''
+    printf -- '- repository: `%s`\n' "$independent_remote_dir"
+    printf -- '- revision: `%s`\n' "$independent_revision"
+    printf '%s\n' '- branch: `main`' '- remote_verified_at: `2026-08-03`'
+  } > "$backup_work/projects/data-pipeline/STATE.md"
+  backup_git commit -q -a -m 'fixture: retired Repository State fields'
+  backup_run --root-only --dry-run
+  backup_expect_blocked 'invalid-independent-state' 'the retired Repository State tuple'
+  backup_git reset -q --hard HEAD~1
+
+  cp "$fixture_project_backup" "$backup_work/projects/data-pipeline/PROJECT.md"
+
+  # --- materializerの負ケース -----------------------------------------------------------
+  printf 'dirty\n' >> "$independent_clone/source.txt"
+  materialize_run --project data-pipeline --check
+  materialize_expect_blocked 'repository-dirty' 'data-pipeline' '--check on a dirty target'
+  child_git checkout -q -- source.txt
+
+  mv "$independent_clone" "$backup_fixture_dir/parked-clone"
+  mkdir -p "$independent_clone"
+  printf 'stray\n' > "$independent_clone/stray.txt"
+  materialize_run --project data-pipeline
+  materialize_expect_blocked 'target-not-empty' 'data-pipeline' 'a non-empty non-repository target'
+  rm -rf "$independent_clone"
+  mv "$backup_fixture_dir/parked-clone" "$independent_clone"
+
+  # --- 既存のroot側負ケース ---------------------------------------------------------------
   mkdir -p "$backup_work/ignored-dir/nested/.git"
-  backup_run
-  backup_expect_blocked 'nested-git-repository' 'ignored nested Git repository'
+  backup_run --dry-run
+  backup_expect_blocked 'nested-git-repository' 'an undeclared ignored nested Git repository'
   rm -rf "$backup_work/ignored-dir"
 
   printf 'dirty\n' >> "$backup_work/AGENTS.md"
-  backup_run
-  backup_expect_blocked 'dirty-working-tree' 'uncommitted tracked change'
+  backup_run --dry-run
+  backup_expect_blocked 'dirty-working-tree' 'an uncommitted tracked change'
   backup_git checkout -q -- AGENTS.md
 
   printf 'staged\n' >> "$backup_work/AGENTS.md"
   backup_git add AGENTS.md
-  backup_run
-  backup_expect_blocked 'staged-changes' 'staged change'
+  backup_run --dry-run
+  backup_expect_blocked 'staged-changes' 'a staged change'
   backup_git reset -q --hard HEAD
 
   printf 'stray\n' > "$backup_work/stray.md"
-  backup_run
-  backup_expect_blocked 'untracked-files' 'untracked non-ignored file'
+  backup_run --dry-run
+  backup_expect_blocked 'untracked-files' 'an untracked non-ignored file'
   rm -f "$backup_work/stray.md"
 
   printf 'stashed\n' >> "$backup_work/AGENTS.md"
   backup_git stash push -q
-  backup_run
-  backup_expect_blocked 'stash-present' 'stash entry'
+  backup_run --dry-run
+  backup_expect_blocked 'stash-present' 'a stash entry'
   backup_git stash drop -q
 
   mkdir -p "$backup_work/.tmp"
   printf 'scratch\n' > "$backup_work/.tmp/scratch"
   backup_git add -f .tmp/scratch
   backup_git commit -q -m 'fixture: forbidden path'
-  backup_run
-  backup_expect_blocked 'forbidden-tracked-file' 'tracked .tmp path'
+  backup_run --dry-run
+  backup_expect_blocked 'forbidden-tracked-file' 'a tracked .tmp path'
   backup_git reset -q --hard HEAD~1
   rm -rf "$backup_work/.tmp"
 
@@ -1395,8 +1813,8 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_git add -A
   backup_git commit -q -m 'fixture: unreachable commit'
   backup_git checkout -q main
-  backup_run
-  backup_expect_blocked 'unreachable-local-branch' 'commit unreachable from the backup branch'
+  backup_run --dry-run
+  backup_expect_blocked 'unreachable-local-branch' 'a commit unreachable from the backup branch'
   backup_git branch -q -D stray-branch
 
   printf '%04096d' 0 > "$backup_work/oversized.bin"
@@ -1404,12 +1822,12 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_git commit -q -m 'fixture: oversized blob'
   set +e
   backup_output="$(env "${backup_env[@]}" AGENT_DIRECTORY_ROOT="$backup_work" \
-    AGENT_BACKUP_MAX_BLOB_BYTES=1024 bash "$backup_tool" 2>&1)"
+    AGENT_BACKUP_MAX_BLOB_BYTES=1024 bash "$backup_tool" --root-only --dry-run 2>&1)"
   backup_status=$?
   set -e
-  backup_expect_blocked 'oversized-git-object' 'blob above the size limit'
+  backup_expect_blocked 'oversized-git-object' 'a blob above the size limit'
   printf '%s\n' "$backup_output" | grep -Fq 'oversized.bin' || \
-    fail 'backup fixture: oversized object report does not name the path'
+    fail 'backup fixture: the oversized object report does not name the path'
   backup_git reset -q --hard HEAD~1
   rm -f "$backup_work/oversized.bin"
 
@@ -1423,18 +1841,37 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_git commit -q -m 'fixture: local commit'
   backup_sha_before_divergence="$(backup_remote_sha)"
   backup_run
-  backup_expect_blocked 'remote-diverged' 'diverged remote'
+  backup_expect_blocked 'remote-diverged' 'a diverged remote'
   printf '%s\n' "$backup_output" | grep -Eq "remote=$backup_sha_before_divergence local=[0-9a-f]{40}" || \
-    fail 'backup fixture: divergence report does not name both the remote and local SHA'
+    fail 'backup fixture: the divergence report does not name both the remote and local SHA'
   [[ "$(backup_remote_sha)" == "$backup_sha_before_divergence" ]] || \
-    fail 'backup fixture: remote changed while divergence was reported'
+    fail 'backup fixture: the remote changed while divergence was reported'
   backup_run --dry-run
-  backup_expect_blocked 'remote-diverged' 'diverged remote in dry run'
+  backup_expect_blocked 'remote-diverged' 'a diverged remote in dry run'
   [[ "$(backup_remote_sha)" == "$backup_sha_before_divergence" ]] || \
-    fail 'backup fixture: dry run changed the remote'
+    fail 'backup fixture: the dry run changed the remote'
+
+  # --- root git cleanの危険性は破棄前提のfixtureだけで確かめる -----------------------------
+  clean_probe_dir="$backup_fixture_dir/clean-probe"
+  mkdir -p "$clean_probe_dir/projects/probe/repository"
+  printf 'projects/*/repository/\n' > "$clean_probe_dir/.gitignore"
+  printf 'unpushed work\n' > "$clean_probe_dir/projects/probe/repository/unpushed.txt"
+  env "${backup_env[@]}" git init -q "$clean_probe_dir"
+  env "${backup_env[@]}" git -C "$clean_probe_dir" add -A
+  env "${backup_env[@]}" git -C "$clean_probe_dir" commit -q -m 'fixture: clean probe'
+  env "${backup_env[@]}" git -C "$clean_probe_dir" clean -q -ffdx
+  [[ ! -e "$clean_probe_dir/projects/probe/repository/unpushed.txt" ]] || \
+    fail 'clean probe fixture: the ignored Independent path unexpectedly survived git clean -ffdx'
+  rm -rf "$clean_probe_dir"
 
   [[ -z "$(backup_git status --porcelain)" ]] || \
     fail 'backup fixture: the backup tool left the working tree modified'
+  [[ -z "$(child_git status --porcelain)" ]] || \
+    fail 'backup fixture: the backup tool left the Independent clone modified'
+  [[ "$(child_git rev-parse HEAD)" == "$independent_revision" ]] || \
+    fail 'backup fixture: the backup tool moved the Independent clone HEAD'
+  [[ "$(independent_remote_sha)" == "$independent_remote_before" ]] || \
+    fail 'backup fixture: the Independent remote changed during the whole fixture run'
 fi
 
 if [[ "$full" == true ]]; then

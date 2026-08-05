@@ -1,9 +1,9 @@
 ---
 name: data-pipeline
-description: 外部automationが独立repoを必要とするSatellite Projectの有効な契約fixture。
+description: 外部automationが独立repoを必要とするIndependent Projectの有効な契約fixture。
 status: active
 mode: continuous
-repository_mode: satellite
+repository_mode: independent
 repository_url: git@github.com:example/data-pipeline.git
 repository_reason: automation
 repository_default_branch: main
@@ -13,7 +13,7 @@ repository_default_branch: main
 
 ## 目的
 
-独立repoで実行されるpipelineの目的と採用revisionをHubから追跡する。
+独立repoで実行されるpipelineの目的と採用revisionをAgent Workspace rootから追跡する。
 
 ## 継続的使命
 
@@ -25,19 +25,19 @@ repository_default_branch: main
 
 ## 見直し・終了条件
 
-外部automationが廃止された場合にSatellite境界を監査する。
+外部automationが廃止された場合にIndependent境界を監査する。
 
 ## 判断原則
 
-- HubとSatelliteに同じsourceを置かない。
+- rootとIndependent repositoryに同じsourceを置かない。
 
 ## 非ゴール
 
-- HubからSatelliteのコードを直接編集しない。
+- root sessionからIndependent repositoryのコードを直接編集しない。
 
 ## 制約・固定決定
 
-- Satellite作業は別sessionで行う。
+- Independent本体の作業は`projects/data-pipeline/repository/`をrootとする別sessionで行う。
 
 ## 品質基準
 
@@ -45,7 +45,7 @@ repository_default_branch: main
 
 ## 入力
 
-- Satellite sessionの検証済みhandoff。
+- Independent sessionの検証済みhandoff。
 
 ## 使用するKnowledge
 
@@ -74,7 +74,7 @@ repository_default_branch: main
 ## 検証方法
 
 - 実行手順: validatorを実行する。
-- 合格条件: Satellite宣言とRepository Stateが整合する。
+- 合格条件: Independent宣言とRepository Stateが整合する。
 - 不合格時の扱い: 未完了としてSTATE.mdへ残す。
 - 必要な環境変数: なし
 - 使用した入力: なし

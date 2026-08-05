@@ -28,7 +28,7 @@ Root Knowledge         = Projectを越えて再利用する確定知識
 - `docs/**`の一括読込と、Domain Canon全件の無条件読込。
 - `AGENTS.md`へのDomain Canon、`PROJECT.md`、`STATE.md`本文の複製。
 - `PROJECT.md`や`STATE.md`へのDomain文書本文の複製。
-- Satellite Hub側への個別`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、コード、設計文書の複製。
+- Independent Projectのroot側envelopeへの個別`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、コード、設計文書の複製。
 - `PROJECT.md`と`PRODUCT_SENSE.md`、`PROJECT.md`と`DESIGN.md`、`STATE.md`と`PLANS.md`、
   `ARCHITECTURE.md`と詳細設計文書、Project ResearchとRoot Knowledge。
 
@@ -121,8 +121,8 @@ docs/research/model-selection-study.md  docs/plans/database-migration.md
 
 ## ARCHITECTURE.md
 
-Projectルートに置く任意の全体地図である。Embedded Projectは`projects/<name>/ARCHITECTURE.md`、
-Satellite Projectは`<satellite-repository>/ARCHITECTURE.md`が所有する。
+Project implementation rootに置く任意の全体地図である。Embedded Projectは`projects/<name>/ARCHITECTURE.md`、
+Independent Projectは`projects/<name>/repository/ARCHITECTURE.md`が所有する。
 
 | 所有する | 所有しない |
 |---|---|
@@ -185,8 +185,8 @@ Project固有の作業差分だけを持つ差分ファイルである。差分�
 この節の条件付き項目として列挙する。項目は「条件」と「読む正本」を持つ表の行、または`条件:`と`参照:`の対と
 する。本文中の言及、単なるファイル一覧、禁止文への登場は条件付き参照として数えない。
 2,048 bytes以内とし、`PROJECT.md`と`STATE.md`を正本として参照する。同階層に`@AGENTS.md`だけを持つ`CLAUDE.md`を必ず置き、
-`CLAUDE.md`だけを単独で置かない。Embedded Projectだけに置ける。Satellite側の所有は
-`projects/PROJECTS.md#repository-mode`が持つ。
+`CLAUDE.md`だけを単独で置かない。Embedded Projectだけに置ける。Independent Projectの
+`AGENTS.md`は`projects/<name>/repository/`が所有し、所有関係は`projects/PROJECTS.md#repository-mode`が持つ。
 サイズ制約を拡大せず、短いRoute表として収まる設計を優先する。
 
 ## 研究文書とKnowledge昇格
@@ -213,14 +213,14 @@ Knowledgeへリンクする。現在有効な再利用可能結論の正本はKn
 
 ## Repository mode
 
-Projectは成果、目的、状態の境界であり、Gitリポジトリは変更権限、自動化、配布、外部接続の境界である。
-両者を1対1にしない。すべてのProjectは`embedded`で開始し、外部の人またはシステムがProjectを独立した
-Gitリポジトリとして識別・操作する必要が生じた場合だけ`satellite`へ昇格する。
+agent-directoryは複数の外部repoを束ねるHubではなく、一体のAgent Workspaceである。Projectは成果、目的、
+状態の境界であり、Gitリポジトリは変更権限、自動化、配布、外部接続の境界である。両者を1対1にしない。
+すべてのProjectは`embedded`で開始し、独立したremote identityが必要になった場合だけ`independent`へ昇格する。
 
 ### Embedded Project
 
 `repository_mode: embedded`では、Projectの正本、コード、軽量成果物を`projects/<name>/`に置く。
-ルートGitがProject単位の履歴、差分、復元を持ち、Private backupへまとめて保全する。Project内の`.git`、
+root GitがProject単位の履歴、差分、復元を持ち、Private backupへまとめて保全する。Project内の`.git`、
 submodule、固有remote、GitHub Actionsは禁止する。Project単位の履歴は次のようにパスで取得できる。
 
 ```bash
@@ -230,12 +230,10 @@ git restore --source=<sha> -- projects/<name>
 ```
 
 無関係な複数Projectを同じcommitへ混ぜず、`project(<name>): ...`のように変更単位を分ける。
-コード量、ファイル数、言語、重要度、期間、整理上の都合、個別履歴の希望、既存ローカルrepoという事実は
-Satellite化の理由にしない。大容量artifactはrepo分割ではなく、Projectが外部保管先とchecksumを定義する。
 
-### Satellite Repository
+### Independent Project Repository
 
-利用者の承認を得たうえで、次のいずれかを満たす場合だけ`repository_mode: satellite`へ昇格する。
+利用者の承認を得たうえで、次のいずれかを満たす場合だけ`repository_mode: independent`へ昇格する。
 
 | `repository_reason` | 独立repoが必要になる境界 |
 |---|---|
@@ -245,56 +243,101 @@ Satellite化の理由にしない。大容量artifactはrepo分割ではなく�
 | `access` | 異なるvisibility、権限、Secrets、branch protection |
 | `identity` | 外部サービスや利用者が固定repo URLを参照 |
 | `upstream` | fork、upstream追従、他システムからの依存 |
+| `retention` | rootと異なる履歴保持・export・削除方針、または実測されたGit履歴上の復旧問題 |
 
-Satelliteの`PROJECT.md`は次をfrontmatterへ各1回だけ宣言する。マシン固有のclone pathや認証情報を含むURLは
-正本へ保存しない。
+コード量、ファイル数、言語、整理上の都合、重要度、期間、個別履歴の希望、既存の別repoという事実だけでは
+Independent化しない。大容量binaryやartifactもrepo分割の理由にせず、Project側が外部artifact保管先と
+checksumを定義する。Independent repositoryはremoteから復旧できることを必須とし、remote名は`origin`を
+固定既定とする。
+
+Independentの`PROJECT.md`は次をfrontmatterへ各1回だけ宣言する。マシン固有のclone pathや認証情報を含むURLは
+正本へ保存しない。`remote.origin.url`は`repository_url`と完全一致させる。
 
 ```yaml
-repository_mode: satellite
+repository_mode: independent
 repository_url: git@github.com:<owner>/<repository>.git
 repository_reason: automation
 repository_default_branch: main
 ```
 
-Hub側の`projects/<name>/`は`PROJECT.md`と`STATE.md`だけを持つ。目的、成果契約、固定判断は
-`PROJECT.md`、現在目標、採用revision、検証結果は`STATE.md`が所有する。コード、tests、Workflow、release、
-deploy設定、`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、Git履歴はSatelliteリポジトリ本体のルートが所有する。
-
-Satelliteの`STATE.md`は次の復旧tupleを持つ。`revision`はremoteへpush済みの完全な40文字commit SHAとし、
-`repository`と`branch`は`PROJECT.md`の宣言に一致させる。
+`STATE.md`の`## Repository State`は採用revisionだけを持つ。remoteへpush済みの完全な40文字commit SHAとする。
 
 ```markdown
 ## Repository State
 
-- repository: `git@github.com:<owner>/<repository>.git`
 - revision: `<40-character-commit-sha>`
-- branch: `main`
-- remote_verified_at: `YYYY-MM-DD`
 ```
 
-agent-directoryをrootにしたHub sessionはこの2ファイルだけを変更し、Satellite本体を変更しない。
-Satelliteの作業は、そのcloneを唯一のrootとする別sessionで行う。Satellite sessionはcommit SHA、検証結果、
-未完了事項を返し、Hub sessionが採用するSHAと状態を`STATE.md`へ反映する。cloneの配置は環境側で決め、
-agent-directory内へネストしない。
+### 固定pathとCanonical Ownership
 
-### 昇格と統合
+Independentの通常cloneは必ず次の固定pathへ置く。普通の`git clone`であり、`repository/.git`は実directoryとする。
+worktree、submodule、symlink、`.git` file、Projectディレクトリ自体の別repo化は禁止する。
 
-EmbeddedからSatelliteへの昇格は、次の順序で行う。
+```text
+projects/<name>/
+├── PROJECT.md      # root Gitが追跡。目的、成果契約、remote宣言
+├── STATE.md        # root Gitが追跡。現在目標、採用revision、検証結果
+└── repository/     # root Gitではignored、cacheではpruned、Independent Gitではroot
+```
 
-1. 利用者がSatellite化を承認する。
-2. ルートGitで移行前checkpointを確定する。
-3. Satellite repoを作成し、コード、tests、実行設定、`ARCHITECTURE.md`、`docs/`を移す。
-4. Satellite側で検証、commit、remote pushを完了する。
-5. Hubの`PROJECT.md`をSatellite宣言へ変更し、`STATE.md`へ初回SHAを記録する。
-6. Hubから重複sourceを除き、validatorで二重正本がないことを確認する。
-7. 利用者が明示した場合だけHubをバックアップする。
+root側のIndependent Project directoryに置いてよいものはこの3つだけである。root Gitは`repository/`本体を
+追跡せず、gitlinkも持たない。コード、tests、Project固有`AGENTS.md`、`ARCHITECTURE.md`、`docs/`、実行設定、
+release設定、Git履歴はIndependent repositoryが所有する。root cache、manifest、fingerprint、検索は
+`repository/`本体を完全にpruneする。
+
+Project内部のpathはProject implementation rootからの相対とする。embeddedは`projects/<name>/`、
+independentは`projects/<name>/repository/`である。
+
+### Session rootとSHA handoff
+
+一つのAI sessionが二つのGit rootへ書き込んではならない。Single Writerはagent単位ではなく
+Gitリポジトリ単位であり、同じrepositoryへの同時Writerを禁止する一方、異なるIndependent repositoryは
+並行して進めてよい。
+
+| session | root | 書いてよい |
+|---|---|---|
+| Embedded作業 | Agent Workspace root | `projects/<name>/`配下 |
+| Independent本体作業 | `projects/<name>/repository/` | Independent repositoryの中身だけ |
+| Independent metadata更新 | Agent Workspace root | `PROJECT.md`と`STATE.md`だけ |
+
+Independent sessionはcommit SHA、検証結果、未完了事項を返し、root sessionだけがそのSHAを`STATE.md`へ
+採用する。Independent sessionはroot metadataを書かず、root sessionはIndependent本体を書かない。
+
+### Materializationとbackup境界
+
+健全なAgent Workspaceでは、statusにかかわらず全Independent repositoryが固定pathへmaterialize済みである。
+`bash tools/materialize-project-repositories.sh --all`が宣言と採用revisionからcloneを再現する。
+partial materializationは復旧途中のdegraded stateとしてだけ許し、workspace全体のbackup成功として扱わない。
+
+backupの既定scopeはworkspaceであり、root repositoryをpushする前に全Independent repositoryを監査する。
+Independent repository自体はpushしない。`--root-only`はrootだけを扱う部分結果である。
+scope、停止reason、監査項目は`tools/BACKUP.md`が所有する。
+
+rootで`git clean -x`、`git clean -X`、`git clean`への二つ以上の`-f`を実行しない。`repository/`はignored
+であり、これらは未pushのIndependent commitを不可逆に削除しうる。
+
+### 昇格、移行、統合
+
+EmbeddedからIndependentへの昇格は、次の順序で行う。
+
+1. 利用者がIndependent化と`repository_reason`を承認する。
+2. root Gitで移行前checkpointを確定する。
+3. remote repoを作成し、コード、tests、実行設定、`ARCHITECTURE.md`、`docs/`を移す。
+4. `projects/<name>/repository/`で検証、commit、`origin`へのpushを完了する。
+5. rootの`PROJECT.md`をIndependent宣言へ変更し、`STATE.md`へ初回SHAを記録する。
+6. rootから重複sourceを除き、validatorで二重正本と`repository/`の追跡がないことを確認する。
+7. 利用者が明示した場合だけworkspaceをバックアップする。
 
 履歴維持に実益がある場合だけ対象pathの履歴を抽出する。履歴抽出のために平常時からrepoを分けない。
 宣言のないnested repoまたはsubmoduleは追加、削除、ignore、submodule化せず、停止して利用者へ確認する。
 
-SatelliteからEmbeddedへの統合は自動既定にしない。外部共同編集、automation、release、Webhook、固定URL参照、
-配布、異なる権限、upstream関係がすべて存在しないことを監査し、利用者が明示的に廃止・統合を承認した場合だけ
-実行する。過去に外部identityを持ったrepoは、現在停止中という理由だけで統合しない。
+agent-directory外へcloneを置く旧Satellite方式は最終標準として残さない。検出時は`deprecated-satellite-mode`
+として扱い、移行対象としてだけ文書化する。移行手順と旧clone削除条件は`tools/BACKUP.md`が所有する。
+
+IndependentからEmbeddedへの統合は自動既定にしない。外部共同編集、automation、release、Webhook、固定URL参照、
+配布、異なる権限、upstream関係、`retention`上の保持・削除方針がすべて存在しないことを監査し、利用者が
+明示的に廃止・統合を承認した場合だけ実行する。過去に外部identityを持ったrepoは、現在停止中という理由だけで
+統合しない。
 
 ## PROJECT.md
 
@@ -313,7 +356,7 @@ repository_mode: embedded
 - `name`はディレクトリ名と一致させる。
 - `description`は200文字以内の一行とし、タブを含めない。
 - `mode`は`finite`または`continuous`だけを使う。
-- `repository_mode`は`embedded`または`satellite`だけを使う。Satellite追加項目は
+- `repository_mode`は`embedded`または`independent`だけを使う。Independent追加項目は
   `projects/PROJECTS.md#repository-mode`に従う。
 - `status`は`active | paused | completed | retired`だけを使う。
 - パスが恒久IDである。別のID体系や物理archiveを作らない。

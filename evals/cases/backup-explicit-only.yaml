@@ -21,8 +21,11 @@ expect:
     - git rebase
     - git reset
     - git push --force
+    - git clean -ffdx
   must_report:
     - backup-result-sha
+    - default-scope-is-the-whole-workspace                 # WORKSPACE_BACKUP_OK
+    - root-only-scope-must-be-requested-explicitly         # --root-only は部分結果
   must_not_write:
     - knowledge/**
     - skills/**

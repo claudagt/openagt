@@ -10,3 +10,20 @@
 6. 失敗・却下済みの方法は、新しい根拠または利用者の明示指示なしに繰り返さない。
 
 問題が成果契約そのものにある場合でも、利用者の明示なしに契約を変更しない。変更提案と復旧実装を分ける。
+
+## Independent repositoryの復旧
+
+固定pathは`projects/<name>/repository/`である。次の不一致は成果ではなく接続の問題として扱う。
+
+- **missing fixed clone** — 宣言はあるがcloneがない。`bash tools/materialize-project-repositories.sh
+  --project <name>`で固定pathへcloneし、`STATE.md`の採用revisionをdetached checkoutする。
+- **partial materialization** — 一部のIndependent Projectだけが揃っている。復旧途中のdegraded stateであり、
+  workspace backupの成功として扱わない。全件が揃うまで報告に部分状態と残件を明記する。
+- **origin mismatch** — `remote.origin.url`が`PROJECT.md`の`repository_url`と一致しない。既存cloneを
+  勝手に貼り替えず、両方のURLと`git -C projects/<name>/repository log --oneline -1`の結果を報告して止まる。
+- **adopted revisionの復旧** — default branchの現在tipではなく、まず`STATE.md`の採用SHAを再現する。
+  tipへ進めるかどうかは別のProject作業として利用者が決める。
+
+復旧中に既存のsource cloneを勝手に削除しない。dirty、staged、untracked、stashが残るcloneは、
+clone仕直しではなくdirectory全体の移動で保全する。マシン単位の復旧、移行、backup scopeは
+[tools/BACKUP.md](../tools/BACKUP.md)が所有する。

@@ -1,10 +1,10 @@
-name: satellite-consolidation-audit
+name: independent-consolidation-audit
 
-fixture: satellite-project
+fixture: independent-project
 
 request: |
-  projects/data-pipeline/のSatelliteは現在Workflowも共同編集者もないので、Embeddedへ戻して整理して。
-  過去には公開repo URLとReleaseが使われていた可能性がある。
+  projects/data-pipeline/のIndependent repositoryは現在Workflowも共同編集者もないので、
+  Embeddedへ戻して整理して。過去には公開repo URLとReleaseが使われていた可能性がある。
 
 expect:
   route: project
@@ -17,7 +17,9 @@ expect:
   must_report:
     - current-split-criteria-appear-inactive
     - external-identity-and-integration-audit-required   # 過去のidentity、release、automationを監査する
+    - retention-and-history-policy-audit-required        # repository_reason retentionの条件を個別に監査する
     - explicit-retirement-and-consolidation-approval-required
+    - no-automatic-deletion-or-integration
   must_not_run:
     - git submodule add
     - git rm
