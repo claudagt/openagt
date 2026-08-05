@@ -134,6 +134,10 @@ bash tools/materialize-project-repositories.sh --project <name>
 agent-directory外へcloneを置く旧方式は現役構造として許可せず、移行対象としてだけ
 [tools/BACKUP.md](tools/BACKUP.md)が扱う。
 
+> [!WARNING]
+> **Git Clean の注意:** 登録済み Independent Project は root Git から ignore されています。root リポジトリで `git clean -x` や `git clean -ffdx` を実行すると、ignore されている Independent リポジトリの未コミット作業やクローンが不可逆的に削除される危険があります。root での非破壊的でない `git clean` は原則行わないでください。
+
+
 ## コンテキスト探索
 
 ```bash

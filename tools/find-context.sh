@@ -97,7 +97,10 @@ if [[ -f "$repo_root/projects/REPOSITORIES.md" ]]; then
 fi
 
 awk -F '\t' -v route="$route" -v query="$query" -v include_inactive="$include_inactive" '
-  BEGIN { q = tolower(query) }
+  BEGIN {
+    q = tolower(query)
+    num_words = split(q, words, "[ \t]+")
+  }
   NR == 1 { next }
   $1 != route { next }
   include_inactive != "true" && $3 != "active" { next }
@@ -106,6 +109,7 @@ awk -F '\t' -v route="$route" -v query="$query" -v include_inactive="$include_in
     aliases = tolower($5)
     description = tolower($6)
     path = tolower($8)
+    target_str = name " " aliases " " description " " path
     score = 99
     if (name == q) {
       score = 0
@@ -114,7 +118,16 @@ awk -F '\t' -v route="$route" -v query="$query" -v include_inactive="$include_in
       for (i = 1; i <= count; i++) {
         if (alias[i] == q) score = 1
       }
-      if (score == 99 && index(name " " aliases " " description " " path, q) > 0) score = 2
+      if (score == 99) {
+        all_match = 1
+        for (w = 1; w <= num_words; w++) {
+          if (index(target_str, words[w]) == 0) {
+            all_match = 0
+            break
+          }
+        }
+        if (all_match) score = 2
+      }
     }
     if (score < 99) {
       if (include_inactive == "true" && $3 != "active") score += 10
@@ -139,6 +152,7 @@ if [[ ! -s "$ranked" && -f "$cache_dir/cache.meta" && -f "$cache_dir/search.sqli
 fi
 
 if [[ ! -s "$ranked" ]]; then
+  read -r -a query_words <<< "$query"
   while IFS=$'\x1f' read -r area kind status name aliases description item_mode path hash; do
     [[ "$area" == "$route" ]] || continue
     if [[ "$include_inactive" != true && "$status" != 'active' ]]; then
@@ -157,11 +171,23 @@ if [[ ! -s "$ranked" ]]; then
     fi
     file="$repo_root/$path"
     [[ -f "$file" ]] || continue
-    if command -v rg >/dev/null 2>&1; then
-      rg -qi --fixed-strings -- "$query" "$file" || continue
-    else
-      grep -Fqi -- "$query" "$file" || continue
-    fi
+
+    all_found=true
+    for w in "${query_words[@]}"; do
+      if command -v rg >/dev/null 2>&1; then
+        if ! rg -qi --fixed-strings -- "$w" "$file"; then
+          all_found=false
+          break
+        fi
+      else
+        if ! grep -Fqi -- "$w" "$file"; then
+          all_found=false
+          break
+        fi
+      fi
+    done
+    [[ "$all_found" == true ]] || continue
+
     fallback_score=3
     if [[ "$include_inactive" == true && "$status" != 'active' ]]; then
       fallback_score=13
