@@ -1,15 +1,15 @@
 # TOOLS.md — 構造保守と限定取得
 
 `tools/`は利用者の成果を作るSkillではなく、このAgent Workspace自体を保守するmeta層である。
-固定Toolは6つあり、依存関係を増やさず、入出力、fallback、検証方法を明記する。
+固定Toolは7つあり、依存関係を増やさず、入出力、fallback、検証方法を明記する。
 macOS標準のbash 3.2で動くことを最低条件とし、GNU専用option、associative array、`mapfile`、
 `readarray`を使わずBSD `find`と`sed`で動かす。`set -u`下の空配列は件数で守ってから展開する。
 変更時は`/bin/bash tools/*.sh`でも検証し、`shellcheck`が使える環境では併用する（必須依存にしない）。
 
 ```text
-build-context-cache.sh   find-context.sh   append-knowledge-log.sh
-backup-to-github.sh      validate-agent-directory.sh
-materialize-project-repositories.sh
+build-context-cache.sh   find-context.sh   prepare-context.sh
+append-knowledge-log.sh  backup-to-github.sh
+validate-agent-directory.sh   materialize-project-repositories.sh
 ```
 
 責務は次で固定する。Toolへ判断を持たせず、Agentへ決定的操作を再実装させない。
@@ -83,6 +83,18 @@ Toolへの決定的な入力不備、自分の変更が壊したtestである。
 正本同士が矛盾した場合は片方を推測で書き換えない。両方のpath、矛盾する記述、`AGENTS.md#参照順序`上の
 上位、影響範囲を示し、推奨する一つの解決を添えて停止する。
 
+### タスク分類と終端処理
+
+| class | 対象 | 終端処理 |
+|---|---|---|
+| read | 照会、監査、説明 | STATE・commit・backupなし |
+| work | 成果物・コード・文書の変更 | 対象検証、commit、`--root-only` backup |
+| state | 目標・到達点・検証結果の変化 | 上記に加えSTATE更新 |
+| boundary | 契約、attachment、registry、移行、復旧 | 広い検証、必要な承認、workspace backup |
+
+実行した事実や日付だけを記録するために`STATE.md`を変更しない。現在目標、到達点、検証結果、
+ブロッカー、次の一手のいずれも変わらなければSTATEは不変とする。
+
 ## build-context-cache.sh
 
 ```bash
@@ -96,10 +108,12 @@ bash tools/build-context-cache.sh --check-routing
 - `catalog.tsv` — routeableなKnowledge、Skill、Project、meta規約の最小metadata
 - `manifest.tsv` — 全正本ファイルのpath、種別、byte、content hash、routeable、不変属性
 - `cache.meta` — schema、generator hash、正本fingerprint、件数、検索backend
+- `stat.meta` — warm fast path用のstat指紋。`--check`の比較対象にしない
 - `search.sqlite` — 規模閾値到達後だけ自動生成するFTS5 trigram派生索引
 
-catalogはpath順で決定的に生成し、候補選択に必要な項目だけを持つ。`--check-routing`は不変原資料を
-走査せずrouteable正本だけで鮮度を確認し、検索ごとの全正本走査を避ける。
+catalogはpath順で決定的に生成し、候補選択に必要な項目だけを持つ。`--check-routing`はstat指紋
+（path+size+mtime）が前回保存時と一致すれば本文再読なしで即PASSし、不一致・欠損時だけ
+routeable正本を再計算して比較する。Git HEADは鮮度入力に使わない。
 
 manifestは少なくとも次を区別する。
 
@@ -113,18 +127,13 @@ manifestは少なくとも次を区別する。
 | `projects/*/docs/**` | `project-doc` | false |
 
 Project選択の単位は`PROJECT.md`である。`ARCHITECTURE.md`、Project docs、`knowledge/raw/`は
-manifestで分類するがrouteable catalogへ入れず、通常検索結果へ全件投入しない。対象確定後は
-個別`AGENTS.md`のDocs RouteからDomain Canonへ進む。
+manifestで分類するがrouteable catalogへ入れず、通常検索結果へ全件投入しない。
 
-Embedded Projectはfilesystem全件findではなくroot indexの`projects/*/PROJECT.md`から決める。
-Independent Projectは`projects/REPOSITORIES.md`のentryから列挙し、working treeではなく
-`git show <revision>:PROJECT.md`で採用revisionのfrontmatterだけをcatalogへ登録する。
-content_hashへ採用revisionを混ぜる。
-
-登録済みの`projects/<name>/`はdirectory全体をpruneし、本体をmanifest、fingerprint、SQLite bodyから
-除外する。root側のregistryとignore projectionはmanifestへ入れ、root fingerprintは採用revisionが
-変わったときだけ変わる。`find-context.sh`はcatalogとrouteable正本だけを検索し、fallbackでも
-Independent配下をrecursive grepしない。
+Embedded Projectはroot indexの`projects/*/PROJECT.md`から、Independentは
+`projects/REPOSITORIES.md`から列挙し、採用revisionのfrontmatterだけを`git show`で読んで
+content_hashへrevisionを混ぜる。登録済み`projects/<name>/`はdirectoryごとpruneし、本体を
+manifest、fingerprint、SQLite bodyへ入れない。root fingerprintは採用revisionが変わったときだけ
+変わり、`find-context.sh`はfallbackでもIndependent配下をrecursive grepしない。
 
 `AGENT_DIRECTORY_ROOT`で検査対象root、`AGENT_CACHE_DIR`で出力先を差し替えられる（隔離検証以外は既定値）。
 
@@ -138,10 +147,22 @@ tools/find-context.sh --route project --include-inactive -- "監査対象"
 - routeは`knowledge | skill | project | meta`。
 - limitは1〜5。通常はactiveだけを返す。
 - name完全一致、alias完全一致、metadata部分一致、本文一致の順に候補を決め、pathで同順位を固定する。
-- cacheが欠損・stale・破損なら一度だけ再生成する。規模閾値ではSQLite索引も自動生成する。
+- cacheが欠損・stale・破損なら一度だけ再生成する。
 - metadataで見つからなければ`rg`、なければ`grep`/`find`で本文を直接検索し、候補を最大5件に保つ。
 - 出力は最大5件のmetadataだけで、catalog全文や本文を出力しない。
 - 結果は候補であり、判断前にpathの正本を読む。
+
+## prepare-context.sh
+
+```bash
+tools/prepare-context.sh --route project --target projects/<name>
+tools/prepare-context.sh --route meta --target tools/find-context.sh
+```
+
+Route確定後の初期読込を1回のContext Packetへまとめる。Git root、attachment、Required参照、
+読込順序、validation/backup profileの候補を決定的に列挙し、本文は出力しない。
+Conditionalの成立判断と成果の設計はエージェントが行い、読込予算と読込順序の規約は変えない。
+出力は`TASK_CONTEXT v1`のkey=value行と`READ:`/`CONDITIONAL:`/`MISSING:`のpath列である。
 
 ## append-knowledge-log.sh
 
@@ -166,18 +187,16 @@ bash tools/backup-to-github.sh --remote backup --branch main --dry-run
 ```
 
 有効なPrivate backup remoteが設定済みなら、検証済みcommit後のようなタスク境界でAgentが確認を求めず
-実行する。trigger、未設定・失敗時の扱い、remote分類は`tools/BACKUP.md`が所有する。
-ファイル1件ごとにpushしない。
+実行する。通常のwork/state classでは`--root-only`を標準scopeとし、workspace scopeは
+boundary classで使う。trigger、未設定・失敗時の扱い、remote分類は`tools/BACKUP.md`が所有する。
 
 - 入力: `--remote`（既定`backup`）、`--branch`（既定`main`）、`--dry-run`、`--root-only`。
   `AGENT_DIRECTORY_ROOT`で対象rootを差し替える。`AGENT_BACKUP_MAX_BLOB_BYTES`は隔離fixture専用。
-- 出力: 成功とdry-runは1行の機械可読な結果をstdoutへ、停止は`BACKUP_BLOCKED reason=<reason>`をstderrへ
-  出して終了コードを非0にする。scope、結果文字列、前提条件、停止reason、divergence時の禁止操作、
-  Independent監査項目、Single Writer、root `git clean`の禁止、復旧・移行手順は`tools/BACKUP.md`が所有し、
-  扱うときだけ読む。
-- root backup remoteへpushする唯一の標準経路であり、pushは`HEAD:refs/heads/<branch>`の明示refspecによる
-  通常のfast-forward pushだけとする。Independent remoteへは決してpushしない。コミットを作らず、
-  `--dry-run`はremoteへ一切書き込まない。
+- 出力: 成功とdry-runはstdoutへ1行の機械可読結果、停止は`BACKUP_BLOCKED reason=<reason>`をstderrへ
+  出して非0で終了する。scope、結果文字列、前提条件、停止reason、divergence、Independent監査項目、
+  Single Writer、root `git clean`の禁止、復旧・移行手順は`tools/BACKUP.md`が所有し、扱うときだけ読む。
+- root backup remoteへpushする唯一の標準経路。fast-forward pushだけを行い、Independent remoteへは
+  pushせず、コミットを作らず、`--dry-run`はremoteへ書き込まない。
 - 検証: ローカルbare remoteの隔離fixtureで実GitHub接続なしに再現できる。
 
 ## materialize-project-repositories.sh
@@ -202,10 +221,9 @@ registryの登録と採用revisionから`projects/<name>/`へ通常cloneを再�
   採用commitの契約を検査する。`--check`はcloneせず整合だけを検査する。
 - 既存targetをreset、clean、stash、merge、rebaseしない。dirtyなら停止する。non-emptyな非repoを上書きせず、
   target・parent・`.git`のsymlinkと`.git` fileを拒否する。認証情報を保存せず、絶対pathを正本へ書かない。
-- 停止reasonの網羅的な正本はTool出力とvalidatorの隔離fixtureである。`--check`で未materializeを
-  検出した場合は`missing-independent-repository`とし、backup Toolと語彙を揃える。
-- 既存cloneではHEADが採用SHAと一致することまで検査する。branch tipを採用する運用も許すため、
-  detached HEADは要求しない。
+- 停止reasonの正本はTool出力とvalidator隔離fixture。`--check`の未materialize検出は
+  `missing-independent-repository`でbackup Toolと語彙を揃える。既存cloneはHEADが採用SHAと
+  一致することまで検査し、detached HEADは要求しない。
 - 検証: ローカルbare remoteの隔離fixtureで実GitHub接続なしに再現できる。
 
 ## validate-agent-directory.sh
@@ -217,31 +235,22 @@ bash tools/validate-agent-directory.sh --full --base main
 ```
 
 - 通常: 必須構造、`AGENTS.md`/`CLAUDE.md`の階層、metadata、Project契約、STATE、Project docs境界、
-  Independentのattachmentとroot ownership、サイズ、INDEX/LOG、eval schema、cache再生成を検査
+  Independentのattachmentとroot ownership、サイズ、INDEX/LOG、eval schemaを静的に検査
 - `--strict`: 導入後に残してはいけない自己定義・Skillプレースホルダーも失敗にする
-- `--full`: 全参照、全Knowledge/Skill/Project、context Tool fixtureを検査
+- `--full`: 全参照、全Knowledge/Skill/Projectに加え、cache再生成、実Git・backup・materializer・
+  context Toolの隔離fixtureを検査。Tool、eval、正本規約を変更した作業では必須とする
 - `--base <ref>`: Git差分から`knowledge/raw/`、閉鎖済みlog、Project物理移動の禁止を検査
 - 終了コード0と`PASS: agent-directory structure is valid`が合格条件である。
 
-機械検査する境界には少なくとも次が含まれる。
-
-- `knowledge/research/`と旧領域`README.md`が存在せず、`knowledge/raw/`の二領域がimmutableである。
-- 固定Wikiが大文字名、利用者ページが小文字ケバブケースであり、旧小文字パスが戻っていない。
-- frontmatterを欠く正本があってもcache生成は停止せず、対象パスと欠落キーを警告して候補から外す。
-- 旧repository frontmatterと`## Repository State`が現役schemaに残らない。
-- `projects/REPOSITORIES.md`のentry規則が成立し、`projects/.gitignore`のmanaged blockと登録集合が
-  完全一致する。
-- Independent Projectはsymlinkでない実cloneと実`.git/`を持ち、toplevel・`remote.origin.url`・HEADが
-  登録と完全一致し、`PROJECT.md`と`STATE.md`を自ら持つ。
-- root indexが登録済みProject配下もgitlinkも持たず、Embeddedとregistry、ignore projection自身が
-  ignoreされていない。旧`projects/<name>/repository/`と登録外のnested `.git`は停止させる。
+機械検査する境界には、`knowledge/raw/`二領域のimmutable性、固定Wikiの命名、frontmatter欠落の
+警告降格、Independent attachment・registry整合・root ownership、旧schema残存の停止が含まれる。
+網羅的な境界の正本はvalidator本体と`evals/EVALS.md`の各最低条件、`tools/BACKUP.md`である。
 
 AGENTS三層とProject docsの完全な構造規則は`projects/PROJECTS.md`が所有する。validatorはその境界と
 サイズだけを固定し、`docs/`より下のフォルダ名と見出し構成はProjectが決める。
 
-既定でも`--full`でも、実GitHub接続、`gh` CLI、認証情報、Private可視性照会を必要としない。backup Toolの
-検査は静的な禁止操作検査とローカルbare remoteの隔離fixtureだけで行う。Private可視性はセットアップ契約で
-あり、利用者が確認する。
+既定でも`--full`でも実GitHub接続、`gh` CLI、認証情報を必要としない。backup検査は静的検査と
+ローカルbare remote fixtureだけで行い、Private可視性はセットアップ契約として利用者が確認する。
 
 ## サイズ予算
 
@@ -266,9 +275,8 @@ AGENTS三層とProject docsの完全な構造規則は`projects/PROJECTS.md`が�
 | `knowledge/wiki/LOG.md` | 128KiB・1,000記録 |
 | `tools/BACKUP.md` | 20KiB |
 
-token数はモデル差があるためvalidatorのhard failには使わない。実行時の読込予算は`AGENTS.md`が所有する。
-validatorはhard limitの90%到達をwarningで示す。warningは利用者への質問事項ではなく、
-次節の標準処理を自律実行して超過前に代謝する合図である。
+token数はモデル差があるためhard failに使わない。実行時の読込予算は`AGENTS.md`が所有する。
+validatorは90%到達をwarningで示し、warningは質問事項ではなく次節の標準処理を自律実行する合図である。
 
 ### 超過時の標準処理
 
@@ -280,17 +288,16 @@ validatorはhard limitの90%到達をwarningで示す。warningは利用者へ�
 3. 条件付きロードへ変更する。
 4. 残る詳細を責務単位で詳細文書へ分割する。
 5. 元の正本には現在有効な原則、境界、Route、参照だけを残す。
-6. 移動前後で意味、禁止事項、例外、参照が失われていないことを確認する。
-7. 参照切れを検査し、validatorを実行し、commitして結果を報告する。
+6. 移動前後で意味・禁止事項・例外・参照が失われていないことを確認し、参照切れ検査とvalidatorを
+   実行してcommitし、結果を報告する。
 
-「圧縮」は曖昧な要約への置換ではなく、意味を保持した重複除去、責務移管、段階的開示である。既定では上限を
-拡大しない。拡大を検討できるのは、既存の責務分離では収容できず、そのファイル自身が情報を所有すべき明確な
-根拠があり、構造全体の変更として正当化できる場合だけであり、validatorを通すためだけの拡大は禁止する。
-hard limit未満のwarningは委譲余地の確認を促す助言であり、閾値を動かして消さない。
+「圧縮」は曖昧な要約置換ではなく、意味を保持した重複除去、責務移管、段階的開示である。上限拡大は、
+既存の責務分離で収容できず、そのファイル自身が所有すべき明確な根拠がある構造変更としてだけ検討し、
+validatorを通すためだけの拡大とwarning閾値の変更は禁止する。
 
-原資料、Knowledge、研究証拠、Project成果物は、大きいことだけを理由に圧縮、要約置換、削除しない。入口
-ファイルの肥大化と保存すべき情報量の増加は別問題として扱い、前者は責務移管、後者は限定取得で解く。
-非破壊的な取り扱いは`knowledge/KNOWLEDGE.md`が所有する。
+原資料、Knowledge、研究証拠、Project成果物は、大きいことだけを理由に圧縮、要約置換、削除しない
+（非破壊的な取り扱いは`knowledge/KNOWLEDGE.md`が所有）。入口の肥大は責務移管、情報量の増加は
+限定取得で解く。
 
 ## 中規模以降
 

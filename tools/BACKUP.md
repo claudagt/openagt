@@ -23,7 +23,6 @@ backup trigger、remote分類、失敗、divergence、復旧、マシン移行�
 - **Remote Backup** — エージェント1体ごとに用意する別のGitHub Privateリポジトリ。最後に正常pushされた
   `main`コミットの受動的な復旧コピー。直接編集しない。
 - **Recovery Point** — push後に確認した、ローカルHEADとremote `main`が一致するコミットSHA。
-  SHA追跡ファイルを作らず、Tool出力と`git ls-remote`から再確認する。
 - **Agent Workspace** — agent-directoryのツリー全体。root repositoryと、materializeされた
   全Independent repositoryを含む。
 - **root repository** — Agent Workspace rootのGit。Embedded Projectの履歴とattachment registryを持つ。
@@ -56,7 +55,7 @@ Independent化するかを利用者へ確認する。
 
 - エージェント1体につきGitHub Privateリポジトリを1つ用意する。共用しない。
 - remote名の既定値は`backup`、branchは`main`とする。
-- GitHub Web UI、Codespaces、別マシンからremoteを直接編集しない。remoteは常にpush先である。
+- remoteは常にpush先であり、GitHub Web UI、Codespaces、別マシンから直接編集しない。
 - Private可視性はセットアップ契約であり、利用者が作成時に確認する。Toolは可視性を照会・変更しない。
 
 ## backup Tool
@@ -71,10 +70,12 @@ bash tools/backup-to-github.sh --dry-run
 bash tools/backup-to-github.sh --root-only
 ```
 
-既定のworkspace scopeは、root pushの前に全Independent repositoryを監査し、Independent自体はpushしない。
-全repositoryがremoteから復旧可能な場合だけ成功とし、partial materializationでは停止する。`--root-only`は
-rootだけを検査・pushし、Independentのnetwork、dirty、unpushを検査しない部分結果である（静的metadataと
-root ownership違反は検査する）。workspace全体の成功として報告しない。
+workspace scope（CLI既定）はroot pushの前に全Independent repositoryを監査し、Independent自体は
+pushしない。全repositoryがremoteから復旧可能な場合だけ成功とし、partial materializationでは停止する。
+`--root-only`はrootだけを検査・pushする部分結果で（静的metadataとroot ownership違反は検査する）、
+workspace全体の成功として報告しない。運用の標準scopeはタスクclassで選ぶ。通常のwork/stateは
+`--root-only`、採用revision更新・registry・materialization・移行・復旧・マシン移行・配布前の
+boundaryはworkspaceとする。
 
 | scope | 成功（終了コード0） | dry-run成功 |
 |---|---|---|
@@ -184,9 +185,8 @@ Single WriterはAgent単位ではなくGitリポジトリ単位の制約であ�
 - 長い作業を中断する際の検証済みcheckpoint
 - マシン移行前
 
-ファイル1件ごとにpushせず、意味のあるcommit境界で実行する。時刻駆動や常駐ではなく、エージェントの
-タスク境界で起きるevent-drivenな操作に限る。フルvalidatorの合否はbackupの必須条件ではない。壊れた状態の
-保全にもbackupを使う。
+ファイル1件ごとにpushせず、意味のあるcommit境界で実行する。時刻駆動や常駐にしない。
+フルvalidatorの合否はbackupの必須条件ではない。壊れた状態の保全にもbackupを使う。
 
 ## backupが失敗したとき
 

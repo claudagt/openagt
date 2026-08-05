@@ -146,6 +146,9 @@ tools/find-context.sh --route knowledge --limit 5 -- "資本配分"
 
 # 明示的な監査時だけ非activeも含める
 tools/find-context.sh --route project --include-inactive -- "site migration"
+
+# 対象確定後の初期読込を1回のContext Packetへまとめる
+tools/prepare-context.sh --route project --target projects/<name>
 ```
 
 明示パスと正本の明示参照を最優先とし、検索結果は候補として扱う。選択後に正本を読む。

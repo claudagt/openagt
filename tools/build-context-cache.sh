@@ -36,6 +36,8 @@ tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/agent-context-cache.XXXXXX")"
 trap 'rm -rf "$tmp_root"' EXIT
 generated_dir="$tmp_root/generated"
 mkdir -p "$generated_dir"
+# stat指紋の同秒編集guardに使う。この秒以降のmtimeを持つsourceがある間は指紋を保存しない。
+run_start_epoch="$(date +%s)"
 
 frontmatter_value() {
   local file="$1"
@@ -224,6 +226,111 @@ meta_files=(
   'tools/BACKUP.md|backup-policy|遠隔バックアップ、復旧、マシン移行の規約'
 )
 
+# --- --check-routing warm fast path -----------------------------------------------
+# 候補集合のpath+size+mtime指紋が前回保存時と一致すれば、本文の再読・再hashなしで
+# catalogを新鮮と判定する。指紋の欠損・不一致・stat不能時は従来の全再計算とcmpへ
+# fallbackし、判定の正確性はfallback側が保証する。Git HEADは鮮度入力に使わない。
+
+# builderと同じ候補集合を本文を読まずに列挙する。列挙規則を変えたら両方を揃える。
+list_stat_candidates() {
+  local entry directory file project_relative registry_name registry_revision
+  for entry in "${meta_files[@]}"; do
+    printf '%s\n' "$repo_root/${entry%%|*}"
+  done
+  for directory in "$repo_root/knowledge/wiki/sources" "$repo_root/knowledge/wiki/topics"; do
+    [[ -d "$directory" ]] || continue
+    find "$directory" -type f -name '*.md'
+  done
+  if [[ -d "$repo_root/skills" ]]; then
+    while IFS= read -r -d '' file; do
+      [[ "$file" == "$repo_root/skills/_template/"* ]] && continue
+      printf '%s\n' "$file"
+    done < <(find "$repo_root/skills" -mindepth 2 -maxdepth 2 -type f -name 'SKILL.md' -print0)
+  fi
+  while IFS= read -r project_relative; do
+    [[ -n "$project_relative" ]] || continue
+    printf '%s/%s\n' "$repo_root" "$project_relative"
+  done < <(root_index_project_contracts)
+  printf '%s\n' "$repo_root/$registry_path" "$tool_root/build-context-cache.sh"
+  if [[ -f "$repo_root/$registry_path" ]]; then
+    # Independent cloneの出現・消滅・HEAD移動もcatalog行を変えるため指紋へ含める。
+    while IFS=$'\t' read -r registry_name registry_revision; do
+      [[ -n "$registry_name" && "$registry_name" != 'W' ]] || continue
+      printf '%s\n' "$repo_root/projects/$registry_name/.git/HEAD"
+    done < <(registry_records "$repo_root/$registry_path")
+  fi
+}
+
+stat_lines_for() {
+  # "path<TAB>size<TAB>mtime" を1回のstat実行で出す。GNU statを先に試すのは、
+  # GNUの`-f`がfilesystem情報で誤成功するのを避けるためである。
+  (( $# > 0 )) || return 0
+  stat -c $'%n\t%s\t%Y' "$@" 2>/dev/null && return 0
+  stat -f $'%N\t%z\t%m' "$@" 2>/dev/null
+}
+
+stat_fingerprint_report() {
+  # 1行目に指紋、2行目にsource側最大mtimeを出す。cache派生物は改変検知のため
+  # 指紋にだけ入れ、同秒guardの対象へ入れない（buildと同秒のmtimeを常に持つ）。
+  stat_existing=()
+  stat_missing=()
+  local candidate source_lines cache_lines
+  while IFS= read -r candidate; do
+    [[ -n "$candidate" ]] || continue
+    if [[ -e "$candidate" ]]; then
+      stat_existing+=("$candidate")
+    else
+      stat_missing+=("$candidate")
+    fi
+  done < <(list_stat_candidates | LC_ALL=C sort -u)
+  source_lines=''
+  if (( ${#stat_existing[@]} > 0 )); then
+    source_lines="$(stat_lines_for "${stat_existing[@]}")" || return 1
+  fi
+  cache_lines=''
+  if [[ -f "$cache_dir/catalog.tsv" && -f "$cache_dir/cache.meta" ]]; then
+    cache_lines="$(stat_lines_for "$cache_dir/catalog.tsv" "$cache_dir/cache.meta")" || cache_lines=''
+  fi
+  {
+    printf '%s\n' "$source_lines" "$cache_lines"
+    if (( ${#stat_missing[@]} > 0 )); then
+      printf '%s\tmissing\n' "${stat_missing[@]}"
+    fi
+  } | LC_ALL=C sort | stream_hash
+  printf '%s\n' "$source_lines" | \
+    awk -F '\t' 'BEGIN { max = 0 } NF >= 3 && ($3 + 0) > max { max = $3 + 0 } END { print max }'
+}
+
+write_stat_meta() {
+  # 同秒編集の疑いがある間は指紋を保存せず、fast pathを無効のままにする。
+  local report="$1"
+  local epoch="$2"
+  local fingerprint max_mtime
+  fingerprint="$(printf '%s\n' "$report" | sed -n '1p')"
+  max_mtime="$(printf '%s\n' "$report" | sed -n '2p')"
+  if [[ -n "$fingerprint" && "$max_mtime" =~ ^[0-9]+$ ]] && (( max_mtime < epoch )); then
+    printf 'schema_version=1\nstat_fingerprint=%s\n' "$fingerprint" > "$cache_dir/stat.meta"
+  else
+    rm -f "$cache_dir/stat.meta"
+  fi
+}
+
+routing_stat_report=''
+if [[ "$mode" == 'check-routing' ]]; then
+  if ! routing_stat_report="$(stat_fingerprint_report)"; then
+    routing_stat_report=''
+  fi
+  if [[ -n "$routing_stat_report" && -f "$cache_dir/stat.meta" ]] && \
+    grep -Fqx 'schema_version=1' "$cache_dir/stat.meta"; then
+    stored_fingerprint="$(sed -n 's/^stat_fingerprint=//p' "$cache_dir/stat.meta" | head -n 1)"
+    current_fingerprint="$(printf '%s\n' "$routing_stat_report" | sed -n '1p')"
+    if [[ -n "$stored_fingerprint" && "$current_fingerprint" == "$stored_fingerprint" ]]; then
+      printf 'PASS: routing catalog is current\n'
+      exit 0
+    fi
+  fi
+fi
+
 for entry in "${meta_files[@]}"; do
   IFS='|' read -r path name description <<< "$entry"
   append_catalog 'meta' 'policy' 'active' "$name" '' "$description" '' "$repo_root/$path"
@@ -304,6 +411,10 @@ tail -n +2 "$catalog_unsorted" | LC_ALL=C sort -t $'\t' -k8,8 >> "$catalog"
 
 if [[ "$mode" == 'check-routing' ]]; then
   if [[ -f "$cache_dir/catalog.tsv" ]] && cmp -s "$catalog" "$cache_dir/catalog.tsv"; then
+    # 全再計算でPASSした時点の指紋を保存し、次回以降をwarm fast pathにする。
+    if [[ -n "$routing_stat_report" ]]; then
+      write_stat_meta "$routing_stat_report" "$run_start_epoch"
+    fi
     printf 'PASS: routing catalog is current\n'
     exit 0
   fi
@@ -460,5 +571,11 @@ if [[ -f "$generated_dir/search.sqlite" ]]; then
   cp "$generated_dir/search.sqlite" "$cache_dir/search.sqlite"
 elif [[ -f "$cache_dir/search.sqlite" ]]; then
   rm -f "$cache_dir/search.sqlite"
+fi
+# stat指紋はwarm fast path専用の派生物であり、--checkの比較対象へ入れない。
+if build_stat_report="$(stat_fingerprint_report)"; then
+  write_stat_meta "$build_stat_report" "$run_start_epoch"
+else
+  rm -f "$cache_dir/stat.meta"
 fi
 printf 'PASS: context cache generated at %s\n' "$cache_dir"

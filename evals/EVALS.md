@@ -106,9 +106,12 @@ ignore projectionで隠れるfixture pathは`git add -f`で明示追跡する。
 行動evalの実行adapterは、可能なら次のJSONLを記録する。
 
 ```json
-{"event":"search","route":"knowledge","query":"...","returned":5}
+{"event":"phase","name":"resolve","duration_ms":42}
+{"event":"search","route":"knowledge","query":"...","returned":5,"duration_ms":120}
+{"event":"cache","mode":"stat-fast|full-check|rebuild"}
 {"event":"read","path":"knowledge/wiki/topics/example.md","bytes":4200}
-{"event":"run","command":"...","exit_code":0}
+{"event":"run","command":"...","exit_code":0,"duration_ms":800}
+{"event":"summary","tool_calls":6,"wall_time_ms":21000}
 ```
 
 検査対象:
@@ -118,6 +121,12 @@ ignore projectionで隠れるfixture pathは`git add -f`で明示追跡する。
 - 実行commandと終了コード
 - 書込・更新・保持・禁止path
 - 予算停止時の未読範囲と不確実性の報告
+- phase別duration、cache mode（stat-fast / full-check / rebuild）、Tool call数、全体wall time
+
+効率指標は品質期待の代替にしない。route正解率、必須読込、検証合格、backup保証の正確な報告が
+同一水準で維持されることを前提に、wall time、Tool call数、読込byte、統合fixture実行数の悪化を
+効率regressionとして扱う。duration系のfieldはクライアントが提供する場合だけ検査し、
+自己申告のみの値は未検証として扱う。
 
 自己申告だけで合格させず、クライアントのTool履歴、sandbox記録、またはadapterのアクセス記録を使う。
 クライアントが実トレースを提供しない場合は、その項目を未検証として扱う。

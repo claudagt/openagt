@@ -981,8 +981,8 @@ required_files=(
   'skills/SKILLS.md' 'skills/_template/SKILL.md' 'projects/PROJECTS.md' 'projects/LIFECYCLE.md' 'projects/RECOVERY.md'
   "$registry_path" "$ignore_path"
   'projects/_template/PROJECT.md' 'projects/_template/STATE.md' 'evals/EVALS.md' 'tools/TOOLS.md'
-  'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/append-knowledge-log.sh'
-  'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
+  'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/prepare-context.sh'
+  'tools/append-knowledge-log.sh' 'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
   'tools/materialize-project-repositories.sh' '.gitignore'
   "$knowledge_source_template_path" "$knowledge_topic_template_path"
 )
@@ -1471,6 +1471,12 @@ grep -Fq 'backup-to-github.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register backup-to-github.sh'
 grep -Fq 'materialize-project-repositories.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register materialize-project-repositories.sh'
+grep -Fq 'prepare-context.sh' "$repo_root/tools/TOOLS.md" || \
+  fail 'tools/TOOLS.md does not register prepare-context.sh'
+if [[ -f "$repo_root/tools/prepare-context.sh" ]]; then
+  "$syntax_bash" -n "$repo_root/tools/prepare-context.sh" 2>/dev/null || \
+    fail 'tools/prepare-context.sh fails bash -n'
+fi
 grep -Fq 'BACKUP.md' "$repo_root/tools/TOOLS.md" || fail 'tools/TOOLS.md does not register BACKUP.md'
 for scope_token in WORKSPACE_BACKUP_OK ROOT_BACKUP_OK; do
   grep -Fq "$scope_token" "$repo_root/tools/BACKUP.md" || \
@@ -1540,6 +1546,9 @@ done <<'SIZE_BUDGET_ROWS'
 | `projects/<name>/AGENTS.md` | 2KiB |
 SIZE_BUDGET_ROWS
 
+# 実Git・cache・backup・materializerの統合fixtureは--fullだけで実行する。
+# 既定実行は静的構造検査に限定し、Tool変更時は--fullを必須とする（tools/TOOLS.md所有）。
+if [[ "$full" == true ]]; then
 cache_test_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-cache.XXXXXX")"
 fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-fixture.XXXXXX")"
 sqlite_fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-sqlite.XXXXXX")"
@@ -2324,7 +2333,6 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
     fail 'backup fixture: the Independent remote changed during the whole fixture run'
 fi
 
-if [[ "$full" == true ]]; then
   fixture_root="$repo_root/evals/fixtures/context-search"
   if ! result="$(AGENT_DIRECTORY_ROOT="$fixture_root" AGENT_CACHE_DIR="$fixture_cache_dir" \
     bash "$repo_root/tools/find-context.sh" --route knowledge --limit 5 -- '資本配分')"; then
