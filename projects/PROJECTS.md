@@ -303,6 +303,22 @@ Gitリポジトリ単位であり、同じrepositoryへの同時Writerを禁止�
 Independent sessionはcommit SHA、検証結果、未完了事項を返し、root sessionだけがそのSHAを`STATE.md`へ
 採用する。Independent sessionはroot metadataを書かず、root sessionはIndependent本体を書かない。
 
+### Remote操作の境界
+
+`AGENTS.md#禁止事項`のfetch、pull、push禁止はroot repositoryを対象とする。root remoteへのpushは、
+利用者が明示したbackup時に`tools/backup-to-github.sh`だけが行う。
+
+Independent repositoryでは、Project契約、外部workflow、または利用者の明示指示で必要な場合に限り、
+Independent session rootからfetchと通常pushを行ってよい。root sessionからIndependent remoteを操作せず、
+pull、merge、rebaseによる自動統合と、force push、force-with-lease、mirror pushを行わない。
+
+通常のIndependent更新は次の順序で進む。
+
+1. Independent session rootで検証してcommitする。
+2. `origin`へ通常pushし、remoteへ採用予定SHAが存在することを確認する。
+3. SHAと検証結果をhandoffする。
+4. 別のroot sessionが`STATE.md`の採用revisionを更新する。
+
 ### Materializationとbackup境界
 
 健全なAgent Workspaceでは、statusにかかわらず全Independent repositoryが固定pathへmaterialize済みである。
@@ -379,7 +395,7 @@ repository_mode: embedded
 - Conditionalは`条件:`と`参照:`を組にし、条件成立時だけ読む。
 - 参照はリポジトリ相対パスを使う。ウィキリンクだけを実行時参照にしない。
 - 非activeなKnowledge、deprecated/retired SkillをRequiredにしない。
-- 上限を超える場合は条件付き化、hub化、またはProject分割を行い、無制限読込で解決しない。
+- 上限を超える場合は条件付き化、参照入口の集約、またはProject分割を行い、無制限読込で解決しない。
 
 ## 着手から終了まで
 

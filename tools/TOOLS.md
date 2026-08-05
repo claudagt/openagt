@@ -148,6 +148,8 @@ Independent Projectの宣言と採用revisionから、固定path`projects/<name>
 
 - 入力: `--all`または`--project <name>`のいずれか一つ、任意の`--check`。`AGENT_DIRECTORY_ROOT`で
   隔離fixture rootへ差し替えられる。root Gitが追跡する`PROJECT.md`と`STATE.md`だけを対象とする。
+  `AGENT_ALLOW_LOCAL_REPOSITORY_URL=true`はローカルbare remoteを許す隔離fixture専用の上書きであり、
+  通常運用では設定しない。
 - 出力: 成功`MATERIALIZATION_OK total=<n> cloned=<n> verified=<n>`をstdoutへ1行。
   停止時は`MATERIALIZATION_BLOCKED reason=<reason> project=<name>`をstderrへ出し、終了コードを非0にする。
 - 動作: targetが無いときだけ`--no-checkout`でcloneし、`origin`を宣言値と完全一致させ、採用revisionを
@@ -157,9 +159,12 @@ Independent Projectの宣言と採用revisionから、固定path`projects/<name>
 - 主な停止reason: `not-agent-directory-root`、`invalid-project`、`invalid-independent-declaration`、
   `invalid-independent-state`、`target-path-symlink`、`target-not-empty`、
   `repository-gitfile-unsupported`、`repository-origin-mismatch`、`repository-dirty`、
-  `repository-staged`、`repository-untracked`、`repository-stash-present`、`revision-unavailable`、
+  `repository-staged`、`repository-untracked`、`repository-stash-present`、
+  `repository-head-not-adopted`、`revision-unavailable`、`default-branch-missing`、
   `authentication-required`、`remote-unreachable`。`--check`で未materializeを検出した場合は
   `missing-independent-repository`とし、backup Toolと語彙を揃える。
+- 既存cloneでは採用revisionの存在だけでなく、HEADが採用SHAと一致することまで検査する。
+  branch上で作業してそのtipを採用する運用も許すため、detached HEADは要求しない。
 - 検証: 一時ディレクトリのローカルbare remoteを使う隔離fixtureで、fresh clone、採用SHAのdetached checkout、
   `--check`の冪等性、dirty targetの停止を実GitHub接続なしに再現できる。
 

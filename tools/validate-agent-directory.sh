@@ -463,7 +463,7 @@ validate_project_docs() {
 validate_independent_attachment() {
   local project_file="$1"
   local repository_url="$2"
-  local project_dir rel_project target child_top child_origin
+  local project_dir rel_project target child_top child_origin child_head state_revision
   project_dir="$(dirname "$project_file")"
   case "$project_dir" in
     "$repo_root"/projects/*) ;;
@@ -503,6 +503,14 @@ validate_independent_attachment() {
   child_origin="$(git -C "$target" config --get remote.origin.url 2>/dev/null || true)"
   [[ "$child_origin" == "$repository_url" ]] || \
     fail "$rel_project/repository remote.origin.url is ${child_origin:-<unset>}, expected $repository_url"
+  # 採用revisionがcloneに存在するだけでは足りない。HEADがそこに固定されていることまで確かめる。
+  # branch上で作業してそのtipを採用する運用も成立するため、detached HEADまでは要求しない。
+  state_revision="$(repository_state_value "$project_dir/STATE.md" 'revision')"
+  if [[ "$state_revision" =~ ^[0-9a-f]{40}$ ]]; then
+    child_head="$(git -C "$target" rev-parse --verify --quiet HEAD || true)"
+    [[ "$child_head" == "$state_revision" ]] || \
+      fail "$rel_project/repository HEAD is ${child_head:-none}, but STATE.md adopts $state_revision"
+  fi
 }
 
 validate_project_contract() {
@@ -560,15 +568,23 @@ validate_project_contract() {
         [[ "$(frontmatter_key_count "$project_file" "$repository_key")" == '1' ]] || \
           fail "$(relative_path "$project_file") must declare $repository_key exactly once for Independent mode"
       done
+      # option injection、認証情報、query/fragment、file://、ローカルpathを正本へ書かせない。
       if [[ -z "$repository_url" || "$repository_url" =~ [[:space:]\`] || \
-            "$repository_url" =~ ^https?://[^/@]+@ ]]; then
-        fail "$(relative_path "$project_file") Independent repository_url must be a non-empty, whitespace-free Git URL"
+            "$repository_url" == -* || "$repository_url" == *'?'* || "$repository_url" == *'#'* || \
+            "$repository_url" == file://* || "$repository_url" == /* || "$repository_url" == .* || \
+            "$repository_url" == '~'* || "$repository_url" =~ ^[^:]*://[^/@]*:[^/@]*@ || \
+            "$repository_url" =~ ^[^:/@]*:[^/@]*@ ]]; then
+        fail "$(relative_path "$project_file") Independent repository_url must be a credential-free remote URL without query, fragment or local path"
+      elif [[ "$repository_url" != *://* && "$repository_url" != *:* ]]; then
+        fail "$(relative_path "$project_file") Independent repository_url must be a remote URL, not a bare path"
       fi
       case "$repository_reason" in
         automation|distribution|collaboration|access|identity|upstream|retention) ;;
         *) fail "$(relative_path "$project_file") has an invalid repository_reason" ;;
       esac
-      if [[ ! "$repository_default_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+      if [[ ! "$repository_default_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || \
+        { command -v git >/dev/null 2>&1 && \
+          ! git check-ref-format --branch "$repository_default_branch" >/dev/null 2>&1; }; then
         fail "$(relative_path "$project_file") has an invalid repository_default_branch"
       fi
       # root側envelopeが持ってよいのは契約、状態、固定pathのcloneだけである。
@@ -1108,7 +1124,7 @@ required_cases=(
   backup-explicit-only backup-divergence-refusal restore-single-writer
   backup-workspace-repository-boundary independent-consolidation-audit
   independent-promotion-session-boundary independent-repository-materialization
-  root-clean-independent-repository-safety
+  independent-remote-update-handoff root-clean-independent-repository-safety
   root-agents-router-scope project-agents-optional project-agents-diff-only
   project-agents-no-contract-copy project-agents-claude-bridge
   knowledge-internal-record-storage knowledge-external-source-storage
@@ -1182,7 +1198,7 @@ if [[ -f "$backup_tool" ]]; then
   [[ -x "$backup_tool" ]] || fail 'tools/backup-to-github.sh is not executable'
   bash -n "$backup_tool" 2>/dev/null || fail 'tools/backup-to-github.sh fails bash -n'
 
-  allowed_git_subcommands='cat-file config diff fetch for-each-ref init ls-files ls-remote merge-base push rev-list rev-parse symbolic-ref'
+  allowed_git_subcommands='cat-file check-ref-format config diff fetch for-each-ref init ls-files ls-remote merge-base push rev-list rev-parse symbolic-ref'
   while IFS= read -r subcommand; do
     [[ -n "$subcommand" ]] || continue
     case " $allowed_git_subcommands " in
@@ -1402,6 +1418,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
     HOME="$backup_fixture_dir" GIT_CONFIG_NOSYSTEM=1
     GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
     GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
+    AGENT_ALLOW_LOCAL_REPOSITORY_URL=true
   )
   backup_output=''
   backup_status=0
@@ -1666,9 +1683,22 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_expect_blocked 'independent-revision-unavailable' 'an adopted revision absent from the remote'
   backup_git reset -q --hard HEAD~1
 
+  # 採用SHAはclone内に存在するがHEADは別commit、という状態を三つのToolすべてが停止させる。
   child_git checkout -q --detach "$independent_tip"
   backup_run --dry-run
   backup_expect_blocked 'independent-head-not-adopted' 'a HEAD that is not the adopted revision'
+  materialize_run --all --check
+  materialize_expect_blocked 'repository-head-not-adopted' 'data-pipeline' \
+    'a materialized clone parked on a different revision'
+  attachment_probe="$( (
+    repo_root="$backup_work"
+    failures=0
+    validate_independent_attachment \
+      "$backup_work/projects/data-pipeline/PROJECT.md" "$independent_remote_dir"
+    exit 0
+  ) 2>&1 )"
+  printf '%s\n' "$attachment_probe" | grep -Fq 'but STATE.md adopts' || \
+    fail "validator fixture: validate_independent_attachment accepted a clone parked on a different revision: $attachment_probe"
   child_git checkout -q --detach "$independent_revision"
 
   child_git remote set-url origin "$backup_remote_dir"
@@ -1742,6 +1772,45 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_git commit -q -a -m 'fixture: deprecated satellite mode'
   backup_run --root-only --dry-run
   backup_expect_blocked 'deprecated-satellite-mode' 'the retired satellite repository mode'
+  backup_git reset -q --hard HEAD~1
+
+  # 認証情報、query、option injectionを載せたURLを正本へ書かせない。
+  for hostile_url in \
+    "ssh://fixture:secret@example.invalid/repository.git" \
+    "https://example.invalid/repository.git?token=secret" \
+    "--upload-pack=/tmp/fixture-pack"; do
+    {
+      printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
+      printf '%s\n' 'repository_mode: independent' "repository_url: $hostile_url"
+      printf '%s\n' 'repository_reason: automation' 'repository_default_branch: main' '---'
+    } > "$backup_work/projects/data-pipeline/PROJECT.md"
+    backup_git commit -q -a -m 'fixture: hostile repository_url'
+    backup_run --root-only --dry-run
+    backup_expect_blocked 'invalid-independent-declaration' "the hostile repository_url $hostile_url"
+    printf '%s\n' "$backup_output" | grep -Fq 'secret' && \
+      fail "backup fixture: the blocked report leaked a credential from $hostile_url"
+    backup_git reset -q --hard HEAD~1
+  done
+
+  # 実在しないdefault branchは、採用SHAが取得できても通さない。
+  {
+    printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
+    printf '%s\n' 'repository_mode: independent' "repository_url: $independent_remote_dir"
+    printf '%s\n' 'repository_reason: automation' 'repository_default_branch: maim' '---'
+  } > "$backup_work/projects/data-pipeline/PROJECT.md"
+  backup_git commit -q -a -m 'fixture: default branch that does not exist'
+  backup_run --dry-run
+  backup_expect_blocked 'independent-default-branch-missing' 'a declared default branch absent from the remote'
+  backup_git reset -q --hard HEAD~1
+
+  {
+    printf '%s\n' '---' 'name: data-pipeline' 'description: fixture' 'status: active' 'mode: continuous'
+    printf '%s\n' 'repository_mode: independent' "repository_url: $independent_remote_dir"
+    printf '%s\n' 'repository_reason: automation' 'repository_default_branch: bad..branch' '---'
+  } > "$backup_work/projects/data-pipeline/PROJECT.md"
+  backup_git commit -q -a -m 'fixture: malformed default branch'
+  backup_run --root-only --dry-run
+  backup_expect_blocked 'invalid-independent-declaration' 'a default branch rejected by check-ref-format'
   backup_git reset -q --hard HEAD~1
 
   {

@@ -6,9 +6,10 @@ Project Routeの入口。最小手順だけを持ち、詳細は`projects/PROJEC
 
 1. 対象を一つに確定する。明示パスがなければ`tools/find-context.sh --route project --limit 5`で
    `active`候補を得る。明示依頼なく新設しない。
-2. `PROJECT.md`の`repository_mode`を読み、次節でsession rootを確定してから書込を始める。
-3. 対象に`AGENTS.md`があれば`PROJECT.md`より先に読む。契約と状態を複製しない差分ファイル。
-4. `PROJECT.md`、`STATE.md`の順に読み、対象契約（`PROJECT.md#PC-xx`か`#status`）と合格条件を特定する。
+2. `PROJECT.md`のfrontmatterから`repository_mode`だけを読み、次節でsession rootを確定する。
+3. 確定後、対象`AGENTS.md`（あれば）、`PROJECT.md`全文、`STATE.md`の順に読む。`AGENTS.md`は
+   契約と状態を複製しない差分ファイル。
+4. 対象契約（`PROJECT.md#PC-xx`か`#status`）と合格条件を特定する。
 5. Docs Routeの条件に一致した`ARCHITECTURE.md`と`docs/<DOMAIN>.md`、Required参照だけを読む。
    Conditionalは条件成立時だけ読む。
 

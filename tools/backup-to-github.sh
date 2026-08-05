@@ -10,12 +10,15 @@ dry_run=false
 root_only=false
 independent_verify_root=''
 independent_index=0
+# ローカルbare remoteは隔離fixture検証だけで許可する。通常運用では設定しない。
+allow_local_repository_url="${AGENT_ALLOW_LOCAL_REPOSITORY_URL:-false}"
 
 # 宣言済みIndependent Projectの並行配列。bash 3.2にassociative arrayはない。
 independent_names=()
 independent_dirs=()
 independent_urls=()
 independent_revisions=()
+independent_branches=()
 
 usage() {
   printf 'Usage: %s [--remote <name>] [--branch <name>] [--dry-run] [--root-only]\n' "${0##*/}" >&2
@@ -81,6 +84,41 @@ repository_state_key_count() {
   ' "$1"
 }
 
+# repository_urlはoption injection、認証情報、query/fragment、file://、ローカルpathを拒否する。
+# scp形式の `git@host:path` と `scheme://host/path` だけを通す。
+repository_url_is_rejected() {
+  local url="$1"
+  local authority userinfo
+  [[ -n "$url" ]] || return 0
+  case "$url" in
+    -*) return 0 ;;
+    *[[:space:]]*|*'`'*) return 0 ;;
+    *'?'*|*'#'*) return 0 ;;
+    file://*|FILE://*) return 0 ;;
+  esac
+  authority="${url#*://}"
+  authority="${authority%%/*}"
+  case "$authority" in
+    *@*)
+      userinfo="${authority%%@*}"
+      case "$userinfo" in *:*) return 0 ;; esac
+      ;;
+  esac
+  if [[ "$allow_local_repository_url" != 'true' ]]; then
+    case "$url" in
+      /*|./*|../*|~*) return 0 ;;
+      *://*|*:*) ;;
+      *) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+# 宣言時に拒否しているが、DETAIL行でもuserinfoのpassword、query、fragmentを伏せる。
+redact_repository_url() {
+  printf '%s' "$1" | sed -E 's|(://[^/:@]+):[^/@]*@|\1:***@|; s|\?.*$|?***|; s|#.*$|#***|'
+}
+
 cleanup() {
   if [[ -n "$independent_verify_root" && -d "$independent_verify_root" ]]; then
     rm -rf -- "$independent_verify_root"
@@ -105,11 +143,14 @@ validate_independent_declaration() {
     automation|distribution|collaboration|access|identity|upstream|retention) ;;
     *) blocked 'invalid-independent-declaration' "$project_md has an invalid repository_reason" ;;
   esac
-  if [[ -z "$repository_url" || "$repository_url" =~ [[:space:]\`] || \
-        "$repository_url" =~ ^https?://[^/@]+@ || \
-        ! "$repository_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+  if repository_url_is_rejected "$repository_url"; then
     blocked 'invalid-independent-declaration' \
-      "$project_md has an invalid repository_url or repository_default_branch"
+      "$project_md repository_url must be a credential-free remote URL without query, fragment or local path: $(redact_repository_url "$repository_url")"
+  fi
+  if [[ ! "$repository_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || \
+    ! git check-ref-format --branch "$repository_branch" >/dev/null 2>&1; then
+    blocked 'invalid-independent-declaration' \
+      "$project_md has an invalid repository_default_branch: ${repository_branch:-<empty>}"
   fi
   printf '%s' "$repository_url"
 }
@@ -163,7 +204,7 @@ validate_independent_attachment() {
 
   child_origin="$(git -C "$target" config --get remote.origin.url 2>/dev/null || true)"
   [[ "$child_origin" == "$repository_url" ]] || blocked 'repository-origin-mismatch' \
-    "$project_dir/repository remote.origin.url is ${child_origin:-<unset>}, expected $repository_url"
+    "$project_dir/repository remote.origin.url is $(redact_repository_url "${child_origin:-<unset>}"), expected $(redact_repository_url "$repository_url")"
 }
 
 # --- Independent本体のローカル状態監査 ----------------------------------------
@@ -219,6 +260,7 @@ verify_independent_revision() {
   local project_dir="$1"
   local repository_url="$2"
   local state_revision="$3"
+  local repository_branch="$4"
   local target="$repo_root/$project_dir/repository"
   local head_sha fetch_output
 
@@ -236,8 +278,13 @@ verify_independent_revision() {
     git -C "$verify_repo" fetch --quiet "$repository_url" \
     "+refs/heads/*:refs/remotes/upstream/*" "+refs/tags/*:refs/tags/*" 2>&1)"; then
     blocked 'independent-remote-unreachable' \
-      "$project_dir/repository declared remote is unreachable: $repository_url" "$fetch_output"
+      "$project_dir/repository declared remote is unreachable: $(redact_repository_url "$repository_url")" \
+      "$fetch_output"
   fi
+  # 宣言したdefault branchがremoteに実在することを、取得済みのrefで確かめる。
+  git -C "$verify_repo" rev-parse --verify --quiet "refs/remotes/upstream/$repository_branch" >/dev/null || \
+    blocked 'independent-default-branch-missing' \
+      "$project_dir declares repository_default_branch: $repository_branch, but the remote has no such branch"
   if ! fetch_output="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true GCM_INTERACTIVE=never \
     git -C "$verify_repo" fetch --quiet --no-tags "$repository_url" "$state_revision" 2>&1)"; then
     blocked 'independent-revision-unavailable' \
@@ -526,6 +573,7 @@ while IFS= read -r project_md; do
   independent_dirs+=("$project_dir")
   independent_urls+=("$project_url")
   independent_revisions+=("$project_revision")
+  independent_branches+=("$(frontmatter_value "$repo_root/$project_md" 'repository_default_branch')")
 done < <(git -C "$repo_root" ls-files -- 'projects/*/PROJECT.md')
 
 independent_count="${#independent_names[@]}"
@@ -544,11 +592,13 @@ else
     audit_dir="${independent_dirs[$audit_index]}"
     audit_url="${independent_urls[$audit_index]}"
     audit_revision="${independent_revisions[$audit_index]}"
+    audit_branch="${independent_branches[$audit_index]}"
     validate_independent_attachment "$audit_dir" "$audit_url"
     audit_independent_repository "$audit_dir"
-    audit_verify_repo="$(verify_independent_revision "$audit_dir" "$audit_url" "$audit_revision")"
+    audit_verify_repo="$(verify_independent_revision \
+      "$audit_dir" "$audit_url" "$audit_revision" "$audit_branch")"
     verify_local_refs_backed_up "$audit_dir" "$audit_verify_repo"
-    note "independent repository verified: $audit_url@$audit_revision at $audit_dir/repository"
+    note "independent repository verified: $(redact_repository_url "$audit_url")@$audit_revision at $audit_dir/repository"
     audit_index=$((audit_index + 1))
   done
   note "declared Independent repositories: $independent_count (audited, never pushed by this tool)"

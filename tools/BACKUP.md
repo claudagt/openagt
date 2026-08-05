@@ -144,7 +144,7 @@ reset等で変形しない。remote refsとlocal refsの到達性は一時bare r
 8. tracked working treeがdirtyでない。
 9. 非ignoreのuntracked fileがない。
 10. stashがない。
-11. remoteへ到達できる。
+11. remoteへ到達でき、`repository_default_branch`がremoteに実在する。
 12. 採用revisionをremoteからfetchできる。
 13. HEADが`STATE.md`の採用revisionと一致する。
 14. HEADと全local branch tipがremote headまたはtagから到達できる。
@@ -167,7 +167,8 @@ Independentとworkspaceのreason:
 `independent-staged-changes`、`independent-dirty-working-tree`、`independent-untracked-files`、
 `independent-stash-present`、`independent-head-not-adopted`、`independent-revision-unavailable`、
 `independent-unpushed-commit`、`independent-unreachable-local-branch`、`independent-unpushed-tag`、
-`independent-remote-unreachable`、`workspace-partially-materialized`、`deprecated-satellite-mode`。
+`independent-default-branch-missing`、`independent-remote-unreachable`、
+`workspace-partially-materialized`、`deprecated-satellite-mode`。
 
 Toolはfast-forward pushだけを`HEAD:refs/heads/<branch>`の明示refspecで行い、push後に`git ls-remote`で
 remote SHAを再取得してローカルHEADとの完全一致を確認する。`--dry-run`はremoteへ一切書き込まない。
@@ -185,6 +186,16 @@ GitHubリポジトリの作成・可視性変更、GitHub Actionsの実行、Ind
 子cloneのfetch・checkout・reset・merge・rebase・stashによる変形。
 
 Toolはコミットを作らない。バックアップ対象を確定するのは利用者のコミットであり、Toolではない。
+
+## remote操作の分担
+
+`AGENTS.md#禁止事項`のfetch、pull、push禁止はroot repositoryを対象とする。root remoteへのpushは
+このToolだけが行い、Independent repositoryへは決してpushしない。Independent側のfetchと通常pushは
+Independent session rootが行い、条件は`projects/PROJECTS.md#remote操作の境界`が所有する。
+
+`repository_url`には認証情報、query、fragment、`file://`、ローカルpathを書かない。Toolはこれらと
+`-`で始まるURLを`invalid-independent-declaration`で拒否し、報告経路でもuserinfoのpasswordを伏せる。
+`AGENT_ALLOW_LOCAL_REPOSITORY_URL=true`はローカルbare remoteを使う隔離fixture専用の上書きである。
 
 ## Single Writer
 

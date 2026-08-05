@@ -174,7 +174,9 @@ SQLite切替のような実挙動は、validatorが一時ディレクトリへ�
 
 ## バックアップケースの最低条件
 
-- 通常のKnowledge、Skill、Project作業で`tools/BACKUP.md`を読まず、fetch、pull、pushを行わない。
+- 通常のKnowledge、Skill、Project作業で`tools/BACKUP.md`を読まず、root repositoryのfetch、pull、pushを
+  行わない。この禁止はroot repositoryを対象とし、Independent repositoryのremote操作は
+  `projects/PROJECTS.md#remote操作の境界`が所有する。
 - 利用者がバックアップ、復旧、マシン移行、バックアップ監査を明示した場合だけmeta Routeを選ぶ。
 - バックアップは`tools/backup-to-github.sh`だけで行い、正本の内容を変更しない。
 - remote divergenceでは停止し、pull、merge、rebase、reset、force pushを行わず、
@@ -202,6 +204,12 @@ SQLite切替のような実挙動は、validatorが一時ディレクトリへ�
 - rootで`git clean -x`、`git clean -X`、二つ以上の`-f`を提案・実行せず、ignoreされた
   `projects/*/repository/`が削除対象になる危険を先に報告する。
 - Independent repository本体の本文はroot cache、manifest、catalog、検索結果へ出さない。
+- Independent本体の更新は「検証 → commit → `origin`へ通常push → remoteのSHA確認 → handoff →
+  別のroot sessionが`STATE.md`を更新」の順に進む。root remoteへはpushせず、pull、merge、rebase、
+  force pushを使わない。
+- 採用revisionはcloneに存在するだけでは足りず、HEADが採用SHAと一致していることまで確認する。
+- `repository_url`に認証情報、query、fragment、ローカルpathを書かない。`repository_default_branch`は
+  remoteに実在するbranchを指す。
 
 ## 実行
 

@@ -10,6 +10,8 @@ select_all=false
 only_project=''
 check_only=false
 pending_target=''
+# ローカルbare remoteは隔離fixture検証だけで許可する。通常運用では設定しない。
+allow_local_repository_url="${AGENT_ALLOW_LOCAL_REPOSITORY_URL:-false}"
 
 usage() {
   printf 'Usage: %s (--all | --project <name>) [--check]\n' "${0##*/}" >&2
@@ -81,6 +83,41 @@ repository_state_key_count() {
     in_section && index($0, "- " key ": `") == 1 { count++ }
     END { print count + 0 }
   ' "$1"
+}
+
+# repository_urlはoption injection、認証情報、query/fragment、file://、ローカルpathを拒否する。
+# scp形式の `git@host:path` と `scheme://host/path` だけを通す。
+repository_url_is_rejected() {
+  local url="$1"
+  local authority userinfo
+  [[ -n "$url" ]] || return 0
+  case "$url" in
+    -*) return 0 ;;
+    *[[:space:]]*|*'`'*) return 0 ;;
+    *'?'*|*'#'*) return 0 ;;
+    file://*|FILE://*) return 0 ;;
+  esac
+  authority="${url#*://}"
+  authority="${authority%%/*}"
+  case "$authority" in
+    *@*)
+      userinfo="${authority%%@*}"
+      case "$userinfo" in *:*) return 0 ;; esac
+      ;;
+  esac
+  if [[ "$allow_local_repository_url" != 'true' ]]; then
+    case "$url" in
+      /*|./*|../*|~*) return 0 ;;
+      *://*|*:*) ;;
+      *) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+# 宣言時に拒否しているが、報告経路でもuserinfoのpassword、query、fragmentを伏せる。
+redact_repository_url() {
+  printf '%s' "$1" | sed -E 's|(://[^/:@]+):[^/@]*@|\1:***@|; s|\?.*$|?***|; s|#.*$|#***|'
 }
 
 # 認証プロンプトで停止しないよう、失敗出力から原因を分類する。
@@ -182,11 +219,14 @@ while IFS= read -r project_md; do
     *) blocked 'invalid-independent-declaration' "$project_name" \
       "$project_md has an invalid repository_reason: ${repository_reason:-<empty>}" ;;
   esac
-  if [[ -z "$repository_url" || "$repository_url" =~ [[:space:]\`] || \
-        "$repository_url" =~ ^https?://[^/@]+@ || \
-        ! "$repository_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+  if repository_url_is_rejected "$repository_url"; then
     blocked 'invalid-independent-declaration' "$project_name" \
-      "$project_md has an invalid repository_url or repository_default_branch"
+      "$project_md repository_url must be a credential-free remote URL without query, fragment or local path: $(redact_repository_url "$repository_url")"
+  fi
+  if [[ ! "$repository_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || \
+    ! git check-ref-format --branch "$repository_branch" >/dev/null 2>&1; then
+    blocked 'invalid-independent-declaration' "$project_name" \
+      "$project_md has an invalid repository_default_branch: ${repository_branch:-<empty>}"
   fi
 
   state_md="$project_dir/STATE.md"
@@ -259,6 +299,12 @@ while IFS= read -r project_md; do
     git -C "$target" cat-file -e "${state_revision}^{commit}" 2>/dev/null || \
       blocked 'revision-unavailable' "$project_name" \
         "the adopted revision is missing from the existing clone: $state_revision"
+    # 採用revisionがcloneに存在するだけでは足りない。HEADがそこに固定されていることまで確かめる。
+    # branch上で作業してそのtipを採用する運用も成立するため、detached HEADまでは要求しない。
+    child_head="$(git -C "$target" rev-parse --verify --quiet HEAD || true)"
+    [[ "$child_head" == "$state_revision" ]] || \
+      blocked 'repository-head-not-adopted' "$project_name" \
+        "$project_dir/repository HEAD is ${child_head:-none}, but STATE.md adopts $state_revision"
 
     verified=$((verified + 1))
     continue
@@ -273,14 +319,19 @@ while IFS= read -r project_md; do
   pending_target="$target"
   clone_output=''
   if ! clone_output="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true GCM_INTERACTIVE=never \
-    git clone --quiet --no-checkout "$repository_url" "$target" 2>&1)"; then
+    git clone --quiet --no-checkout -- "$repository_url" "$target" 2>&1)"; then
     blocked "$(classify_remote_failure "$clone_output")" "$project_name" \
-      "could not clone $repository_url into $project_dir/repository" "$clone_output"
+      "could not clone $(redact_repository_url "$repository_url") into $project_dir/repository" "$clone_output"
   fi
 
   cloned_origin="$(git -C "$target" config --get remote.origin.url 2>/dev/null || true)"
   [[ "$cloned_origin" == "$repository_url" ]] || blocked 'repository-origin-mismatch' "$project_name" \
-    "remote.origin.url is ${cloned_origin:-<unset>}, expected $repository_url"
+    "remote.origin.url is ${cloned_origin:-<unset>}, expected $(redact_repository_url "$repository_url")"
+
+  # 宣言したdefault branchがremoteに実在することを、cloneで取得済みのrefで確かめる。
+  git -C "$target" rev-parse --verify --quiet "refs/remotes/origin/$repository_branch" >/dev/null || \
+    blocked 'default-branch-missing' "$project_name" \
+      "$project_md declares repository_default_branch: $repository_branch, but the remote has no such branch"
 
   if ! git -C "$target" cat-file -e "${state_revision}^{commit}" 2>/dev/null; then
     fetch_output=''
