@@ -870,7 +870,9 @@ validate_knowledge_page() {
     "$knowledge_source_template_path"|"$knowledge_topic_template_path") ;;
     *)
       case "$filename" in
-        *[!a-z0-9.-]*) fail "$(relative_path "$page") filename must use lowercase kebab-case" ;;
+        # POSIX文字クラスを使う。非Cロケールでは [a-z] の照合順序が大文字を含みうるため、
+        # 範囲表記のままだと大文字ファイル名を取りこぼす。
+        *[![:lower:][:digit:].-]*) fail "$(relative_path "$page") filename must use lowercase kebab-case" ;;
       esac
       ;;
   esac
