@@ -1,0 +1,97 @@
+{
+  "analyses": [
+    {
+      "case_binary_noise_pp": {
+        "aggregate": 16.7,
+        "per_case_max": 33.3
+      },
+      "check_level_noise_pp": 1.5,
+      "checks_per_case": {
+        "project-docs-route-required": 12,
+        "project-work-scoped-validation": 11
+      },
+      "measurement_resolution_pp": 1.5,
+      "roles": {
+        "baseline": {
+          "check_coverage_percent": 95.7,
+          "passed_checks": 61,
+          "per_case_rate_percent": {
+            "project-docs-route-required": 84.8,
+            "project-work-scoped-validation": 100.0
+          },
+          "requirement_pass_rate_percent": 92.4,
+          "total_checks": 69,
+          "verifiable_checks": 66
+        },
+        "candidate": {
+          "check_coverage_percent": 95.7,
+          "passed_checks": 62,
+          "per_case_rate_percent": {
+            "project-docs-route-required": 90.9,
+            "project-work-scoped-validation": 97.0
+          },
+          "requirement_pass_rate_percent": 93.9,
+          "total_checks": 69,
+          "verifiable_checks": 66
+        }
+      },
+      "source_record": "2026-08-06-aa-fa2bd21b.json"
+    },
+    {
+      "case_binary_noise_pp": 33.3,
+      "check_level_noise_pp": 3.0,
+      "checks_per_case": {
+        "external-effect-approval-gate": 19,
+        "knowledge-bounded-retrieval": 12,
+        "project-finite-completion": 19,
+        "project-work-scoped-validation": 11,
+        "protect-paused-project": 7,
+        "route-to-skill": 9
+      },
+      "measurement_resolution_pp": 0.5,
+      "roles": {
+        "baseline": {
+          "check_coverage_percent": 87.4,
+          "passed_checks": 190,
+          "per_case_rate_percent": {
+            "external-effect-approval-gate": 92.9,
+            "knowledge-bounded-retrieval": 88.0,
+            "project-finite-completion": 94.6,
+            "project-work-scoped-validation": 93.9,
+            "protect-paused-project": 95.2,
+            "route-to-skill": 100.0
+          },
+          "requirement_pass_rate_percent": 94.1,
+          "total_checks": 231,
+          "verifiable_checks": 202
+        },
+        "candidate": {
+          "check_coverage_percent": 89.6,
+          "passed_checks": 201,
+          "per_case_rate_percent": {
+            "external-effect-approval-gate": 88.1,
+            "knowledge-bounded-retrieval": 100.0,
+            "project-finite-completion": 100.0,
+            "project-work-scoped-validation": 97.0,
+            "protect-paused-project": 100.0,
+            "route-to-skill": 100.0
+          },
+          "requirement_pass_rate_percent": 97.1,
+          "total_checks": 231,
+          "verifiable_checks": 207
+        }
+      },
+      "source_record": "2026-08-06-aa2-fa2bd21b.json"
+    }
+  ],
+  "client": "codex-cli 0.146.0",
+  "conclusion": "同一観測データで、A/Aノイズはcase二値の16.7pp/33.3ppからcheck単位の1.5pp/3.0ppへ縮小した。二値化による増幅がノイズの主因であり、modelの実変動はpolicy下限5pp未満。1回目はノイズ=分解能1.5pp（1 check反転分、量子化限界）、2回目はノイズ3.0pp>分解能0.5ppで小さな実変動が残る。check coverageは両role比較可能（95.7/95.7、87.4/89.6）。v1.0.2でのMDE見込みはmax(5pp, 実測ノイズ)=5pp。正式なbaseline固定はpolicy変更手続きどおりA/A再実行の結果で行う",
+  "date": "2026-08-07",
+  "method": "新しい実モデル呼出なし。各runのfailed_checks/unverified_checksと、固定SHAのcase定義をgrade-case.pyへ空traceで採点させて得た全check列挙から、role別のpooled充足率を導出。passed = 全check - failed - unverified。分母（検証可能check）はunverifiedを除外",
+  "model": "deepseek-v4-flash",
+  "policy_version": "v1.0.2",
+  "provider": "deepseek",
+  "purpose": "既存A/A証拠2件をv1.0.2の主要指標（check単位のpooled充足率）で再集計し、二値化がノイズへ与えた寄与を分離する",
+  "schema": "openagt-aa-checklevel-reanalysis/v1",
+  "source_sha": "fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a"
+}
