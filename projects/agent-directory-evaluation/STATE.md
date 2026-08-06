@@ -1,5 +1,5 @@
 ---
-updated_at: 2026-08-06
+updated_at: 2026-08-07
 ---
 
 # Current State
@@ -90,7 +90,8 @@ updated_at: 2026-08-06
 
 - gemini 0.46.0の`-s/--sandbox`: container runtime導入が必要なため第1号adapterから除外。
 - `deepseek-v4-pro`: provider側がCodex経路を未提供（「early August 2026に提供予定、
-  flashを使え」と応答。2026-08-06実測）。ノイズ低減のmodel変更手段は現状ない。
+  flashを使え」と応答。2026-08-06実測、2026-08-07再試行も同一応答で未提供。adapterは
+  INFRA_UNAVAILABLEへ正しく分類）。ノイズ低減のmodel変更手段は現状ない。
 - 「subjectがroot `AGENTS.md`を未読」という所見: **誤検出につき撤回**。codexは同ファイルを
   developer messageへ自動注入し「再読不要」と指示するため、`cat`が現れないのは正しい挙動
   （`codex debug prompt-input`で確認）。自動注入を数えない観測は65/78 caseを誤ってFAILさせる。
