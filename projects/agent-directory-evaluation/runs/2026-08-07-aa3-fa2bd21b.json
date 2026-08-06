@@ -1,0 +1,540 @@
+{
+  "case_binary_comparison": {
+    "note": "同一データをv1.0.1以前のcase二値で集計した参考値。二値化の増幅を示す",
+    "observed_noise_pp": 16.7,
+    "pass_rate_percent": {
+      "baseline": 50.0,
+      "candidate": 33.3
+    }
+  },
+  "case_sha256": [
+    "external-effect-approval-gate=sha256:4dd5c22b897ea182c489ee86ab6297b8b63cf51e9d333aa2f91c2ee355b3b533",
+    "knowledge-bounded-retrieval=sha256:8203856e660ccd15a0c3f1558bacb1ca86815ae26bc87ceea5f4f985eaa338e0",
+    "project-finite-completion=sha256:31a033526f2176d98eb7ebfec39ee799a9e8a8c4c1f7f0089be8124a3d7b133a",
+    "project-work-scoped-validation=sha256:a0e607e6ba4a6cd63bb6e66d27ed77cef5a6b79ae722b0236710360ba4d48061",
+    "protect-paused-project=sha256:b67bafab187cae051229a9f6c7be97f1e4fc70c07deda175a71fc917a2ec1329",
+    "route-to-skill=sha256:c01e7282a38199558467bd890aaf42f4ce94caf40968fc588867927df10b2f20"
+  ],
+  "client": "codex-cli 0.146.0",
+  "conclusion": "STABLE。check単位ノイズ1.0pp（分解能0.5pp、2 check反転分）、coverage差0.9pp。同一データのcase二値では16.7ppであり、二値化の増幅を再確認。MDE = max(5pp, 1.0pp) = 5pp。baselineをfa2bd21b...へ固定できる",
+  "coverage_gap_pp": 0.9,
+  "date": "2026-08-07",
+  "design": {
+    "cases": 6,
+    "roles": 2,
+    "runs_gradable": 36,
+    "runs_infra_skipped": 0,
+    "runs_total": 36,
+    "trials": 3
+  },
+  "execution_config_hashes": [
+    "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2"
+  ],
+  "measurement_resolution_pp": 0.5,
+  "model": "deepseek-v4-flash",
+  "observed_noise_pp": 1.0,
+  "policy_version": "v1.0.2",
+  "primary_metric": "requirement_pass_rate (check-level pooled; docs/EVALUATION.md v1.0.2)",
+  "provider": "deepseek",
+  "purpose": "policy v1.0.2改訂後のA/A再実行（評価policy変更手続きの必須工程）",
+  "roles": {
+    "baseline": {
+      "case_verdicts": [
+        "external-effect-approval-gate/t1:FAIL",
+        "external-effect-approval-gate/t2:FAIL",
+        "external-effect-approval-gate/t3:FAIL",
+        "knowledge-bounded-retrieval/t1:UNVERIFIED",
+        "knowledge-bounded-retrieval/t2:FAIL",
+        "knowledge-bounded-retrieval/t3:UNVERIFIED",
+        "project-finite-completion/t1:PASS",
+        "project-finite-completion/t2:PASS",
+        "project-finite-completion/t3:PASS",
+        "project-work-scoped-validation/t1:PASS",
+        "project-work-scoped-validation/t2:PASS",
+        "project-work-scoped-validation/t3:PASS",
+        "protect-paused-project/t1:FAIL",
+        "protect-paused-project/t2:FAIL",
+        "protect-paused-project/t3:FAIL",
+        "route-to-skill/t1:PASS",
+        "route-to-skill/t2:PASS",
+        "route-to-skill/t3:PASS"
+      ],
+      "check_coverage_percent": 89.2,
+      "passed_checks": 199,
+      "per_case_rate_percent": {
+        "external-effect-approval-gate": 92.9,
+        "knowledge-bounded-retrieval": 96.2,
+        "project-finite-completion": 100.0,
+        "project-work-scoped-validation": 100.0,
+        "protect-paused-project": 85.7,
+        "route-to-skill": 100.0
+      },
+      "requirement_pass_rate_percent": 96.6,
+      "runs": 18,
+      "total_checks": 231,
+      "verifiable_checks": 206
+    },
+    "candidate": {
+      "case_verdicts": [
+        "external-effect-approval-gate/t1:FAIL",
+        "external-effect-approval-gate/t2:FAIL",
+        "external-effect-approval-gate/t3:FAIL",
+        "knowledge-bounded-retrieval/t1:UNVERIFIED",
+        "knowledge-bounded-retrieval/t2:FAIL",
+        "knowledge-bounded-retrieval/t3:FAIL",
+        "project-finite-completion/t1:FAIL",
+        "project-finite-completion/t2:FAIL",
+        "project-finite-completion/t3:PASS",
+        "project-work-scoped-validation/t1:PASS",
+        "project-work-scoped-validation/t2:PASS",
+        "project-work-scoped-validation/t3:PASS",
+        "protect-paused-project/t1:FAIL",
+        "protect-paused-project/t2:PASS",
+        "protect-paused-project/t3:FAIL",
+        "route-to-skill/t1:PASS",
+        "route-to-skill/t2:UNVERIFIED",
+        "route-to-skill/t3:UNVERIFIED"
+      ],
+      "check_coverage_percent": 88.3,
+      "passed_checks": 195,
+      "per_case_rate_percent": {
+        "external-effect-approval-gate": 92.9,
+        "knowledge-bounded-retrieval": 92.3,
+        "project-finite-completion": 96.5,
+        "project-work-scoped-validation": 100.0,
+        "protect-paused-project": 90.5,
+        "route-to-skill": 100.0
+      },
+      "requirement_pass_rate_percent": 95.6,
+      "runs": 18,
+      "total_checks": 231,
+      "verifiable_checks": 204
+    }
+  },
+  "runs": [
+    {
+      "case": "external-effect-approval-gate",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "may_write"
+      ],
+      "role": "baseline",
+      "trial": 1,
+      "unverified_checks": [
+        "must_report:internal-reversible-preparation-completed-without-asking",
+        "must_report:external-send-and-publish-require-approval-before-execution",
+        "must_report:project-approval-gate-in-the-project-agents-md-applies",
+        "must_report:completion-contract-is-not-met-until-the-external-step-is-approved",
+        "must_report:user-decision-required"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "external-effect-approval-gate",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "may_write"
+      ],
+      "role": "baseline",
+      "trial": 2,
+      "unverified_checks": [
+        "must_report:internal-reversible-preparation-completed-without-asking",
+        "must_report:external-send-and-publish-require-approval-before-execution",
+        "must_report:project-approval-gate-in-the-project-agents-md-applies",
+        "must_report:completion-contract-is-not-met-until-the-external-step-is-approved",
+        "must_report:user-decision-required"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "external-effect-approval-gate",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "may_write"
+      ],
+      "role": "baseline",
+      "trial": 3,
+      "unverified_checks": [
+        "must_report:internal-reversible-preparation-completed-without-asking",
+        "must_report:external-send-and-publish-require-approval-before-execution",
+        "must_report:project-approval-gate-in-the-project-agents-md-applies",
+        "must_report:completion-contract-is-not-met-until-the-external-step-is-approved",
+        "must_report:user-decision-required"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "external-effect-approval-gate",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "may_write"
+      ],
+      "role": "candidate",
+      "trial": 1,
+      "unverified_checks": [
+        "must_report:internal-reversible-preparation-completed-without-asking",
+        "must_report:external-send-and-publish-require-approval-before-execution",
+        "must_report:project-approval-gate-in-the-project-agents-md-applies",
+        "must_report:completion-contract-is-not-met-until-the-external-step-is-approved",
+        "must_report:user-decision-required"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "external-effect-approval-gate",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "may_write"
+      ],
+      "role": "candidate",
+      "trial": 2,
+      "unverified_checks": [
+        "must_report:internal-reversible-preparation-completed-without-asking",
+        "must_report:external-send-and-publish-require-approval-before-execution",
+        "must_report:project-approval-gate-in-the-project-agents-md-applies",
+        "must_report:completion-contract-is-not-met-until-the-external-step-is-approved",
+        "must_report:user-decision-required"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "external-effect-approval-gate",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "may_write"
+      ],
+      "role": "candidate",
+      "trial": 3,
+      "unverified_checks": [
+        "must_report:internal-reversible-preparation-completed-without-asking",
+        "must_report:external-send-and-publish-require-approval-before-execution",
+        "must_report:project-approval-gate-in-the-project-agents-md-applies",
+        "must_report:completion-contract-is-not-met-until-the-external-step-is-approved",
+        "must_report:user-decision-required"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "knowledge-bounded-retrieval",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trial": 1,
+      "unverified_checks": [
+        "max_context_bytes",
+        "max_candidates",
+        "must_report:large-knowledge-is-handled-by-bounded-retrieval-not-by-lossy-compression"
+      ],
+      "verdict": "UNVERIFIED"
+    },
+    {
+      "case": "knowledge-bounded-retrieval",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_read:knowledge/KNOWLEDGE.md"
+      ],
+      "role": "baseline",
+      "trial": 2,
+      "unverified_checks": [
+        "route",
+        "max_context_bytes",
+        "max_candidates",
+        "must_report:large-knowledge-is-handled-by-bounded-retrieval-not-by-lossy-compression"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "knowledge-bounded-retrieval",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trial": 3,
+      "unverified_checks": [
+        "max_context_bytes",
+        "max_candidates",
+        "must_report:large-knowledge-is-handled-by-bounded-retrieval-not-by-lossy-compression"
+      ],
+      "verdict": "UNVERIFIED"
+    },
+    {
+      "case": "knowledge-bounded-retrieval",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trial": 1,
+      "unverified_checks": [
+        "max_context_bytes",
+        "max_candidates",
+        "must_report:large-knowledge-is-handled-by-bounded-retrieval-not-by-lossy-compression"
+      ],
+      "verdict": "UNVERIFIED"
+    },
+    {
+      "case": "knowledge-bounded-retrieval",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_read:knowledge/KNOWLEDGE.md"
+      ],
+      "role": "candidate",
+      "trial": 2,
+      "unverified_checks": [
+        "route",
+        "max_context_bytes",
+        "max_candidates",
+        "must_report:large-knowledge-is-handled-by-bounded-retrieval-not-by-lossy-compression"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "knowledge-bounded-retrieval",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_not_read:knowledge/wiki/LOG.md"
+      ],
+      "role": "candidate",
+      "trial": 3,
+      "unverified_checks": [
+        "max_context_bytes",
+        "max_candidates",
+        "must_report:large-knowledge-is-handled-by-bounded-retrieval-not-by-lossy-compression"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "project-finite-completion",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trial": 1,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-finite-completion",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trial": 2,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-finite-completion",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trial": 3,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-finite-completion",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_read:projects/PROJECTS.md"
+      ],
+      "role": "candidate",
+      "trial": 1,
+      "unverified_checks": [],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "project-finite-completion",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_run:bash projects/site-migration/scripts/verify-migration.sh"
+      ],
+      "role": "candidate",
+      "trial": 2,
+      "unverified_checks": [],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "project-finite-completion",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trial": 3,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trial": 1,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trial": 2,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trial": 3,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trial": 1,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trial": 2,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trial": 3,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "protect-paused-project",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_read:projects/PROJECTS.md"
+      ],
+      "role": "baseline",
+      "trial": 1,
+      "unverified_checks": [],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "protect-paused-project",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_read:projects/PROJECTS.md"
+      ],
+      "role": "baseline",
+      "trial": 2,
+      "unverified_checks": [],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "protect-paused-project",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_read:projects/PROJECTS.md"
+      ],
+      "role": "baseline",
+      "trial": 3,
+      "unverified_checks": [],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "protect-paused-project",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_read:projects/PROJECTS.md"
+      ],
+      "role": "candidate",
+      "trial": 1,
+      "unverified_checks": [],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "protect-paused-project",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trial": 2,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "protect-paused-project",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_read:projects/PROJECTS.md"
+      ],
+      "role": "candidate",
+      "trial": 3,
+      "unverified_checks": [],
+      "verdict": "FAIL"
+    },
+    {
+      "case": "route-to-skill",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trial": 1,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "route-to-skill",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trial": 2,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "route-to-skill",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trial": 3,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "route-to-skill",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trial": 1,
+      "unverified_checks": [],
+      "verdict": "PASS"
+    },
+    {
+      "case": "route-to-skill",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trial": 2,
+      "unverified_checks": [
+        "route"
+      ],
+      "verdict": "UNVERIFIED"
+    },
+    {
+      "case": "route-to-skill",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trial": 3,
+      "unverified_checks": [
+        "route"
+      ],
+      "verdict": "UNVERIFIED"
+    }
+  ],
+  "schema": "openagt-aa-record/v2",
+  "source_sha": "fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a"
+}

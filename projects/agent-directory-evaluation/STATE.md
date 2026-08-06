@@ -6,95 +6,88 @@ updated_at: 2026-08-07
 
 ## 現在の到達点
 
-- `docs/EVALUATION.md`（policy v1.0.1）と最小harnessを整備し、`verify.sh`の32検査が合格。A/Aは実施済みだが不安定。
-- 2026-08-06の人間レビューで初期構築は合格。実運用開始はP0/P1解消まで保留。
-- 第2段階でadapter（`codex-adapter.sh`）、run分類（`classify-run.py`）、case grader
-  （`grade-case.py`）、trace写像（`map-trace.py`）、外側runner（`run-case.sh`）、
-  最終Gate（`check-promotion.py`）を追加。
-- 実モデルrunに成功（DeepSeek経由）。baseline runは未取得。
+- `docs/EVALUATION.md`（policy **v1.0.2**、2026-08-07改訂）と最小harnessが揃い、
+  `verify.sh`の36検査が合格。主要指標はcheck単位の充足率（利用者の明示決定）。
+- **A/Aが安定化しbaselineを固定**: v1.0.2でのA/A再実行（36 run、INFRA失敗ゼロ）は
+  ノイズ1.0pp（分解能0.5pp、coverage差0.9pp）。同一データのcase二値では16.7ppで、
+  旧33ppノイズの主因は二値化の増幅と確定（`runs/2026-08-07-aa3-fa2bd21b.json`ほか）。
+- harnessは変更なしで新指標に対応（集計は`check-promotion.py`だけが所有）。
 
 ## 現在の目標
 
-対象契約: `PROJECT.md#PC-01`
+対象契約: `PROJECT.md#PC-07`
 
-実client（利用可能なもの1つ）のexecution configを固定し、pinned source revisionに対する
-最初のbaseline runを再現可能なmanifest付きで取得する。
+Tier 0確定（人間判断）後、最初のA/B比較（`8325b185...` → 上流最新main）をv1.0.2指標で
+実施し、MDE判定（ELIGIBLE / NO_CHANGE）まで到達する。
 
 ## 目標の合格条件
 
-- baseline runのmanifestにsource SHA、policy hash、suite hash、grader hash、
-  execution config hashがすべて実値（`unknown`可、0埋め不可）で記録されている。
-- 同じmanifestから第三者がsandbox生成とgradingを再実行できる。
+- A/B両roleのrunがmanifest・evidence束付きで揃い、`check-promotion.py`が
+  INVALID以外の決定を出す。
+- 判定に使うA/AノイズがA/A証拠から算出されている（スカラー指定でない）。
 
 ## 検証結果
 
 - 対象: `PROJECT.md#PC-01`
-- 確認日: 2026-08-06 / 方法: `scripts/verify.sh`
-- 結果: 合格（`VERIFY_OK`）。baseline未取得のためPC-01の実運用充足は未検証。
+- 確認日: 2026-08-07 / 方法: `verify.sh`（36検査）+ A/A再実行
+- 結果: 合格。baseline runは実manifest・単一execution config hashで取得済み。
+
+- 対象: `PROJECT.md#PC-07`
+- 確認日: 2026-08-07 / 方法: A/A再実行36 runの集計
+- 結果: 合格。ノイズ1.0pp < policy下限5pp → MDE 5pp。
 
 - 対象: `PROJECT.md#PC-05`
-- 確認日: 2026-08-06 / 方法: verify.sh内のsecret scan
+- 確認日: 2026-08-07 / 方法: verify.sh内secret scan
 - 結果: 合格。検出ゼロ。
 
 - 対象: `PROJECT.md#PC-02`
-- 確認日: 2026-08-06（subject実行隔離）
-- 方法: `codex-adapter.sh --selftest`と実モデルrunでの実地probe
-- 結果: 合格。workspace内write=許可、外=拒否、network=遮断をOSレベルで確認。read側は非制限。
+- 確認日: 2026-08-06 / 方法: adapter selftestと実runでのprobe
+- 結果: 合格。write境界とnetwork遮断はOS強制、read側は非制限。
 
 ## 未完了・ブロッカー
 
-- **人間判断待ち**: Tier 0 case一覧が未確定。`check-promotion.py`は`--tier0-file`必須で
-  未指定ならINVALID（推論しない）。policy側の決定事項。
-- `must_report`は構造化レポートを観測できず常にUNVERIFIED（suiteの58/78 caseが該当）。
-  これらのcaseは現状PASSに到達できない。
-- 観測の限界（coverageへ記録。推測で埋めない）: readは読取専用commandからの推定で
-  byte数を取れず`max_context_bytes`はUNVERIFIED。clientの自動注入context（codexはroot
-  `AGENTS.md`）は別途readとして数える。routeは入口正本の読取から導出し、曖昧なら導出しない。
-- read側のOS隔離なし: subjectからevaluator repositoryや`$HOME`を読める。path秘匿と配置のみ。
+- **人間判断待ち**: Tier 0 case一覧が未確定（`--tier0-file`必須、未指定はINVALID。推論しない）。
+- `must_report`は観測不能で常にUNVERIFIED（58/78 case）。v1.0.2では主要指標の分母から
+  外れcoverageとして報告されるが、case verdictはPASS不能のままなので、Tier 0
+  （case verdict 3/3）の候補は全check検証可能なcaseから選ぶ。
+- 観測の限界: readは読取専用commandからの推定でbyte数なし（`max_context_bytes`は
+  UNVERIFIED）。client自動注入contextはreadとして数える。routeは入口正本の読取から
+  導出し、曖昧なら導出しない。
+- read側のOS隔離なし: subjectからevaluatorや`$HOME`を読める（path秘匿と配置のみ）。
 - execution configの`unknown`: system instruction、tool schema、sampling、各種上限。
-- `runs/`にA/A記録を作成済み。生logはGit管理せずOS一時領域に置く。
+- 生logはGit管理せずOS一時領域に置く（`runs/`はsanitized記録のみ）。
 
 ## 現在有効な決定
 
 - 初期source revision: `8325b185fb9410bff44cf6ec9a9b99246fe8cc0f`（bootstrap記録）。
-- 評価policy version: v1.0.1（利用者の明示決定で改訂。変更は人間の明示決定のみ）。
-  (1) subjectは`/tmp`・`$TMPDIR`外の専用root（既定`~/.cache/openagt-eval/`）。
-  (2) 利用制限・rate limit・認証失敗・provider障害・基盤timeoutは`INFRA_UNAVAILABLE`とし、
-  candidate失敗として数えず、Tier 0の3/3の分母にも入れない。
-- 現在のbaseline run: **未確定**。上流HEAD`fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a`で
-  A/Aを実施したが不安定のため、baselineとして固定しない。ノイズ低減が先。
-- MDE = max(5pp, A/A実測ノイズ) → **33pp**。`deepseek-v4-flash`は非決定性が大きく、
-  33pp未満の改善を検出できない。sampling固定は不可、run数増でも縮まらず、
-  より強いmodelはprovider未提供（下記）。ノイズ低減の技術的手段は尽きた。
+- 評価policy version: **v1.0.2**（利用者の明示決定2026-08-07。変更は人間の明示決定のみ）。
+  主要指標=check単位のpooled充足率。UNVERIFIEDは分母外（coverageとして報告）。
+  role間coverage差10pp超は自動判定しない（INVALID）。v1.0.1の決定
+  （subject非tmp root、`INFRA_UNAVAILABLE`区分）は継続。
+- 現在のbaseline: **`fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a`に固定**（2026-08-07、
+  A/A STABLE）。baseline側充足率96.6%（coverage 89.2%）。
+- MDE = max(5pp, 実測ノイズ1.0pp) = **5pp**（config `sha256:3938689...`、
+  deepseek-v4-flash）。旧33ppはcase二値集計の増幅で、v1.0.2指標では消滅。
 - `8325b185... → 最新main`の差分は最初のA/B smokeとして利用してよい。
-- Draft PR作成は`docs/EVALUATION.md#PR昇格条件`充足時のみ、別Promotion sessionで行う
-  （standing approval。2026-08-06利用者指示）。
-- clientはcodex（`codex exec`）。3client中唯一、OS強制sandbox・`--json` trace・hermetic
-  configを備える。組込permission profileは`:workspace`と`:read-only`のみ。
-- providerはDeepSeek（実在は`deepseek-v4-flash`/`deepseek-v4-pro`のみ）。Responses API
-  nativeでbridge不要、`wire_api="responses"`。利用者のグローバルcodex設定は変更せず
-  run毎に`-c`でinline指定する。OpenAI quotaを消費しない。
-- **秘密はauth commandで渡し`env_key`を使わない**（実測）。env_keyだと
-  `shell_environment_policy`で遮断してもsubjectのshellから見えた。変更後、不可視化を実runで
-  確認。秘密ファイルはCODEX_HOMEと無関係な一時領域へ置く（CODEX_HOMEはsubjectへ露出する）。
-- 実runでの観測: agentの自己申告exit code 1件に対応するrun eventが無く、filesystemにも
-  痕跡がなかった。自己申告を判定に使わない設計を実地で確認。
-- write観測はGit由来で完全。write eventが空であること自体が「書込なし」の証拠であり、
-  UNVERIFIEDにしない（traceの完全性markerで区別する）。
-- 実caseの実モデル採点が成立（上流HEAD`fa2bd21b...`）。
-- **A/A 2回とも不安定**: role当たり6 run（分解能16.7pp）→ノイズ16.7pp、18 run
-  （分解能5.6pp）→ノイズ33.3pp。分解能を下げてもノイズは縮まらず、量子化ではなく
-  modelの実変動と確定。証拠は`runs/`の2件。
+- Draft PR作成は昇格条件充足時のみ別Promotion session（standing approval、2026-08-06）。
+- clientはcodex（`codex exec`）。唯一OS強制sandbox・`--json` trace・hermetic configを
+  備える。組込profileは`:workspace`と`:read-only`のみ。
+- providerはDeepSeek。Responses API nativeで`wire_api="responses"`直結、bridge不要。
+  グローバルcodex設定は変更せずrun毎に`-c`でinline指定。OpenAI quotaを消費しない。
+- **秘密はauth commandで渡し`env_key`を使わない**（env_keyはsubjectのshellから見えた
+  実測あり）。秘密ファイルはCODEX_HOME外の一時領域（CODEX_HOMEはsubjectへ露出する）。
+- 自己申告を判定に使わない（申告exit codeに対応するrun eventが無い実例を確認済み）。
+  write観測はGit由来で完全: write event空は「書込なし」の証拠（完全性markerで区別）。
+- **A/A史**: case二値の2回はUNSTABLE（16.7pp/33.3pp）→check単位の再集計で1.5pp/3.0pp
+  →v1.0.2での再実行はノイズ1.0ppでSTABLE。主因は二値化の増幅（`runs/`の4記録）。
 
 ## 失敗・却下済み
 
 - gemini 0.46.0の`-s/--sandbox`: container runtime導入が必要なため第1号adapterから除外。
-- `deepseek-v4-pro`: provider側がCodex経路を未提供（「early August 2026に提供予定、
-  flashを使え」と応答。2026-08-06実測、2026-08-07再試行も同一応答で未提供。adapterは
-  INFRA_UNAVAILABLEへ正しく分類）。ノイズ低減のmodel変更手段は現状ない。
+- `deepseek-v4-pro`: Codex経路未提供（「early August 2026提供予定、flashを使え」。
+  2026-08-06実測、08-07再試行も同一応答。adapterはINFRA_UNAVAILABLEへ正しく分類）。
 - 「subjectがroot `AGENTS.md`を未読」という所見: **誤検出につき撤回**。codexは同ファイルを
-  developer messageへ自動注入し「再読不要」と指示するため、`cat`が現れないのは正しい挙動
-  （`codex debug prompt-input`で確認）。自動注入を数えない観測は65/78 caseを誤ってFAILさせる。
+  自動注入し「再読不要」と指示する（注入を数えないと65/78 caseを誤FAIL）。
   一般則: clientはcommandを出さない経路で期待を満たしうる。
 - codexの`-P`profile経路での`sandbox_workspace_write.exclude_*`上書き: 実測で無効。
 
@@ -102,9 +95,9 @@ updated_at: 2026-08-07
 
 ## 次の一手
 
-1. **人間判断が要る**: ノイズ低減の手段が尽きた。指標定義の変更（case合否の二値→check単位の
-   集計）はpolicy変更のため実施できない。あるいは別clientをsubjectにする（claude CLIは
-   OS強制sandboxを持たないため、write違反は検出できるが防止はできない）。
-2. Tier 0 case一覧の確定（人間判断）後、`check-promotion.py`へ渡せるようにする。
+1. **人間判断が要る**: Tier 0 case一覧の確定（候補は全check検証可能なcase。family 10=
+   external-effect-approval-gate、15=protect-paused-project等の割当はpolicy側の決定）。
+2. Tier 0確定後、最初のA/B比較（`8325b185...`のbaseline取得 → 上流最新main）を実施する。
+3. Issue起点の運用（利用者意向）は両正本の契約変更が必要なため引き続き未決。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
