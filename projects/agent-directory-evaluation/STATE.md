@@ -6,7 +6,7 @@ updated_at: 2026-08-06
 
 ## 現在の到達点
 
-- `docs/EVALUATION.md`（policy v1.0.1）と最小harnessを整備し、`verify.sh`の31検査が合格。
+- `docs/EVALUATION.md`（policy v1.0.1）と最小harnessを整備し、`verify.sh`の32検査が合格。
 - 2026-08-06の人間レビューで初期構築は合格。実運用開始はP0/P1解消まで保留。
 - 第2段階でadapter（`codex-adapter.sh`）、run分類（`classify-run.py`）、case grader
   （`grade-case.py`）、trace写像（`map-trace.py`）、外側runner（`run-case.sh`）、
@@ -49,9 +49,10 @@ updated_at: 2026-08-06
   未指定ならINVALID（推論しない）。確定は`EVALUATION.md#benchmark`のfamily 10・15を
   どのcaseへ割り当てるかの決定であり、policy側の決定事項。
 - 観測の限界（いずれもcoverageへ記録。推測で埋めない）:
-  read = codexがfile読取eventを出さないため読取専用commandからの推定。byte数は取れず
-  `max_context_bytes`は常にUNVERIFIED。route = 入口正本（`projects/AGENTS.md`等）の読取から
-  導出し、複数Routeの入口を読めば導出しない（fail closed）。meta/noneは導出不可。
+  read = codexがfile読取eventを出さないため読取専用commandからの推定。command由来のreadは
+  byte数を取れず`max_context_bytes`はUNVERIFIED。clientが自動注入するcontext
+  （codexはroot `AGENTS.md`）は別途readとして数える。route = 入口正本の読取から導出し、
+  複数Routeの入口を読めば導出しない（fail closed）。meta/noneは導出不可。
 - read側のOS隔離なし: subjectからevaluator repositoryや`$HOME`を読める。path秘匿と配置のみ。
 - execution configの`unknown`: system instruction、tool schema、sampling、各種上限。
   codexは`deepseek-v4-flash`のmodel metadataを持たずfallbackするためcontext上限も未取得。
@@ -86,21 +87,25 @@ updated_at: 2026-08-06
   （CODEX_HOME自体はsubjectへ露出する）。
 - 実runでの観測: agentが自己申告したexit code 1件に対応するrun eventが存在せず、
   filesystem上も痕跡がなかった。自己申告を判定に使わない設計の妥当性を実地で確認。
-- **最初の実所見（再現済み）**: `project-work-scoped-validation`をDeepSeekで2 trial実行し、
-  両方でsubjectがroot `AGENTS.md`を読まなかった（`must_read:AGENTS.md` FAIL）。
-  他の期待（route、must_run、must_not_run 2件、must_update、may_write、must_not_modify）は成立。
-  昇格条件には未達（1 config・2 trial、Tier 0一覧未確定）のため上流提案はしない。
+- 実caseの実モデル採点が成立: `project-work-scoped-validation`が上流HEAD
+  （`fa2bd21b...`）に対して**PASS**。route、must_read全件、must_run、must_not_run 2件、
+  must_update、may_write、must_not_modifyのすべてが成立。
 
 ## 失敗・却下済み
 
 - gemini 0.46.0の`-s/--sandbox`: container runtime導入が必要なため第1号adapterから除外。
+- 「subjectがroot `AGENTS.md`を未読」という所見: **誤検出につき撤回**（2026-08-06）。
+  codexはroot `AGENTS.md`をdeveloper messageへ自動注入し「再読不要」と指示するため、
+  `cat`が現れないのは正しい挙動。`codex debug prompt-input`でmodel入力への混入を確認済み。
+  clientの自動注入をreadとして数えない観測は、65/78 caseを誤ってFAILさせる。
 - codexの`-P`profile経路での`sandbox_workspace_write.exclude_*`上書き: 実測で無効。
 
 新しい根拠または利用者の明示指示がない限り、ここにある方法を繰り返さない。
 
 ## 次の一手
 
-1. 5-6 最初の実baseline取得（run開始時点の最新`agent-directory/main`を再取得・固定）。
+1. 5-6 baseline取得の続き: 上流HEAD`fa2bd21b...`で同一SHAのA/Aを実施し、
+   ノイズ幅を測ってからbaselineとして固定する。
 2. Tier 0 case一覧の確定（人間判断）後、`check-promotion.py`へ渡せるようにする。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。

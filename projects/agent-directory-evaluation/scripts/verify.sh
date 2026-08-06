@@ -373,6 +373,32 @@ PY
 grep -q 'ROUTE_INFERENCE_OK' "$tmp_root/route-infer.log" || \
   fail 'route inference regressed'
 
+step 'client-injected context counts as read'
+# codexはrepo rootのAGENTS.mdをdeveloper messageへ自動注入し、agentへ「再読不要」と
+# 指示する。注入を数えないと、正しく振る舞ったsubjectがmust_read:AGENTS.mdでFAILする。
+run_expect 0 "$tmp_root/injected.log" python3 - "$script_dir/map-trace.py" "$tmp_root" <<'PY' || true
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("mt", sys.argv[1])
+mt = importlib.util.module_from_spec(spec); spec.loader.exec_module(mt)
+
+subject = pathlib.Path(sys.argv[2]) / "injected-subject"
+subject.mkdir(parents=True, exist_ok=True)
+(subject / "AGENTS.md").write_text("bootloader\n", encoding="utf-8")
+
+events = mt.injected_reads("codex", subject)
+assert [e["path"] for e in events] == ["AGENTS.md"], events
+assert events[0]["source"] == "client-injected-context", events
+assert events[0]["bytes"] > 0, events
+# 注入しないclientでは数えない
+assert mt.injected_reads("canonical", subject) == []
+# ファイルが無ければ数えない（存在しない読取を捏造しない）
+(subject / "AGENTS.md").unlink()
+assert mt.injected_reads("codex", subject) == []
+print("INJECTED_CONTEXT_OK")
+PY
+grep -q 'INJECTED_CONTEXT_OK' "$tmp_root/injected.log" || \
+  fail 'client-injected context accounting regressed'
+
 step 'secret scan over tracked public artifacts'
 secret_hits="$(cd "$repo_root" && git ls-files -z | xargs -0 grep -HnE \
   'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|(^|[^a-zA-Z0-9_-])sk-[A-Za-z0-9]{24,}|-----BEGIN [A-Z ]*PRIVATE KEY|Authorization: (Bearer|Basic) [A-Za-z0-9+/=_-]{8,}' \

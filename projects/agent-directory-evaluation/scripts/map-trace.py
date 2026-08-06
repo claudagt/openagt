@@ -118,6 +118,33 @@ def infer_read_paths(command: str):
     return paths
 
 
+# clientがcontextへ自動注入するファイル。commandとして現れないため、
+# 注入を数えないとmust_readが誤ってFAILになる。
+#
+# 実測（2026-08-06、codex-cli 0.146.0）: codexのbase instructionsは
+# 「repo rootおよびCWDからrootまでのAGENTS.mdの内容はdeveloper messageに含まれるので
+# 再読不要」と明言しており、`codex debug prompt-input`でsubjectのAGENTS.md本文が
+# model入力に含まれることを確認した。したがってagentが`cat AGENTS.md`しないのは
+# 正しい挙動であり、未読ではない。
+CLIENT_INJECTED_CONTEXT = {
+    # subject rootからの相対path
+    "codex": ("AGENTS.md",),
+    "canonical": (),
+}
+
+
+def injected_reads(client: str, subject: pathlib.Path):
+    """clientがcontextへ自動注入したファイルをread eventとして返す。"""
+    events = []
+    for relative in CLIENT_INJECTED_CONTEXT.get(client, ()):
+        target = subject / relative
+        if target.is_file():
+            events.append({"event": "read", "path": relative,
+                           "bytes": target.stat().st_size,
+                           "source": "client-injected-context"})
+    return events
+
+
 # Route → 入口正本。subjectの`AGENTS.md#Route`表が定義する対応をそのまま使う。
 # 独自の判定基準を作らない（判定はどの入口を実際に読んだかという観測に基づく）。
 # meta / none は固有の入口正本を持たないため、ここからは導出できない。
@@ -233,12 +260,17 @@ def main() -> int:
     raw = load_jsonl(pathlib.Path(args.client_events))
     mapped, unmapped = MAPPERS[args.client](raw)
 
+    # clientが自動注入したcontextもreadとして数える（commandには現れない）
+    subject_path = pathlib.Path(args.subject)
+    injected = injected_reads(args.client, subject_path)
+    mapped.extend(injected)
+
     # Routeは入口正本の読取から導出する（clientがroute eventを出さないため）。
     inferred_route = infer_route([e for e in mapped if e.get("event") == "read"])
     if inferred_route:
         mapped.append({"event": "route", "value": inferred_route, "inferred": True})
 
-    writes, git_error = git_writes(pathlib.Path(args.subject))
+    writes, git_error = git_writes(subject_path)
     if writes is not None:
         mapped.extend(writes)
 
@@ -269,6 +301,7 @@ def main() -> int:
         # 複数Routeの入口を読んでいて一意に決まらない場合は導出しない。
         "route_observation": ("inferred-from-entry-canon" if inferred_route
                               else "unavailable"),
+        "client_injected_reads": [e["path"] for e in injected],
         "complete": not unmapped and writes is not None,
     }
     pathlib.Path(args.meta_out).write_text(
