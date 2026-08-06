@@ -44,7 +44,9 @@ routines_dir="$cache_dir/routines"
 locks_dir="$routines_dir/locks"
 logs_dir="$routines_dir/logs"
 state_dir="$routines_dir/state"
-lock_dir="$locks_dir/$routine_id.lock"
+# Single Writer is a per-Git-root constraint: one writer lock per root, shared by every routine id,
+# so future routines cannot write the same root concurrently either.
+lock_dir="$locks_dir/workspace.lock"
 lock_owned=false
 
 run_stamp="$(date +%Y%m%d-%H%M%S)"
@@ -123,11 +125,13 @@ host_name="$(hostname 2>/dev/null || printf 'unknown-host')"
 lock_is_stale() {
   local info="$lock_dir/info"
   local lock_pid lock_host
-  [[ -f "$info" ]] || return 0
+  # A missing or unreadable info file means the owner is unknown (possibly a writer that is still
+  # mid-acquisition): treat the lock as active. Staleness may only be proven, never assumed.
+  [[ -f "$info" ]] || return 1
   lock_pid="$(sed -n 's/^pid=//p' "$info" | head -n 1)"
   lock_host="$(sed -n 's/^hostname=//p' "$info" | head -n 1)"
   [[ "$lock_host" == "$host_name" ]] || return 1
-  [[ "$lock_pid" =~ ^[0-9]+$ ]] || return 0
+  [[ "$lock_pid" =~ ^[0-9]+$ ]] || return 1
   ! kill -0 "$lock_pid" 2>/dev/null
 }
 
@@ -271,9 +275,24 @@ if [[ "$reasoning_enabled" != 'true' ]]; then
 fi
 
 case "$provider" in
-  deepseek) api_key="$(config_value DEEPSEEK_API_KEY)" ;;
-  openai) api_key="$(config_value OPENAI_API_KEY)" ;;
-  anthropic) api_key="$(config_value ANTHROPIC_API_KEY)" ;;
+  deepseek)
+    api_key="$(config_value DEEPSEEK_API_KEY)"
+    base_url="$(config_value DEEPSEEK_BASE_URL)"
+    api_key_variable='DEEPSEEK_API_KEY'
+    base_url_variable='DEEPSEEK_BASE_URL'
+    ;;
+  openai)
+    api_key="$(config_value OPENAI_API_KEY)"
+    base_url="$(config_value OPENAI_BASE_URL)"
+    api_key_variable='OPENAI_API_KEY'
+    base_url_variable='OPENAI_BASE_URL'
+    ;;
+  anthropic)
+    api_key="$(config_value ANTHROPIC_API_KEY)"
+    base_url="$(config_value ANTHROPIC_BASE_URL)"
+    api_key_variable='ANTHROPIC_API_KEY'
+    base_url_variable='ANTHROPIC_BASE_URL'
+    ;;
   '')
     reasoning_state='unconfigured'
     finish_failed_validation
@@ -289,6 +308,21 @@ if [[ -z "$model" || -z "$api_key" ]]; then
   reasoning_state='unconfigured'
   finish_failed_validation
 fi
+
+# The adapter reads its configuration from the process environment, so the values resolved from
+# .env are handed over as a command-scoped environment. Only the selected provider's key and
+# endpoint are passed; the other providers' secrets never reach the child process.
+reasoner_env=(
+  AGENT_ROUTINE_REASONING_PROVIDER="$provider"
+  AGENT_ROUTINE_REASONING_MODEL="$model"
+  "$api_key_variable=$api_key"
+)
+[[ -z "$base_url" ]] || reasoner_env+=("$base_url_variable=$base_url")
+for reasoner_budget_key in AGENT_ROUTINE_REASONING_TIMEOUT_SECONDS \
+  AGENT_ROUTINE_REASONING_MAX_MODEL_CALLS AGENT_ROUTINE_REASONING_MAX_OUTPUT_TOKENS; do
+  reasoner_budget_value="$(config_value "$reasoner_budget_key")"
+  [[ -z "$reasoner_budget_value" ]] || reasoner_env+=("$reasoner_budget_key=$reasoner_budget_value")
+done
 if ! command -v python3 >/dev/null 2>&1; then
   log 'python3 is unavailable; deterministic maintenance is unaffected, reasoning is unavailable'
   reasoning_state='unavailable'
@@ -362,7 +396,7 @@ done < "$context_files_file"
 patch_file="$tmp_root/candidate.patch"
 log "requesting one bounded reasoning pass from provider=$provider (context: $context_count files, ${context_bytes}B)"
 set +e
-reasoner_output="$(python3 "$repo_root/tools/routine-reasoner.py" --request \
+reasoner_output="$(env "${reasoner_env[@]}" python3 "$repo_root/tools/routine-reasoner.py" --request \
   --root "$repo_root" --output "$patch_file" "${context_args[@]}" \
   < "$findings_file" 2>>"$run_log")"
 reasoner_status=$?
@@ -432,6 +466,29 @@ if (( sandbox_status != 0 )); then
   finish_failed_validation
 fi
 
+# Record each target's verified post-apply hash. The real tree may only be committed while it
+# matches these exact contents, and only files still matching them may ever be auto-restored.
+sandbox_hashes_file="$tmp_root/sandbox.hashes"
+: > "$sandbox_hashes_file"
+while IFS= read -r patched_path; do
+  printf '%s\t%s\n' "$patched_path" "$(file_hash "$snapshot_dir/$patched_path")" \
+    >> "$sandbox_hashes_file"
+done < "$patched_files_file"
+
+# Restore, from the starting HEAD, only files that still hold exactly the verified candidate
+# content. A file that diverged from it carries someone else's edit and is never touched.
+restore_own_changes() {
+  local patched_path sandbox_hash
+  while IFS=$'\t' read -r patched_path sandbox_hash; do
+    [[ -f "$repo_root/$patched_path" ]] || continue
+    if [[ "$(file_hash "$repo_root/$patched_path")" == "$sandbox_hash" ]]; then
+      git -C "$repo_root" checkout "$base_sha" -- "$patched_path"
+    else
+      log "leaving $patched_path untouched: it no longer matches the verified candidate"
+    fi
+  done < "$sandbox_hashes_file"
+}
+
 # --- real workspace re-check and apply -----------------------------------------------
 
 if [[ "$(git -C "$repo_root" rev-parse HEAD)" != "$base_sha" ]]; then
@@ -466,33 +523,53 @@ set -e
 if (( real_status != 0 )); then
   # Without using reset, clean, or stash, restore only the files this routine changed back to the starting HEAD.
   log 'real verification failed; restoring only the files this routine changed'
-  restore_paths=()
-  while IFS= read -r patched_path; do
-    restore_paths+=("$patched_path")
-  done < "$patched_files_file"
-  git -C "$repo_root" checkout "$base_sha" -- "${restore_paths[@]}"
+  restore_own_changes
   reasoning_state='rolled-back'
   finish_failed_validation
 fi
 
 # --- scoped commit and policy-driven backup ------------------------------------------
+# The commit boundary is exact: HEAD must still be the base SHA, the set of changed paths must
+# equal the patched set (all unstaged modifications, nothing staged), and every target must hold
+# exactly the sandbox-verified content. Anything else means another writer interleaved.
 
-if [[ -z "$(git -C "$repo_root" status --porcelain)" ]]; then
+if [[ "$(git -C "$repo_root" rev-parse HEAD)" != "$base_sha" ]]; then
+  restore_own_changes
+  emit "ROUTINE_SKIPPED id=$routine_id reason=base-sha-changed"
+  exit 0
+fi
+status_snapshot="$tmp_root/status.raw"
+git -C "$repo_root" status --porcelain > "$status_snapshot"
+if [[ ! -s "$status_snapshot" ]]; then
   emit "ROUTINE_NOOP id=$routine_id deterministic=ok reasoning=no-tracked-change cache=$cache_state"
   exit 0
 fi
+foreign_status_lines="$(grep -cv '^ M ' "$status_snapshot" || true)"
+LC_ALL=C sort "$patched_files_file" > "$tmp_root/expected.paths"
+cut -c4- "$status_snapshot" | LC_ALL=C sort > "$tmp_root/actual.paths"
+if [[ "$foreign_status_lines" != '0' ]] || \
+  ! cmp -s "$tmp_root/expected.paths" "$tmp_root/actual.paths"; then
+  # A staged entry, an extra path, or a missing path means another writer's work is present.
+  restore_own_changes
+  emit "ROUTINE_SKIPPED id=$routine_id reason=unowned-change-detected"
+  exit 0
+fi
+while IFS=$'\t' read -r patched_path sandbox_hash; do
+  if [[ "$(file_hash "$repo_root/$patched_path")" != "$sandbox_hash" ]]; then
+    # Mixed edits on a target cannot be separated safely; leave everything in place and stop.
+    emit "ROUTINE_BLOCKED id=$routine_id reason=unowned-change-detected detail=mixed-edit"
+    exit 1
+  fi
+done < "$sandbox_hashes_file"
 commit_paths=()
 while IFS= read -r patched_path; do
   commit_paths+=("$patched_path")
 done < "$patched_files_file"
-git -C "$repo_root" add -- "${commit_paths[@]}"
-if [[ -n "$(git -C "$repo_root" status --porcelain | grep -v '^[AM] ' || true)" ]]; then
-  # Never create a commit in which anything beyond this routine's own targets moved.
-  git -C "$repo_root" checkout "$base_sha" -- "${commit_paths[@]}"
-  emit "ROUTINE_SKIPPED id=$routine_id reason=unowned-change-detected"
-  exit 0
-fi
-git -C "$repo_root" commit -q -m 'fix: maintenance routine repairs validator findings within the low-risk boundary'
+# --only with explicit paths commits exactly these working-tree contents and never the index,
+# so a concurrent writer's staged state can never leak into the routine commit.
+git -C "$repo_root" commit -q --only \
+  -m 'fix: maintenance routine repairs validator findings within the low-risk boundary' \
+  -- "${commit_paths[@]}"
 commit_sha="$(git -C "$repo_root" rev-parse HEAD)"
 log "scoped commit created: $commit_sha"
 

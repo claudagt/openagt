@@ -64,17 +64,41 @@ minute="${at_time##*:}"
 hour_number=$((10#$hour))
 minute_number=$((10#$minute))
 
+# Newlines break both formats and % is special inside cron entries; refuse such paths outright
+# rather than generating a schedule that silently misbehaves.
+case "$repo_root$logs_dir" in
+  *'%'*) blocked 'unsupported-path' ;;
+esac
+if [[ "$repo_root$logs_dir" == *$'\n'* ]]; then
+  blocked 'unsupported-path'
+fi
+
+# POSIX-safe single quoting, so paths with spaces, quotes, or metacharacters survive cron's shell.
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+# Minimal XML escaping for plist string values (& first, then angle brackets).
+xml_escape() {
+  printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
+}
+
+scheduler_path='/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin'
+
 # Identifier unique per workspace, so labels and cron entries of multiple Agents never collide.
 root_hash="$(printf '%s' "$repo_root" | { shasum -a 256 2>/dev/null || cksum; } | \
   awk '{print $1}' | cut -c1-8)"
 launchd_label="local.agent-directory.$root_hash.routine.$routine_id"
 cron_marker="# agent-directory routine=$routine_id root=$repo_root"
 
-# Build the command with absolute paths and an explicit PATH so it works under cron's limited PATH.
-routine_command="cd $repo_root && PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin /bin/bash tools/run-routine.sh $routine_id >> $logs_dir/cron.log 2>&1"
+# Build the command with quoted absolute paths and an explicit PATH so it works under cron's limited PATH.
+routine_command="cd $(shell_quote "$repo_root") && PATH=$scheduler_path /bin/bash tools/run-routine.sh $routine_id >> $(shell_quote "$logs_dir/cron.log") 2>&1"
 cron_entry="$minute_number $hour_number * * * $routine_command $cron_marker"
 
 render_plist() {
+  local xml_root xml_logs
+  xml_root="$(xml_escape "$repo_root")"
+  xml_logs="$(xml_escape "$logs_dir")"
   cat <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -85,11 +109,16 @@ render_plist() {
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
-		<string>$repo_root/tools/run-routine.sh</string>
+		<string>$xml_root/tools/run-routine.sh</string>
 		<string>$routine_id</string>
 	</array>
 	<key>WorkingDirectory</key>
-	<string>$repo_root</string>
+	<string>$xml_root</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>$scheduler_path</string>
+	</dict>
 	<key>StartCalendarInterval</key>
 	<dict>
 		<key>Hour</key>
@@ -98,9 +127,9 @@ render_plist() {
 		<integer>$minute_number</integer>
 	</dict>
 	<key>StandardOutPath</key>
-	<string>$logs_dir/launchd.out.log</string>
+	<string>$xml_logs/launchd.out.log</string>
 	<key>StandardErrorPath</key>
-	<string>$logs_dir/launchd.err.log</string>
+	<string>$xml_logs/launchd.err.log</string>
 </dict>
 </plist>
 PLIST
@@ -174,18 +203,30 @@ case "$scheduler" in
         render_plist > "$plist_path"
         # Boot out only our own existing job before registering, so reinstalling is idempotent.
         launchctl bootout "gui/$(id -u)/$launchd_label" >/dev/null 2>&1 || true
-        launchctl bootstrap "gui/$(id -u)" "$plist_path" >/dev/null 2>&1 || \
+        if ! launchctl bootstrap "gui/$(id -u)" "$plist_path" >/dev/null 2>&1; then
+          # Never leave a configured-but-unloaded plist behind after a failed install.
+          rm -f "$plist_path"
           blocked 'launchd-bootstrap-failed'
+        fi
         printf 'SCHEDULE_INSTALLED routine=%s scheduler=launchd at=%s label=%s\n' \
           "$routine_id" "$at_time" "$launchd_label"
         ;;
       status)
+        # installed = the plist is configured; loaded = launchd actually knows the job.
+        launchd_loaded='unknown'
+        if command -v launchctl >/dev/null 2>&1; then
+          if launchctl print "gui/$(id -u)/$launchd_label" >/dev/null 2>&1; then
+            launchd_loaded='true'
+          else
+            launchd_loaded='false'
+          fi
+        fi
         if [[ -f "$plist_path" ]]; then
-          printf 'SCHEDULE_STATUS routine=%s scheduler=launchd installed=true label=%s\n' \
-            "$routine_id" "$launchd_label"
+          printf 'SCHEDULE_STATUS routine=%s scheduler=launchd installed=true loaded=%s label=%s\n' \
+            "$routine_id" "$launchd_loaded" "$launchd_label"
         else
-          printf 'SCHEDULE_STATUS routine=%s scheduler=launchd installed=false label=%s\n' \
-            "$routine_id" "$launchd_label"
+          printf 'SCHEDULE_STATUS routine=%s scheduler=launchd installed=false loaded=%s label=%s\n' \
+            "$routine_id" "$launchd_loaded" "$launchd_label"
         fi
         ;;
       remove)

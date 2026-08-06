@@ -36,6 +36,10 @@ MAX_PATCH_BYTES = 32768
 MAX_PATCH_CHANGED_LINES = 200
 MAX_CONTEXT_FILES = 12
 MAX_CONTEXT_BYTES = 32768
+# The transmission budget covers the whole outbound payload: instructions + findings + context.
+MAX_PAYLOAD_BYTES = 32768
+# Upper bound on how much of a provider response is read; a compliant answer is far smaller.
+MAX_RESPONSE_BYTES = 1048576
 ABSOLUTE_MAX_MODEL_CALLS = 3
 
 SUPPORTED_PROVIDERS = ("deepseek", "openai", "anthropic")
@@ -213,6 +217,9 @@ def run_request(argv) -> int:
             fail("context-budget-exceeded")
         sections.append(f"## File: {relative}\n\n{content}\n")
     prompt = "\n".join(sections)
+    payload_bytes = len(PROMPT_INSTRUCTIONS.encode("utf-8")) + len(prompt.encode("utf-8"))
+    if payload_bytes > MAX_PAYLOAD_BYTES:
+        fail("context-budget-exceeded")
 
     url, headers, body = build_request(provider, model, api_key, prompt,
                                        max_output_tokens)
@@ -225,7 +232,10 @@ def run_request(argv) -> int:
                                          method="POST")
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                body_bytes = response.read(MAX_RESPONSE_BYTES + 1)
+                if len(body_bytes) > MAX_RESPONSE_BYTES:
+                    fail("response-too-large")
+                payload = json.loads(body_bytes.decode("utf-8"))
             break
         except urllib.error.HTTPError as error:
             # HTTP error bodies may contain secrets, so never print them; report only the status.
@@ -241,7 +251,8 @@ def run_request(argv) -> int:
     parsed = parse_model_json(extract_text(provider, payload))
     analysis = parsed.get("analysis", "").strip()
     if analysis:
-        print(f"analysis: {analysis[:2000]}", file=sys.stderr)
+        # Never persist the analysis body: it may quote input documents. Record only its size.
+        print(f"analysis_received bytes={len(analysis.encode('utf-8'))}", file=sys.stderr)
     patch = parsed["patch"]
     if not patch.strip():
         print("REASONING_EMPTY")

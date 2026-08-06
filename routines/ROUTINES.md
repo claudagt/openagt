@@ -47,10 +47,12 @@ Scheduler
 
 ## Single Writerと競合防止
 
-- Routineの多重起動はatomic lockで防ぐ。lockは`.agent-cache/routines/locks/`に置き、
-  routine id、PID、hostname、Git root、開始時刻、base SHAを記録する。
-- 同じRoutineの有効なlockがあれば何も変更せず`SKIPPED`する。stale lockは、同一hostnameで
-  PIDの死を機械的に証明できる場合だけ除去する。他hostのlockは除去しない。
+- Routineの多重起動と同一Git rootへの並行書込は、Git rootに1つのatomicなwriter lockで防ぐ。
+  lockは`.agent-cache/routines/locks/`に置き、routine id、PID、hostname、Git root、開始時刻、
+  base SHAを記録する。
+- 有効なlock、または所有者を判定できないlock（info欠損・不正PID等）があれば、何も変更せず
+  `SKIPPED`する。staleとして除去できるのは、同一hostnameでPIDの死を機械的に証明できる
+  場合だけである。他hostのlockは除去しない。
 - Human-triggered AgentはRoutine lockを持たないため、lockだけを信用しない。開始時に
   working treeがcleanでなければ`SKIPPED`し、所有者不明の変更を上書きしない。
 - tracked変更の適用直前とcommit直前に、HEADがbase SHAのままであること、対象ファイルの
@@ -72,7 +74,7 @@ Independent repository、利用者の未追跡ファイルを「古そう」と�
 
 | 対象 | 上限 |
 |---|---|
-| 読込・外部送信context | 最大12ファイル・32KiB（`AGENTS.md`の読込予算と同じ） |
+| 外部送信payload全体（指示＋診断＋context） | 最大12ファイル・合計32KiB |
 | model call | 1回のRoutineで既定1回、絶対上限3回 |
 | model timeout | `.env`の設定値。既定120秒 |
 | 自動patch | 最大3ファイル・32KiB・200変更行 |

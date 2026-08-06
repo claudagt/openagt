@@ -2665,7 +2665,7 @@ fi
   routine_git checkout -q -- AGENTS.md
 
   # With a valid lock (a live PID), never run concurrently and never steal the lock.
-  routine_lock_dir="$routine_work/.agent-cache/routines/locks/maintenance.lock"
+  routine_lock_dir="$routine_work/.agent-cache/routines/locks/workspace.lock"
   mkdir -p "$routine_lock_dir"
   {
     printf 'routine=maintenance\npid=%s\n' "$$"
@@ -2674,6 +2674,21 @@ fi
   routine_run maintenance
   routine_expect 'ROUTINE_SKIPPED id=maintenance reason=active-writer' 'the active lock run'
   [[ -d "$routine_lock_dir" ]] || fail 'routine fixture: an active lock was removed'
+
+  # A lock whose owner cannot be determined (missing info: a writer mid-acquisition) is active, not stale.
+  rm -f "$routine_lock_dir/info"
+  routine_run maintenance
+  routine_expect 'ROUTINE_SKIPPED id=maintenance reason=active-writer' 'the ownerless lock run'
+  [[ -d "$routine_lock_dir" ]] || fail 'routine fixture: a lock without an info file was stolen'
+
+  # Same for an info file with an unparsable PID: never treat it as provably stale.
+  {
+    printf 'routine=maintenance\npid=%s\n' 'not-a-pid'
+    printf 'hostname=%s\n' "$(hostname 2>/dev/null || printf 'unknown-host')"
+  } > "$routine_lock_dir/info"
+  routine_run maintenance
+  routine_expect 'ROUTINE_SKIPPED id=maintenance reason=active-writer' 'the corrupt lock run'
+  [[ -d "$routine_lock_dir" ]] || fail 'routine fixture: a lock with a corrupt info file was stolen'
 
   # Only a stale lock whose PID is provably dead on the same host is removed before continuing.
   sh -c ':' &
@@ -2746,6 +2761,11 @@ class Handler(BaseHTTPRequestHandler):
             if mode.startswith('commit:'):
                 subprocess.run(['git', '-C', mode.split(':', 1)[1], 'commit', '-q',
                                 '--allow-empty', '-m', 'fixture: concurrent writer'], check=False)
+            elif mode.startswith('dirty:'):
+                repo = mode.split(':', 1)[1]
+                with open(os.path.join(repo, 'LICENSE'), 'a') as handle:
+                    handle.write('concurrent writer line\n')
+                subprocess.run(['git', '-C', repo, 'add', '--', 'LICENSE'], check=False)
         payload = open(os.path.join(state, 'response.json'), 'rb').read()
         self.send_response(200)
         self.send_header('content-type', 'application/json')
@@ -2941,12 +2961,40 @@ MOCK_RESPONSES
     rm -f "$routine_mock_state/mode"
     routine_base_sha="$(routine_git rev-parse HEAD)"
 
-    # Happy path: low-risk repair candidate generation → isolated verification → apply → re-verify → scoped commit.
+    # Never mix another writer's work into the routine's changes: the mock stages a foreign file
+    # while responding, and the routine must yield without committing anything.
+    printf 'dirty:%s\n' "$routine_work" > "$routine_mock_state/mode"
+    routine_run maintenance
+    routine_expect 'ROUTINE_SKIPPED id=maintenance' 'the concurrent staged change run'
+    [[ "$(routine_git rev-parse HEAD)" == "$routine_base_sha" ]] || \
+      fail 'routine fixture: a concurrent staged change still produced a routine commit'
+    grep -Fqx 'status: activ' "$routine_work/$routine_probe" || \
+      fail 'routine fixture: the candidate was applied despite a concurrent staged change'
+    grep -Fq 'concurrent writer line' "$routine_work/LICENSE" || \
+      fail 'routine fixture: the routine destroyed the concurrent writer'\''s staged change'
+    rm -f "$routine_mock_state/mode"
+    routine_git reset -q -- LICENSE
+    routine_git checkout -q -- LICENSE
+
+    # Happy path, configured through .env alone (no exported provider variables): this is the
+    # normal user setup and proves the executor hands the .env values to the Python adapter.
+    routine_extra_env=()
+    {
+      printf 'AGENT_ROUTINE_REASONING_ENABLED=true\n'
+      printf 'AGENT_ROUTINE_REASONING_PROVIDER=deepseek\n'
+      printf 'AGENT_ROUTINE_REASONING_MODEL=fixture-model\n'
+      printf 'DEEPSEEK_API_KEY=fixture-secret\n'
+      printf 'DEEPSEEK_BASE_URL=http://127.0.0.1:%s\n' "$routine_mock_port"
+    } > "$routine_work/.env"
+    routine_hits_before="$(cat "$routine_mock_state/hits" 2>/dev/null || printf 0)"
     routine_run maintenance
     (( routine_status == 0 )) || fail 'routine fixture: the low-risk repair run exited non-zero'
     routine_expect 'ROUTINE_OK id=maintenance commit=' 'the low-risk repair run'
     routine_expect 'reasoning=applied' 'the low-risk repair run'
     routine_expect 'backup=unconfigured' 'the low-risk repair run'
+    [[ "$(cat "$routine_mock_state/hits" 2>/dev/null || printf 0)" != "$routine_hits_before" ]] || \
+      fail 'routine fixture: the .env-only configuration never reached the provider adapter'
+    rm -f "$routine_work/.env"
     grep -Fqx 'status: active' "$routine_work/$routine_probe" || \
       fail 'routine fixture: the verified low-risk repair was not applied'
     [[ "$(routine_git rev-parse HEAD)" != "$routine_base_sha" ]] || \
@@ -2973,9 +3021,17 @@ MOCK_RESPONSES
     printf '  *) cat > "$STATE" ;;\n'
     printf 'esac\n'
   } > "$routine_mock_bin/crontab"
+  # Stateful launchctl mock: bootstrap/bootout track a loaded flag, print reflects it,
+  # and a fail-flag file makes the next bootstrap fail (for the failed-install scenario).
   {
     printf '#!/bin/sh\n'
     printf 'echo "$@" >> %s\n' "$routine_fixture_dir/launchctl.log"
+    printf 'case "$1" in\n'
+    printf '  bootstrap) [ -f %s ] && exit 1; touch %s ;;\n' \
+      "$routine_fixture_dir/launchctl.fail" "$routine_fixture_dir/launchctl.loaded"
+    printf '  bootout) rm -f %s ;;\n' "$routine_fixture_dir/launchctl.loaded"
+    printf '  print) [ -f %s ] || exit 1 ;;\n' "$routine_fixture_dir/launchctl.loaded"
+    printf 'esac\n'
     printf 'exit 0\n'
   } > "$routine_mock_bin/launchctl"
   chmod +x "$routine_mock_bin/crontab" "$routine_mock_bin/launchctl"
@@ -3032,14 +3088,50 @@ MOCK_RESPONSES
     fail 'scheduler fixture: repeated launchd installs did not stay idempotent'
   grep -q 'bootstrap' "$routine_fixture_dir/launchctl.log" || \
     fail 'scheduler fixture: launchd install did not bootstrap the user agent'
-  schedule_run Darwin --scheduler auto --status 2>/dev/null | grep -Fq 'installed=true' || \
-    fail 'scheduler fixture: launchd status did not report the installed schedule'
+  schedule_run Darwin --scheduler auto --status 2>/dev/null | \
+    grep -Fq 'installed=true loaded=true' || \
+    fail 'scheduler fixture: launchd status did not report the schedule as installed and loaded'
   schedule_run Darwin --scheduler auto --remove >/dev/null
   if find "$routine_schedule_home/Library/LaunchAgents" -name '*.plist' 2>/dev/null | grep -q .; then
     fail 'scheduler fixture: launchd remove left the plist'
   fi
   grep -q 'bootout' "$routine_fixture_dir/launchctl.log" || \
     fail 'scheduler fixture: launchd remove did not boot out the user agent'
+  schedule_run Darwin --scheduler auto --status 2>/dev/null | \
+    grep -Fq 'installed=false loaded=false' || \
+    fail 'scheduler fixture: launchd status still reports a removed schedule as present'
+
+  # A failed bootstrap must not leave a configured-but-unloaded plist behind.
+  touch "$routine_fixture_dir/launchctl.fail"
+  set +e
+  schedule_run Darwin --scheduler auto --at 03:00 --install >/dev/null 2>&1
+  schedule_bootstrap_status=$?
+  set -e
+  (( schedule_bootstrap_status != 0 )) || \
+    fail 'scheduler fixture: a failed launchd bootstrap was reported as success'
+  if find "$routine_schedule_home/Library/LaunchAgents" -name '*.plist' 2>/dev/null | grep -q .; then
+    fail 'scheduler fixture: a failed launchd bootstrap left its plist behind'
+  fi
+  rm -f "$routine_fixture_dir/launchctl.fail"
+
+  # Paths with spaces must survive cron quoting, and XML metacharacters must survive plist rendering.
+  routine_spaced_root="$routine_fixture_dir/spaced root & co"
+  mkdir -p "$routine_spaced_root/tools"
+  cp -p "$routine_work/tools/run-routine.sh" "$routine_spaced_root/tools/run-routine.sh"
+  schedule_output="$(env "${routine_env[@]}" HOME="$routine_schedule_home" \
+    PATH="$routine_mock_bin:$PATH" AGENT_ROUTINE_SCHEDULER_OS=Linux \
+    AGENT_DIRECTORY_ROOT="$routine_spaced_root" \
+    bash "$routine_work/tools/manage-routine-schedule.sh" --routine maintenance \
+    --scheduler auto --at 03:00 --print)"
+  printf '%s\n' "$schedule_output" | grep -Fq "cd '$routine_spaced_root'" || \
+    fail 'scheduler fixture: the cron render does not quote a path with spaces'
+  schedule_output="$(env "${routine_env[@]}" HOME="$routine_schedule_home" \
+    PATH="$routine_mock_bin:$PATH" AGENT_ROUTINE_SCHEDULER_OS=Darwin \
+    AGENT_DIRECTORY_ROOT="$routine_spaced_root" \
+    bash "$routine_work/tools/manage-routine-schedule.sh" --routine maintenance \
+    --scheduler auto --at 03:00 --print)"
+  printf '%s\n' "$schedule_output" | grep -Fq 'spaced root &amp; co' || \
+    fail 'scheduler fixture: the plist render does not XML-escape an ampersand in the path'
 
   # The whole fixture must not have touched the real repo or the real OS schedule.
   if [[ -n "$real_head_before_routine_fixture" ]]; then
