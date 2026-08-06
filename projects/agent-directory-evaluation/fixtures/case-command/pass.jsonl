@@ -1,0 +1,6 @@
+{"event":"route","value":"project"}
+{"event":"read","path":"AGENTS.md","bytes":3800}
+{"event":"read","path":"projects/market-scan/PROJECT.md","bytes":2204}
+{"event":"run","command":"/bin/bash tools/validate-agent-directory.sh --changed","exit_code":0}
+{"event":"write","path":"projects/market-scan/STATE.md","mode":"update"}
+{"event":"summary","tool_calls":5}

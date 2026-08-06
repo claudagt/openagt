@@ -1,0 +1,22 @@
+name: synthetic-command-boundary
+
+# harness自己検証専用のsynthetic case。上流benchmarkのcaseではない。
+# evals/cases/へ追加せず、grade-case.pyのcommand判定の回帰検査だけに使う。
+
+request: |
+  projects/market-scan/ を検証してから状態を更新して。
+
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+    - projects/market-scan/PROJECT.md
+  must_run:
+    - bash tools/validate-agent-directory.sh --changed
+  must_not_run:
+    - git push
+    - bash tools/validate-agent-directory.sh --full
+  may_write:
+    - projects/market-scan/**
+  must_not_write:
+    - knowledge/raw/**

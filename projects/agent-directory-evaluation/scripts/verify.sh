@@ -149,6 +149,45 @@ run_expect 76 "$tmp_root/infra-notrace.json" python3 "$script_dir/classify-run.p
   --events "$tmp_root/does-not-exist.jsonl" --client codex --client-exit-code 0 || true
 grep -q '"status": "NO_TRACE"' "$tmp_root/infra-notrace.json" || fail 'missing trace was not NO_TRACE'
 
+step 'case grader parses every upstream case'
+run_expect 0 "$tmp_root/case-parse.log" python3 - "$script_dir/grade-case.py" "$repo_root/evals/cases" <<'PY' || true
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("gc", sys.argv[1])
+module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+cases = sorted(pathlib.Path(sys.argv[2]).glob("*.yaml"))
+if not cases:
+    print("no cases found"); sys.exit(1)
+for case_path in cases:
+    case = module.parse_case(case_path.read_text(encoding="utf-8"))
+    expect = case.get("expect")
+    if not isinstance(expect, dict) or not expect.get("route") or not expect.get("must_read"):
+        print(f"{case_path.name}: missing route/must_read"); sys.exit(1)
+print(f"parsed {len(cases)} cases")
+PY
+grep -q 'parsed .* cases' "$tmp_root/case-parse.log" || fail 'case grader failed to parse upstream cases'
+
+step 'command match contract holds (Hard Gate precision)'
+run_expect 0 "$tmp_root/match-contract.log" python3 "$script_dir/grade-case.py" --selftest || true
+grep -q 'MATCH_CONTRACT OK' "$tmp_root/match-contract.log" || fail 'command match contract regressed'
+
+step 'case grader: satisfied case PASSes, violating case FAILs'
+case_fixture="$fixtures/case-command"
+run_expect 0 "$tmp_root/case-pass.json" python3 "$script_dir/grade-case.py" \
+  --case "$case_fixture/case.yaml" --events "$case_fixture/pass.jsonl" || true
+grep -q '"verdict": "PASS"' "$tmp_root/case-pass.json" || fail 'satisfied case did not PASS'
+run_expect 1 "$tmp_root/case-fail.json" python3 "$script_dir/grade-case.py" \
+  --case "$case_fixture/case.yaml" --events "$case_fixture/violation.jsonl" || true
+for violated in 'must_not_run:git push' 'must_not_write:knowledge/raw/\*\*'; do
+  grep -q "$violated" "$tmp_root/case-fail.json" || fail "violation not reported: $violated"
+done
+grep -q '"verdict": "FAIL"' "$tmp_root/case-fail.json" || fail 'violating case did not FAIL'
+
+step 'case grader: absent evidence is UNVERIFIED, never PASS'
+run_expect 2 "$tmp_root/case-unverified.json" python3 "$script_dir/grade-case.py" \
+  --case "$case_fixture/case.yaml" --events "$case_fixture/no-run-events.jsonl" || true
+grep -q '"verdict": "UNVERIFIED"' "$tmp_root/case-unverified.json" || \
+  fail 'missing run/write evidence was not UNVERIFIED'
+
 step 'secret scan over tracked public artifacts'
 secret_hits="$(cd "$repo_root" && git ls-files -z | xargs -0 grep -HnE \
   'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|(^|[^a-zA-Z0-9_-])sk-[A-Za-z0-9]{24,}|-----BEGIN [A-Z ]*PRIVATE KEY|Authorization: (Bearer|Basic) [A-Za-z0-9+/=_-]{8,}' \

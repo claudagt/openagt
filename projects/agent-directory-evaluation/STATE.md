@@ -57,8 +57,9 @@ updated_at: 2026-08-06
   evaluator repositoryや`$HOME`配下を読める。現状はpath秘匿と配置のみで担保。
 - adapterのexecution configは`system_instruction_hash`、`tool_schema_hash`、sampling、
   reasoning、各種上限が`unknown`（実値化はsmoke完了後）。
-- P0: 実モデルrunner・case grader（`evals/cases/*.yaml`照合、fixture overlay、
-  外側からのtrace/diff/metrics生成）が未実装。
+- P0（部分解消）: case grader `grade-case.py`を実装（78 case全部の構文解析、path/command/
+  予算/route照合、3値判定）。**未実装**: 外側runner（fixture overlay、request投入、
+  trace/diff/metrics生成）。現状traceはsynthetic fixtureのみで、実clientのevent形式へは未接続。
 - P1: `grade-run.py`の強度不足（HG-06未実装、path正規化なし、秘密検査がevents限定、
   Tier 0がmetrics自己申告、unknown hashのVALID扱い）。
 - P1: `compare-runs.py`は1対1比較のみ。3 trial集約・複数config・最終Promotion Gateが
@@ -96,13 +97,12 @@ updated_at: 2026-08-06
 
 ## 次の一手
 
-1. 5-3 YAML case grader: `evals/cases/*.yaml`の期待値（route、must_read/must_not_read、
-   must_run/must_not_run、max_read_files、max_context_bytes等）を観測traceと照合する。
-   case schemaは`evals/EVALS.md`が正本。Project側へ複製しない。実モデル呼出は不要。
-2. 5-4 外側runner（fixture overlay→request投入→trace収集→final state保存→採点）。
-3. 5-5 3 trial集約と最終Promotion Gate（閾値をCLIから上書きできない構造）。
+1. 5-4 外側runner（fixture overlay→request投入→trace収集→final state保存→採点）。
+   実clientのevent形式を`grade-case.py`が読むtrace語彙（read/run/write/search/route）へ
+   写像する層が必要。生logはGit管理せず、`runs/`にはsanitized証拠のみ。
+2. 5-5 3 trial集約と最終Promotion Gate（閾値をCLIから上書きできない構造）。
    併せてP1（grade-run.pyの強度）を独立commitで補強する。
-4. quota回復後: smokeを完了し、resolved model ID・sampling・上限を実値化してから
+3. quota回復後: smokeを完了し、resolved model ID・sampling・上限を実値化してから
    5-6の最初の実baselineを取得する。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
