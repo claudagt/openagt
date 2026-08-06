@@ -13,10 +13,10 @@ root_only=false
 independent_verify_root=''
 independent_index=0
 verify_repo=''
-# ローカルbare remoteは隔離fixture検証だけで許可する。通常運用では設定しない。
+# Local bare remotes are allowed only for isolated fixture verification. Never set this in normal operation.
 allow_local_repository_url="${AGENT_ALLOW_LOCAL_REPOSITORY_URL:-false}"
 
-# 登録済みIndependent Projectの並行配列。bash 3.2にassociative arrayはない。
+# Parallel arrays for the registered Independent Projects. bash 3.2 has no associative arrays.
 independent_names=()
 independent_urls=()
 independent_revisions=()
@@ -50,8 +50,8 @@ frontmatter_key_count() {
   ' "$1"
 }
 
-# registry entryを "name<TAB>url<TAB>reason<TAB>revision" として1行ずつ出す。
-# コードフェンス内は読まず、構造上の誤りは "E<TAB>detail" で返す。
+# Emit each registry entry as one "name<TAB>url<TAB>reason<TAB>revision" line.
+# Code fences are not read; structural errors are returned as "E<TAB>detail".
 registry_records() {
   LC_ALL=C awk '
     function flush_entry() {
@@ -105,7 +105,7 @@ registry_records() {
   ' "$1"
 }
 
-# projects/.gitignore の managed block に登録された `/<name>/` を1行ずつ出す。
+# Emit each `/<name>/` entry registered in the projects/.gitignore managed block, one per line.
 ignore_block_entries() {
   [[ -f "$1" ]] || return 0
   awk '
@@ -115,8 +115,8 @@ ignore_block_entries() {
   ' "$1"
 }
 
-# repository_urlはoption injection、認証情報、query/fragment、file://、ローカルpathを拒否する。
-# scp形式の `git@host:path` と `scheme://host/path` だけを通す。
+# repository_url rejects option injection, credentials, query/fragment, file://, and local paths.
+# Only scp-style `git@host:path` and `scheme://host/path` are accepted.
 repository_url_is_rejected() {
   local url="$1"
   local authority userinfo
@@ -145,8 +145,8 @@ repository_url_is_rejected() {
   return 1
 }
 
-# 登録時に拒否しているが、DETAIL行では`://user:pass@`とscp形式`user:pass@host`の
-# password、query、fragmentを伏せる。cloneの実origin URLは登録検証を通っていない。
+# Registration already rejects these, but DETAIL lines still mask the password, query and
+# fragment of `://user:pass@` and scp-style `user:pass@host`; a clone's actual origin URL has not passed registration validation.
 redact_repository_url() {
   printf '%s' "$1" | \
     sed -E 's|(://[^/:@]+):[^/@]*@|\1:***@|; s|^([^/:@]+):[^/@]+@|\1:***@|; s|\?.*$|?***|; s|#.*$|#***|'
@@ -159,7 +159,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# --- registryとignore projectionの静的検査 ------------------------------------
+# --- static checks on the registry and the ignore projection -------------------
 
 load_independent_registry() {
   local record_kind field_a field_b field_c field_d
@@ -210,7 +210,7 @@ load_independent_registry() {
   done < <(printf '%s\n' "$ignore_entries")
 }
 
-# 旧`projects/<name>/repository/`方式と旧frontmatterは、nested-git等より先に名指しで停止させる。
+# Stop the retired `projects/<name>/repository/` layout and retired frontmatter by name, before nested-git and similar checks.
 detect_deprecated_layout() {
   local project_md project_dir retired_key legacy_dir legacy_tracked
 
@@ -241,7 +241,7 @@ detect_deprecated_layout() {
   done < <(git -C "$repo_root" ls-files -- 'projects/*/PROJECT.md')
 }
 
-# --- Project rootへのattachment検査 -------------------------------------------
+# --- attachment checks at the Project root -------------------------------------
 
 validate_independent_attachment() {
   local project_name="$1"
@@ -273,7 +273,7 @@ validate_independent_attachment() {
     "$project_dir remote.origin.url is $(redact_repository_url "${child_origin:-<unset>}"), expected $(redact_repository_url "$repository_url")"
 }
 
-# --- Independent本体のローカル状態監査 ----------------------------------------
+# --- local state audit of the Independent clone itself -------------------------
 
 audit_independent_repository() {
   local project_name="$1"
@@ -281,8 +281,8 @@ audit_independent_repository() {
   local target="$repo_root/$project_dir"
   local child_untracked nested_child attributes_file contract_file
 
-  # 構造的に非対応な状態を先に判定する。cleanlinessより強い停止理由であり、
-  # 未追跡ファイルとして報告してしまうと原因が隠れる。
+  # Detect structurally unsupported states first. They are stronger stop reasons than
+  # cleanliness, and reporting them as untracked files would hide the real cause.
   if git -C "$target" ls-files --stage | awk '$1 == "160000" { found = 1 } END { exit !found }'; then
     blocked 'independent-submodule-unsupported' \
       "$project_dir contains submodules; their contents are not covered"
@@ -325,9 +325,9 @@ audit_independent_repository() {
   fi
 }
 
-# --- 採用revisionとremote到達性 -----------------------------------------------
+# --- adopted revision and remote reachability ----------------------------------
 
-# 子cloneを変形せず、隔離した一時bare repositoryだけで到達性を判定する。
+# Judge reachability only through an isolated temporary bare repository, never by mutating the child clone.
 verify_independent_revision() {
   local project_name="$1"
   local repository_url="$2"
@@ -363,7 +363,7 @@ verify_independent_revision() {
     blocked 'independent-revision-unavailable' \
       "$project_dir adopted revision did not resolve to a commit: $state_revision"
 
-  # 採用revisionがremoteに存在することを確かめてから、cloneがそこに固定されているかを見る。
+  # Confirm the adopted revision exists on the remote first, then check the clone is pinned to it.
   head_sha="$(git -C "$target" rev-parse --verify --quiet HEAD || true)"
   [[ "$head_sha" == "$state_revision" ]] || blocked 'independent-head-not-adopted' \
     "$project_dir HEAD is ${head_sha:-none}, but $registry_path adopts $state_revision"
@@ -382,7 +382,7 @@ verify_local_refs_backed_up() {
       "could not read local refs from $project_dir" "$fetch_output"
   fi
 
-  # rev-list自体の失敗はfail-closed（未公開扱い）に倒す。'0'は復旧可能の誤申告になる。
+  # A failure of rev-list itself fails closed (treated as unpublished). Printing '0' would falsely claim recoverability.
   unpublished="$(git -C "$verify_repo" rev-list --count refs/childhead \
     --not --remotes=upstream --tags 2>/dev/null || printf '1')"
   [[ "$unpublished" == '0' ]] || blocked 'independent-unpushed-commit' \
@@ -405,12 +405,12 @@ verify_local_refs_backed_up() {
   done < <(git -C "$verify_repo" for-each-ref --format='%(refname:short) %(objectname)' refs/childtags)
 }
 
-# --- root側の所有関係 ----------------------------------------------------------
+# --- ownership on the root side ------------------------------------------------
 
 validate_root_repository_ownership() {
   local tracked_under_project gitlink_paths entry_index
 
-  # gitlinkを先に判定する。同じpathを平文追跡した場合と停止reasonを区別する。
+  # Check gitlinks first, keeping their stop reason distinct from a plain-tracked file at the same path.
   gitlink_paths="$(git -C "$repo_root" ls-files --stage | awk '$1 == "160000" { print $4 }' | head -n 10)"
   [[ -z "$gitlink_paths" ]] || blocked 'unsupported-root-gitlink' \
     'the root index holds a gitlink; Independent repositories are plain clones, not submodules' \
@@ -466,7 +466,7 @@ if ! command -v git >/dev/null 2>&1; then
   exit 2
 fi
 
-# --- 2. root判定 ----------------------------------------------------------------
+# --- 2. root detection ----------------------------------------------------------
 
 [[ -n "$repo_root" ]] || blocked 'not-agent-directory-root' \
   "repository root does not exist: ${AGENT_DIRECTORY_ROOT:-$tool_root/..}"
@@ -483,7 +483,7 @@ if [[ ! -f "$repo_root/AGENTS.md" || ! -f "$repo_root/tools/validate-agent-direc
   blocked 'not-agent-directory-root' "AGENTS.md and tools/validate-agent-directory.sh are required at $repo_root"
 fi
 
-# --- 3. branch／remote -----------------------------------------------------------
+# --- 3. branch / remote ----------------------------------------------------------
 
 head_ref=''
 if ! head_ref="$(git -C "$repo_root" symbolic-ref --quiet HEAD 2>/dev/null)"; then
@@ -503,13 +503,13 @@ if ! git -C "$repo_root" config --get "remote.$remote.url" >/dev/null 2>&1; then
   blocked 'missing-remote' "remote is not configured: $remote"
 fi
 
-# --- 4. registryとignore projection ----------------------------------------------
+# --- 4. registry and ignore projection --------------------------------------------
 
 load_independent_registry
 independent_count="${#independent_names[@]}"
 detect_deprecated_layout
 
-# --- 5. root clean状態 -----------------------------------------------------------
+# --- 5. root cleanliness ---------------------------------------------------------
 
 git -C "$repo_root" diff --cached --quiet -- || \
   blocked 'staged-changes' 'the index holds uncommitted changes; commit or unstage them first'
@@ -538,9 +538,9 @@ if [[ -n "$unmerged" ]]; then
     "these local branches are not reachable from $branch and would not be backed up:$unmerged"
 fi
 
-# --- 6. root禁止対象 --------------------------------------------------------------
+# --- 6. forbidden content in root -------------------------------------------------
 
-# 許可するnested Gitは登録済みIndependent ProjectのProject rootだけである。
+# The only nested Git repositories allowed are the Project roots of registered Independent Projects.
 nested_prune=( -path "$repo_root/.git" )
 if (( independent_count > 0 )); then
   scan_index=0
@@ -594,11 +594,11 @@ if [[ -n "$oversized" ]]; then
     "$(printf '%s\n' "$oversized" | head -n 10)"
 fi
 
-# --- 7. root ownership／gitlink ---------------------------------------------------
+# --- 7. root ownership / gitlink --------------------------------------------------
 
 validate_root_repository_ownership
 
-# --- 8. workspace scopeならIndependent repositoryを監査 ---------------------------
+# --- 8. audit Independent repositories when in workspace scope --------------------
 
 if [[ "$root_only" == true ]]; then
   note "root-only scope: $independent_count registered Independent repository(ies) were not audited"
@@ -610,8 +610,8 @@ else
     audit_revision="${independent_revisions[$audit_index]}"
     validate_independent_attachment "$audit_name" "$audit_url"
     audit_independent_repository "$audit_name"
-    # コマンド置換で呼ぶと一時ディレクトリの状態が親へ伝播せずcleanup trapが空振りする。
-    # 直接呼び、結果はグローバルverify_repoで受ける。
+    # Calling this in a command substitution would keep the temp-directory state from reaching
+    # the parent, so the cleanup trap would miss it. Call it directly; the result comes back through the global verify_repo.
     verify_independent_revision "$audit_name" "$audit_url" "$audit_revision"
     verify_local_refs_backed_up "$audit_name" "$verify_repo"
     note "independent repository verified: $(redact_repository_url "$audit_url")@$audit_revision at projects/$audit_name"
@@ -641,7 +641,7 @@ else
   fi
 fi
 
-# --- 10. dry-runまたはroot push ------------------------------------------------------
+# --- 10. dry-run or root push --------------------------------------------------------
 
 if [[ "$dry_run" == true ]]; then
   note 'dry run performed no remote write'
@@ -660,7 +660,7 @@ if ! push_output="$(git -C "$repo_root" push --porcelain "$remote" "HEAD:refs/he
 fi
 note "$(printf '%s\n' "$push_output" | tr '\n' ' ')"
 
-# --- 11. remote SHA再確認 -------------------------------------------------------------
+# --- 11. re-verify the remote SHA -----------------------------------------------------
 
 verify_listing=''
 if ! verify_listing="$(git -C "$repo_root" ls-remote --heads "$remote" "refs/heads/$branch" 2>&1)"; then
@@ -671,7 +671,7 @@ if [[ "$verified_sha" != "$local_head" ]]; then
   blocked 'remote-verification-mismatch' "remote=${verified_sha:-none} local=$local_head"
 fi
 
-# --- 12. scope別stdout -----------------------------------------------------------------
+# --- 12. per-scope stdout --------------------------------------------------------------
 
 if [[ "$root_only" == true ]]; then
   printf 'ROOT_BACKUP_OK remote=%s branch=%s sha=%s scope=root-only\n' "$remote" "$branch" "$local_head"

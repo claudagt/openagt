@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# projects/REPOSITORIES.md の登録と採用revisionから、Project root projects/<name>/ へ通常cloneを
-# 再現する。既存cloneは検証だけを行い、reset/clean/stash/merge/rebaseで変形しない。
+# Reproduce a normal clone into the Project root projects/<name>/ from the
+# projects/REPOSITORIES.md registration and its adopted revision. Existing clones are
+# only verified, never reshaped with reset/clean/stash/merge/rebase.
 
 tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd "${AGENT_DIRECTORY_ROOT:-$tool_root/..}" 2>/dev/null && pwd -P)" || repo_root=''
@@ -12,7 +13,7 @@ select_all=false
 only_project=''
 check_only=false
 pending_target=''
-# ローカルbare remoteは隔離fixture検証だけで許可する。通常運用では設定しない。
+# Local bare remotes are allowed only for isolated fixture verification; never set in normal operation.
 allow_local_repository_url="${AGENT_ALLOW_LOCAL_REPOSITORY_URL:-false}"
 
 usage() {
@@ -32,7 +33,7 @@ blocked() {
   exit 1
 }
 
-# 途中で失敗したfresh cloneだけを片づける。Project root以外は決して削除しない。
+# Clean up only a fresh clone that failed midway. Never delete anything other than the Project root.
 cleanup() {
   local status=$?
   if (( status != 0 )) && [[ -n "$pending_target" && -d "$pending_target" ]]; then
@@ -50,8 +51,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# registry entryを "name<TAB>url<TAB>reason<TAB>revision" として1行ずつ出す。
-# コードフェンス内は読まず、構造上の誤りは "E<TAB>detail" で返す。
+# Emit registry entries one per line as "name<TAB>url<TAB>reason<TAB>revision".
+# Content inside code fences is skipped; structural errors are returned as "E<TAB>detail".
 registry_records() {
   LC_ALL=C awk '
     function flush_entry() {
@@ -105,7 +106,7 @@ registry_records() {
   ' "$1"
 }
 
-# projects/.gitignore の managed block に登録された `/<name>/` を1行ずつ出す。
+# Emit each `/<name>/` line registered in the managed block of projects/.gitignore.
 ignore_block_entries() {
   [[ -f "$1" ]] || return 0
   awk '
@@ -115,8 +116,8 @@ ignore_block_entries() {
   ' "$1"
 }
 
-# repository_urlはoption injection、認証情報、query/fragment、file://、ローカルpathを拒否する。
-# scp形式の `git@host:path` と `scheme://host/path` だけを通す。
+# repository_url rejects option injection, credentials, query/fragment, file://, and local paths.
+# Only scp-style `git@host:path` and `scheme://host/path` are accepted.
 repository_url_is_rejected() {
   local url="$1"
   local authority userinfo
@@ -145,14 +146,15 @@ repository_url_is_rejected() {
   return 1
 }
 
-# 登録時に拒否しているが、報告経路では`://user:pass@`とscp形式`user:pass@host`の
-# password、query、fragmentを伏せる。cloneの実origin URLは登録検証を通っていない。
+# Registration already rejects these, but on reporting paths still redact the password in
+# `://user:pass@` and scp-style `user:pass@host`, plus query and fragment. A clone's actual
+# origin URL has not passed registration validation.
 redact_repository_url() {
   printf '%s' "$1" | \
     sed -E 's|(://[^/:@]+):[^/@]*@|\1:***@|; s|^([^/:@]+):[^/@]+@|\1:***@|; s|\?.*$|?***|; s|#.*$|#***|'
 }
 
-# 認証プロンプトで停止しないよう、失敗出力から原因を分類する。
+# Classify the cause from failure output so we never hang on an authentication prompt.
 classify_remote_failure() {
   if printf '%s\n' "$1" | grep -Eqi \
     'authentication|could not read Username|could not read Password|terminal prompts disabled|permission denied \(publickey\)|invalid username or password|access denied'; then
@@ -211,7 +213,7 @@ fi
 [[ -f "$repo_root/$registry_path" ]] || blocked 'invalid-registry' '-' \
   "$registry_path is required; an empty registry is valid but the file must exist"
 
-# --- registryの読み込みと静的検査 -------------------------------------------------
+# --- Load the registry and run static checks -------------------------------------
 
 registry_names=()
 registry_urls=()
@@ -285,7 +287,7 @@ if [[ -n "$only_project" ]]; then
     "projects/$only_project is not registered in $registry_path"
 fi
 
-# --- materializationと既存targetの検証 -------------------------------------------
+# --- Materialization and verification of existing targets ------------------------
 
 total=0
 cloned=0
@@ -352,8 +354,9 @@ while (( entry_index < registry_count )); do
     git -C "$target" cat-file -e "${state_revision}^{commit}" 2>/dev/null || \
       blocked 'revision-unavailable' "$project_name" \
         "the adopted revision is missing from the existing clone: $state_revision"
-    # 採用revisionがcloneに存在するだけでは足りない。HEADがそこに固定されていることまで確かめる。
-    # branch上で作業してそのtipを採用する運用も成立するため、detached HEADまでは要求しない。
+    # The adopted revision merely existing in the clone is not enough; verify that HEAD is
+    # pinned to it. Working on a branch and adopting its tip is a valid workflow, so a
+    # detached HEAD is not required.
     child_head="$(git -C "$target" rev-parse --verify --quiet HEAD || true)"
     [[ "$child_head" == "$state_revision" ]] || \
       blocked 'repository-head-not-adopted' "$project_name" \
@@ -404,7 +407,7 @@ while (( entry_index < registry_count )); do
         "the adopted revision did not resolve to a commit: $state_revision"
   fi
 
-  # branchの現在tipではなく、採用revisionだけをdetachedで再現する。
+  # Reproduce only the adopted revision, detached, not the branch's current tip.
   checkout_output=''
   if ! checkout_output="$(git -C "$target" checkout --quiet --detach "$state_revision" 2>&1)"; then
     blocked 'revision-unavailable' "$project_name" \

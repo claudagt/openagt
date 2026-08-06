@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Scheduler管理Tool。契約は routines/ROUTINES.md が所有する。
-# OS scheduleの変更は利用者の明示操作（--install / --remove）だけで行い、
-# 通常のRoutine実行やclone直後に自動installしない。root権限を要求しない。
-# 扱うのはuser crontabとuser LaunchAgentだけで、無関係なentryへ触れない。
+# Scheduler management Tool. The contract is owned by routines/ROUTINES.md.
+# OS schedule changes happen only through explicit user actions (--install / --remove);
+# never auto-install during normal Routine runs or right after cloning. Root privileges
+# are never required. Only the user crontab and user LaunchAgents are touched, and
+# unrelated entries are left alone.
 
 tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="${AGENT_DIRECTORY_ROOT:-$(cd "$tool_root/.." && pwd -P)}"
@@ -47,8 +48,8 @@ esac
 [[ "$at_time" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || blocked 'invalid-time'
 [[ -f "$repo_root/tools/run-routine.sh" ]] || blocked 'not-an-agent-directory'
 
-# auto: macOS（Darwin）はlaunchd、その他の一般的なUnix環境はcronを標準とする。
-# AGENT_ROUTINE_SCHEDULER_OSは隔離fixture専用のOS上書きで、通常運用では設定しない。
+# auto: launchd on macOS (Darwin), cron on other common Unix environments.
+# AGENT_ROUTINE_SCHEDULER_OS is an OS override for isolated fixtures only; never set in normal operation.
 os_name="${AGENT_ROUTINE_SCHEDULER_OS:-$(uname -s)}"
 case "$scheduler" in
   auto)
@@ -63,13 +64,13 @@ minute="${at_time##*:}"
 hour_number=$((10#$hour))
 minute_number=$((10#$minute))
 
-# Workspaceごとに一意な識別子。複数Agentのlabelとcron entryが衝突しない。
+# Identifier unique per workspace, so labels and cron entries of multiple Agents never collide.
 root_hash="$(printf '%s' "$repo_root" | { shasum -a 256 2>/dev/null || cksum; } | \
   awk '{print $1}' | cut -c1-8)"
 launchd_label="local.agent-directory.$root_hash.routine.$routine_id"
 cron_marker="# agent-directory routine=$routine_id root=$repo_root"
 
-# cronの限定PATHでも動くよう、絶対pathと明示PATHでコマンドを組む。
+# Build the command with absolute paths and an explicit PATH so it works under cron's limited PATH.
 routine_command="cd $repo_root && PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin /bin/bash tools/run-routine.sh $routine_id >> $logs_dir/cron.log 2>&1"
 cron_entry="$minute_number $hour_number * * * $routine_command $cron_marker"
 
@@ -116,7 +117,7 @@ crontab_without_entry() {
 }
 
 install_crontab() {
-  # 無関係なentryを保持したまま、自分のmanaged entryだけを置換する。
+  # Replace only our own managed entry while preserving unrelated entries.
   if [[ -n "$1" ]]; then
     printf '%s\n' "$1" | crontab -
   else
@@ -171,7 +172,7 @@ case "$scheduler" in
         command -v launchctl >/dev/null 2>&1 || blocked 'launchctl-unavailable'
         mkdir -p "$logs_dir" "$HOME/Library/LaunchAgents"
         render_plist > "$plist_path"
-        # 再installを冪等にするため、既存の自分のjobだけをboot outしてから登録する。
+        # Boot out only our own existing job before registering, so reinstalling is idempotent.
         launchctl bootout "gui/$(id -u)/$launchd_label" >/dev/null 2>&1 || true
         launchctl bootstrap "gui/$(id -u)" "$plist_path" >/dev/null 2>&1 || \
           blocked 'launchd-bootstrap-failed'

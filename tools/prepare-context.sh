@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Route確定後の初期読込を1回のTool呼び出しへまとめるContext Packetを出力する。
-# Toolは決定的な列挙（Git root、Required/Conditional参照、読込順序、profile候補）だけを
-# 行い、Conditionalの成立判断と成果の設計はエージェントが行う。本文は出力しない。
+# Emit a Context Packet that bundles the initial reads after Route determination into a
+# single Tool call. The Tool performs only deterministic enumeration (Git root,
+# Required/Conditional references, read order, profile candidates); the agent decides
+# whether Conditionals apply and designs the deliverable. File bodies are not emitted.
 
 tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="${AGENT_DIRECTORY_ROOT:-$(cd "$tool_root/.." && pwd)}"
@@ -58,13 +59,13 @@ queue_read() {
 }
 
 queue_conditional() {
-  # "<条件> -> <path>" の1行。同一行の重複だけを除き、成立判断はエージェントが行う。
+  # One "<condition> -> <path>" line. Only exact duplicate lines are dropped; the agent decides whether the condition holds.
   local line="$1"
   printf '%s\n' "$conditional_list" | grep -Fqx -- "$line" || conditional_list="${conditional_list}${line}
 "
 }
 
-# `### Required`配下のbacktick参照を、コードフェンス外の一覧行から抽出する。
+# Extract backtick references under `### Required` from list lines outside code fences.
 required_refs() {
   LC_ALL=C awk '
     /^```/ { fence = 1 - fence; next }
@@ -82,7 +83,7 @@ required_refs() {
   ' "$1"
 }
 
-# `### Conditional`配下の「- 条件: … 参照: `path`」対を「条件 -> path」で出す。
+# Emit each "- 条件: … 参照: `path`" pair under `### Conditional` as "<condition> -> path".
 conditional_refs() {
   LC_ALL=C awk '
     /^```/ { fence = 1 - fence; next }
@@ -101,7 +102,7 @@ conditional_refs() {
   ' "$1"
 }
 
-# 個別AGENTS.mdの`## Project Docs Route`表の行を「条件 -> path」で出す。
+# Emit each row of a per-Project AGENTS.md `## Project Docs Route` table as "<condition> -> path".
 docs_route_refs() {
   LC_ALL=C awk -F '|' '
     /^```/ { fence = 1 - fence; next }
@@ -161,7 +162,7 @@ case "$route" in
       done < <(conditional_refs "$contract")
     fi
     if [[ -f "$repo_root/$project_dir/AGENTS.md" ]]; then
-      # Docs Route表のpathはProject相対である。packetでは全pathをrepo相対へ揃える。
+      # Docs Route table paths are Project-relative; normalize every path in the packet to repo-relative.
       while IFS= read -r pair; do
         [[ -n "$pair" ]] || continue
         ref="${pair##* -> }"
@@ -189,7 +190,7 @@ case "$route" in
     fi
     ;;
   meta)
-    # metaは影響が広いためfail-safeで広いprofileを既定にする。
+    # meta has broad impact, so fail safe by defaulting to the wide profile.
     validation_profile='full'
     case "$target" in
       tools/*) queue_read 'tools/TOOLS.md' ;;

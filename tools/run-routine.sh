@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Routine Executor。契約は routines/ROUTINES.md と routines/maintenance/ROUTINE.md が所有する。
-# stdoutの最終1行だけが機械可読な結果であり、人間向け詳細はstderrとGit管理外run logへ出す。
+# Routine Executor. The contract is owned by routines/ROUTINES.md and routines/maintenance/ROUTINE.md.
+# Only the final stdout line is the machine-readable result; human-facing detail goes to stderr and a run log outside Git.
 
 tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="${AGENT_DIRECTORY_ROOT:-$(cd "$tool_root/.." && pwd -P)}"
@@ -30,7 +30,7 @@ while (( $# > 0 )); do
 done
 [[ -n "$routine_id" ]] || { usage; exit 2; }
 
-# 未知のRoutine IDは何も変更せず明確に拒否する。既知IDの正本は routines/<id>/ROUTINE.md である。
+# Reject unknown Routine IDs explicitly without changing anything. The canon for known IDs is routines/<id>/ROUTINE.md.
 case "$routine_id" in
   maintenance) ;;
   *)
@@ -65,7 +65,7 @@ log() {
 }
 
 emit() {
-  # 機械可読な結果はstdoutの1行だけ。dry-runはその事実をfieldで示す。
+  # The machine-readable result is a single stdout line. A dry run states that fact as a field.
   local line="$1"
   if [[ "$dry_run" == true ]]; then
     line="$line dry_run=true"
@@ -84,8 +84,8 @@ file_hash() {
   fi
 }
 
-# .envは既知キーだけを安全に読む。shellとしてsource/evalせず、実値をlogへ出さない。
-# 同名の環境変数が設定済みなら環境変数を優先する（隔離fixtureが利用する）。
+# Read only known keys from .env, safely: never source/eval it as shell, never log actual values.
+# An already-set environment variable of the same name takes precedence (isolated fixtures rely on this).
 config_value() {
   local key="$1"
   local value="${!key:-}"
@@ -118,7 +118,7 @@ base_sha="$(git -C "$repo_root" rev-parse HEAD)"
 host_name="$(hostname 2>/dev/null || printf 'unknown-host')"
 
 # --- instance lock -------------------------------------------------------------------
-# mkdirのatomic性で多重起動を防ぐ。staleは同一hostnameでPIDの死を証明できる場合だけ除去する。
+# mkdir's atomicity prevents concurrent runs. A stale lock is removed only when, on the same hostname, the PID can be proven dead.
 
 lock_is_stale() {
   local info="$lock_dir/info"
@@ -160,7 +160,7 @@ fi
 
 log "routine=$routine_id root=$repo_root base=$base_sha dry_run=$dry_run"
 
-# 所有者不明の変更を上書きしない。cleanでない作業ツリーでは何も変更せず譲る。
+# Never overwrite changes with an unknown owner. On a non-clean working tree, change nothing and yield.
 if [[ -n "$(git -C "$repo_root" status --porcelain)" ]]; then
   emit "ROUTINE_SKIPPED id=$routine_id reason=dirty-working-tree"
   exit 0
@@ -168,7 +168,7 @@ fi
 
 # --- deterministic maintenance -------------------------------------------------------
 
-# Routine自身の派生物だけを限定的に保守する（30日超の自分のrun log）。
+# Maintain only the Routine's own derived artifacts, narrowly (its own run logs older than 30 days).
 if [[ "$dry_run" != true ]]; then
   find "$logs_dir" -type f -name "$routine_id-*.log" -mtime +30 -delete 2>/dev/null || true
 fi
@@ -192,7 +192,7 @@ if ! AGENT_DIRECTORY_ROOT="$repo_root" AGENT_CACHE_DIR="$cache_dir" \
   fi
 fi
 
-# 7日ごとのfull検証を日次scheduleの中で自律判定する。--fullは常に強制する。
+# Decide autonomously, within the daily schedule, when the every-7-days full validation is due. --full always forces it.
 full_state_file="$state_dir/$routine_id-last-full"
 run_full=false
 if [[ "$force_full" == true ]]; then
@@ -207,7 +207,7 @@ fi
 
 validator_args=()
 [[ "$run_full" != true ]] || validator_args+=(--full)
-# 導入済み（プレースホルダー解消済み）のAgentだけstrictを併用する。スケルトンでは書き換えない。
+# Add strict mode only for a deployed Agent (placeholders resolved). The skeleton is left as-is.
 if ! grep -Eq '<agent-name>|<agent-role>|<agent-mission>|<agent-vision>' "$repo_root/AGENTS.md"; then
   validator_args+=(--strict)
 fi
@@ -245,7 +245,7 @@ finish_failed_validation() {
 }
 
 if (( validator_status == 0 )); then
-  # 問題もtracked変更もない正常終了。API・commit・backup・STATE更新を行わない。
+  # Clean exit with no findings and no tracked changes. No API call, commit, backup, or STATE update happens.
   if [[ "$(config_value AGENT_ROUTINE_REASONING_ENABLED)" != 'true' ]]; then
     reasoning_state='disabled'
   fi
@@ -254,7 +254,7 @@ if (( validator_status == 0 )); then
 fi
 
 # --- optional reasoning --------------------------------------------------------------
-# 決定的検査が具体的なFAILを出した場合だけ、routines/ROUTINES.mdの条件下で限定起動する。
+# Launched, narrowly, only when the deterministic checks produced concrete FAIL lines, under the conditions in routines/ROUTINES.md.
 
 if [[ "$dry_run" == true ]]; then
   reasoning_state='skipped-dry-run'
@@ -279,7 +279,7 @@ case "$provider" in
     finish_failed_validation
     ;;
   *)
-    # サポート外Providerは拒否し、別Providerへfallbackしない。
+    # Reject unsupported providers; never fall back to a different provider.
     log "unsupported reasoning provider: $provider (supported: deepseek | openai | anthropic)"
     reasoning_state='unsupported-provider'
     finish_failed_validation
@@ -295,7 +295,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   finish_failed_validation
 fi
 
-# 診断が名指しした実在trackedテキストだけを、送信禁止領域を除いてcontextにする。
+# Only existing tracked text files named by the diagnostics become context, excluding the no-transmission areas.
 context_files_file="$tmp_root/context.files"
 : > "$context_files_file"
 context_bytes=0
@@ -329,7 +329,7 @@ if (( context_count == 0 )); then
   finish_failed_validation
 fi
 
-# 自動修正のallowlist。ガバナンス正本、コード、eval、不変領域は候補から除外する。
+# Allowlist for auto-repair. Governance canon, code, evals, and immutable areas are excluded from candidacy.
 allow_args=()
 while IFS= read -r context_path; do
   case "$context_path" in
@@ -347,7 +347,7 @@ if (( ${#allow_args[@]} == 0 )); then
   finish_failed_validation
 fi
 
-# 適用前検証のため、開始時の対象hashを記録する。
+# Record the targets' hashes at start, for verification before applying.
 context_hashes_file="$tmp_root/context.hashes"
 : > "$context_hashes_file"
 while IFS= read -r context_path; do
@@ -407,7 +407,7 @@ patched_files_file="$tmp_root/patched.files"
 sed -n 's/^FILE //p' "$inspect_output_file" > "$patched_files_file"
 
 # --- isolated verification -----------------------------------------------------------
-# 候補はreal working treeへ直接適用せず、開始時HEADのsnapshotで先に検証する。
+# The candidate is never applied straight to the real working tree; it is verified first on a snapshot of the starting HEAD.
 
 snapshot_dir="$tmp_root/snapshot"
 mkdir -p "$snapshot_dir"
@@ -464,7 +464,7 @@ fi
 real_status=$?
 set -e
 if (( real_status != 0 )); then
-  # reset・clean・stashを使わず、自分が変更したファイルだけを開始時HEADへ戻す。
+  # Without using reset, clean, or stash, restore only the files this routine changed back to the starting HEAD.
   log 'real verification failed; restoring only the files this routine changed'
   restore_paths=()
   while IFS= read -r patched_path; do
@@ -487,7 +487,7 @@ while IFS= read -r patched_path; do
 done < "$patched_files_file"
 git -C "$repo_root" add -- "${commit_paths[@]}"
 if [[ -n "$(git -C "$repo_root" status --porcelain | grep -v '^[AM] ' || true)" ]]; then
-  # 自分の対象以外が動いたcommitを作らない。
+  # Never create a commit in which anything beyond this routine's own targets moved.
   git -C "$repo_root" checkout "$base_sha" -- "${commit_paths[@]}"
   emit "ROUTINE_SKIPPED id=$routine_id reason=unowned-change-detected"
   exit 0

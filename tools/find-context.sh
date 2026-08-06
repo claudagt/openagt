@@ -44,7 +44,7 @@ if [[ ! "$limit" =~ ^[1-5]$ ]]; then
   exit 2
 fi
 query="$*"
-# 前後の空白を除去する。空白だけのクエリは全件一致になるため拒否する。
+# Trim surrounding whitespace. A whitespace-only query would match everything, so reject it.
 query="${query#"${query%%[![:space:]]*}"}"
 query="${query%"${query##*[![:space:]]}"}"
 if [[ -z "$query" || "$query" == *$'\t'* || "$query" == *$'\n'* ]]; then
@@ -81,7 +81,7 @@ tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/agent-context-query.XXXXXX")"
 trap 'rm -rf "$tmp_root"' EXIT
 ranked="$tmp_root/ranked.tsv"
 
-# Independent Projectの本文はroot検索の境界外である。fallbackでもその配下をgrepしない。
+# Independent Project content is outside the root search boundary. Even the fallback never greps under it.
 independent_names_file="$tmp_root/independent.names"
 : > "$independent_names_file"
 if [[ -f "$repo_root/projects/REPOSITORIES.md" ]]; then
@@ -156,7 +156,7 @@ fi
 
 if [[ ! -s "$ranked" ]]; then
   read -r -a query_words <<< "$query"
-  # bash 3.2のset -u対策。検証済みだが空展開に到達しないよう件数で守る。
+  # Guard for set -u on bash 3.2: the query is already validated, but keep the count check so an empty expansion is never reached.
   (( ${#query_words[@]} > 0 )) || query_words=("$query")
   while IFS=$'\x1f' read -r area kind status name aliases description item_mode path hash; do
     [[ "$area" == "$route" ]] || continue

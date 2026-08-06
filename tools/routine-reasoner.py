@@ -228,7 +228,7 @@ def run_request(argv) -> int:
                 payload = json.loads(response.read().decode("utf-8"))
             break
         except urllib.error.HTTPError as error:
-            # HTTPエラー本文は秘密を含みうるため出力しない。statusだけを報告する。
+            # HTTP error bodies may contain secrets, so never print them; report only the status.
             fail(f"http-{error.code}")
         except (urllib.error.URLError, TimeoutError, OSError):
             if attempts >= max_calls:

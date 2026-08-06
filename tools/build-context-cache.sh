@@ -36,7 +36,7 @@ tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/agent-context-cache.XXXXXX")"
 trap 'rm -rf "$tmp_root"' EXIT
 generated_dir="$tmp_root/generated"
 mkdir -p "$generated_dir"
-# stat指紋の同秒編集guardに使う。この秒以降のmtimeを持つsourceがある間は指紋を保存しない。
+# Used by the stat fingerprint's same-second edit guard. The fingerprint is not saved while any source carries an mtime at or after this second.
 run_start_epoch="$(date +%s)"
 
 frontmatter_value() {
@@ -81,8 +81,8 @@ sql_quote() {
   sed "s/'/''/g"
 }
 
-# registry entryを "name<TAB>revision" として1行ずつ出す。コードフェンス内は読まない。
-# cacheは派生物なので、壊れたentryは停止せず警告して候補から外す。
+# Emit each registry entry as one "name<TAB>revision" line. Code fences are not read.
+# The cache is a derived artifact, so a broken entry is warned about and dropped instead of stopping.
 registry_records() {
   LC_ALL=C awk '
     function flush_entry() {
@@ -115,8 +115,8 @@ registry_records() {
   ' "$1"
 }
 
-# Embedded Projectはfilesystem全件ではなくroot indexを基準に決める。
-# Gitの外へ置いた隔離fixture rootだけがfilesystemへfallbackする。
+# Embedded Projects are determined from the root index, not a full filesystem scan.
+# Only an isolated fixture root placed outside Git falls back to the filesystem.
 root_index_project_contracts() {
   local top
   if top="$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null)" && \
@@ -183,8 +183,8 @@ append_frontmatter_item() {
   append_catalog "$area" "$kind" "$status" "$name" "$aliases" "$description" "$item_mode" "$file"
 }
 
-# Independent Projectは採用revisionのfrontmatter metadataだけをcatalogへ入れる。
-# content_hashへrevisionを混ぜ、採用revisionの変更が必ずfingerprintへ伝わるようにする。
+# Independent Projects contribute only the adopted revision's frontmatter metadata to the catalog.
+# Mix the revision into content_hash so a change of adopted revision always reaches the fingerprint.
 append_adopted_project() {
   local project_name="$1"
   local revision="$2"
@@ -229,11 +229,11 @@ meta_files=(
 )
 
 # --- --check-routing warm fast path -----------------------------------------------
-# 候補集合のpath+size+mtime指紋が前回保存時と一致すれば、本文の再読・再hashなしで
-# catalogを新鮮と判定する。指紋の欠損・不一致・stat不能時は従来の全再計算とcmpへ
-# fallbackし、判定の正確性はfallback側が保証する。Git HEADは鮮度入力に使わない。
+# If the candidate set's path+size+mtime fingerprint matches the last saved one, the catalog
+# is judged fresh without re-reading or re-hashing file bodies. A missing or mismatched
+# fingerprint, or a stat failure, falls back to the full recomputation and cmp, whose side guarantees correctness. Git HEAD is not a freshness input.
 
-# builderと同じ候補集合を本文を読まずに列挙する。列挙規則を変えたら両方を揃える。
+# Enumerate the same candidate set as the builder without reading file bodies. If the enumeration rules change, keep both sides in sync.
 list_stat_candidates() {
   local entry directory file project_relative registry_name registry_revision
   for entry in "${meta_files[@]}"; do
@@ -255,7 +255,7 @@ list_stat_candidates() {
   done < <(root_index_project_contracts)
   printf '%s\n' "$repo_root/$registry_path" "$tool_root/build-context-cache.sh"
   if [[ -f "$repo_root/$registry_path" ]]; then
-    # Independent cloneの出現・消滅・HEAD移動もcatalog行を変えるため指紋へ含める。
+    # An Independent clone appearing, disappearing, or moving HEAD also changes catalog rows, so include it in the fingerprint.
     while IFS=$'\t' read -r registry_name registry_revision; do
       [[ -n "$registry_name" && "$registry_name" != 'W' ]] || continue
       printf '%s\n' "$repo_root/projects/$registry_name/.git/HEAD"
@@ -264,16 +264,16 @@ list_stat_candidates() {
 }
 
 stat_lines_for() {
-  # "path<TAB>size<TAB>mtime" を1回のstat実行で出す。GNU statを先に試すのは、
-  # GNUの`-f`がfilesystem情報で誤成功するのを避けるためである。
+  # Emit "path<TAB>size<TAB>mtime" with a single stat invocation. GNU stat is tried first
+  # because GNU's `-f` would spuriously succeed with filesystem information.
   (( $# > 0 )) || return 0
   stat -c $'%n\t%s\t%Y' "$@" 2>/dev/null && return 0
   stat -f $'%N\t%z\t%m' "$@" 2>/dev/null
 }
 
 stat_fingerprint_report() {
-  # 1行目に指紋、2行目にsource側最大mtimeを出す。cache派生物は改変検知のため
-  # 指紋にだけ入れ、同秒guardの対象へ入れない（buildと同秒のmtimeを常に持つ）。
+  # Print the fingerprint on line 1 and the sources' maximum mtime on line 2. Cache-derived
+  # files enter the fingerprint only, for tamper detection, and stay out of the same-second guard (they always carry an mtime in the same second as the build).
   stat_existing=()
   stat_missing=()
   local candidate source_lines cache_lines
@@ -304,7 +304,7 @@ stat_fingerprint_report() {
 }
 
 write_stat_meta() {
-  # 同秒編集の疑いがある間は指紋を保存せず、fast pathを無効のままにする。
+  # While a same-second edit is suspected, do not save the fingerprint, leaving the fast path disabled.
   local report="$1"
   local epoch="$2"
   local fingerprint max_mtime
@@ -352,7 +352,7 @@ if [[ -d "$repo_root/skills" ]]; then
   done < <(find "$repo_root/skills" -mindepth 2 -maxdepth 2 -type f -name 'SKILL.md' -print0)
 fi
 
-# Independent Projectはregistryだけを正本として列挙し、本文ではなく採用revisionのfrontmatterを読む。
+# Independent Projects are enumerated from the registry alone as canon, reading the adopted revision's frontmatter rather than the working-tree body.
 independent_names=()
 independent_revisions=()
 independent_paths="$tmp_root/independent.paths"
@@ -391,7 +391,7 @@ while IFS= read -r project_relative; do
   append_frontmatter_item 'project' 'project' "$repo_root/$project_relative"
 done < <(root_index_project_contracts)
 
-# 採用revisionのPROJECT.mdだけを読む。working treeの未commit内容はroot cacheへ入れない。
+# Read only the adopted revision's PROJECT.md. Uncommitted working-tree content never enters the root cache.
 independent_index=0
 while (( independent_index < independent_count )); do
   independent_name="${independent_names[$independent_index]}"
@@ -413,7 +413,7 @@ tail -n +2 "$catalog_unsorted" | LC_ALL=C sort -t $'\t' -k8,8 >> "$catalog"
 
 if [[ "$mode" == 'check-routing' ]]; then
   if [[ -f "$cache_dir/catalog.tsv" ]] && cmp -s "$catalog" "$cache_dir/catalog.tsv"; then
-    # 全再計算でPASSした時点の指紋を保存し、次回以降をwarm fast pathにする。
+    # Save the fingerprint at the moment the full recomputation passed, so later runs take the warm fast path.
     if [[ -n "$routing_stat_report" ]]; then
       write_stat_meta "$routing_stat_report" "$run_start_epoch"
     fi
@@ -438,7 +438,7 @@ if (( knowledge_rows >= sqlite_knowledge_threshold || catalog_rows >= sqlite_cat
       while IFS=$'\x1f' read -r area kind status name aliases description item_mode path hash; do
         [[ "$area" == 'area' ]] && continue
         absolute_path="$repo_root/$path"
-        # Independent Projectの本文はroot索引へ入れない。metadataだけで候補選択する。
+        # Independent Project bodies never enter the root search index; candidate selection uses metadata only.
         if grep -Fqx -- "$path" "$independent_paths"; then
           absolute_path=''
         elif [[ ! -f "$absolute_path" ]]; then
@@ -482,9 +482,9 @@ tail -n +2 "$catalog" | awk -F '\t' '{print $8}' | LC_ALL=C sort -u > "$routeabl
 manifest_unsorted="$tmp_root/manifest.unsorted"
 printf 'path\tkind\tsize_bytes\tcontent_hash\trouteable\timmutable\n' > "$manifest_unsorted"
 
-# Independent ProjectのProject rootはroot cacheの境界外である。`.git`だけでなくdirectory全体を
-# pruneし、child側の変更がroot fingerprintへ漏れないようにする。対象はregistry登録名だけなので、
-# Embedded Projectや`projects/REPOSITORIES.md`、`projects/.gitignore`は巻き込まない。
+# An Independent Project's Project root sits outside the root cache boundary. Prune the whole
+# directory, not just `.git`, so child-side changes cannot leak into the root fingerprint. Only
+# registry-registered names are targeted, so Embedded Projects, `projects/REPOSITORIES.md` and `projects/.gitignore` are not swept up.
 manifest_prune=( -name '.git' -o -name '.agent-cache' -o -name '.tmp' )
 independent_index=0
 while (( independent_index < independent_count )); do
@@ -576,7 +576,7 @@ if [[ -f "$generated_dir/search.sqlite" ]]; then
 elif [[ -f "$cache_dir/search.sqlite" ]]; then
   rm -f "$cache_dir/search.sqlite"
 fi
-# stat指紋はwarm fast path専用の派生物であり、--checkの比較対象へ入れない。
+# The stat fingerprint is a derived artifact dedicated to the warm fast path; it is excluded from the --check comparison.
 if build_stat_report="$(stat_fingerprint_report)"; then
   write_stat_meta "$build_stat_report" "$run_start_epoch"
 else
