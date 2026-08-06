@@ -224,6 +224,8 @@ meta_files=(
   'evals/EVALS.md|eval-policy|振る舞いEvalの規約'
   'tools/TOOLS.md|tool-policy|構造保守Toolの規約'
   'tools/BACKUP.md|backup-policy|遠隔バックアップ、復旧、マシン移行の規約'
+  'routines/ROUTINES.md|routine-policy|Routine Trigger層とScheduled Maintenanceの規約'
+  'routines/maintenance/ROUTINE.md|maintenance-routine|Maintenance Routine固有の契約'
 )
 
 # --- --check-routing warm fast path -----------------------------------------------
@@ -512,6 +514,8 @@ while IFS= read -r -d '' file; do
     projects/*/ARCHITECTURE.md) kind='project-architecture' ;;
     projects/*/docs/*) kind='project-doc' ;;
     evals/cases/*.yaml) kind='eval' ;;
+    routines/ROUTINES.md) kind='routine-policy' ;;
+    routines/*/ROUTINE.md) kind='routine-contract' ;;
     tools/*) kind='tool' ;;
     *.md|*/*.md) kind='policy-or-document' ;;
   esac

@@ -1,12 +1,12 @@
 # AGENTS.md — 最上位ブートローダー
 
-共通規約の正本。ルーター兼目次であり詳細規則は各Route正本が所有。
+共通規約の正本。詳細規則は各Route正本が所有。
 
 ## 自己定義
 
 - あなたは`<agent-name>`（役割:`<agent-role>`）。作業領域は本ツリー内。
 - **使命:** `<agent-mission>` **ビジョン:** `<agent-vision>`。明示指示時のみ変更。
-- `<...>`は導入時に置換するプレースホルダー。
+- `<...>`は導入時に置換する。
 
 ## 共通判断原則
 
@@ -40,7 +40,9 @@ Project Route順序は`projects/AGENTS.md`が所有。
 
 ## 自律実行
 
-Human-on-the-loop。変更前に**Route**、**Owner**（パス）、**Target**（契約）、**Verify**（検証）を一意特定。sessionの書込Git rootは1つとし判定は`projects/AGENTS.md`が所有。
+Human-on-the-loop。変更前に**Route**、**Owner**、**Target**、**Verify**を一意特定。sessionの書込Git rootは1つとし判定は`projects/AGENTS.md`が所有。
+
+TriggerはHumanまたはRoutine（Routeではない）。Routineも同一規則に従い、関連時だけ`routines/ROUTINES.md`を読む。
 
 4つが一意、依頼範囲内、リポジトリ完結、可逆、外部影響なし、契約不変、正本衝突・秘密情報なし、既存検証で確認できる操作は確認せず完了・事後報告。フロー: `対象確定 → 最小読込 → 変更 → 自己検査 → 検証 → 状態更新 → commit → policy準拠push/backup → 報告`。
 
@@ -62,7 +64,7 @@ Human-on-the-loop。変更前に**Route**、**Owner**（パス）、**Target**�
 ## 禁止事項
 
 - APIキー・パスワード等を保存・コミットしない（実値は`.env*`のみ）。
-- GitHubを正本・実行基盤にしない。backup remoteへはbackup Toolのみ書き、pull/merge/rebase/force push不可。条件は`tools/BACKUP.md`所有。
+- GitHubを正本・実行基盤にしない。backup remoteへはbackup Toolのみ書き、pull/merge/rebase/force push不可。
 - 未依頼の機能・抽象化・依存を追加しない。
 - 未検証の事を完了と報告しない。
 - 下位`AGENTS.md`が上位規則・`PROJECT.md`契約を弱めない。
@@ -77,4 +79,4 @@ Human-on-the-loop。変更前に**Route**、**Owner**（パス）、**Target**�
 
 ## 参照順序
 
-明示指示 → 本`AGENTS.md` → Route正本 → 対象Project/Skill/Knowledge → 明示参照資料。
+明示指示 → 本`AGENTS.md` → Route正本 → 対象正本 → 明示参照資料。

@@ -13,7 +13,7 @@ backup trigger、remote分類、失敗、divergence、復旧、マシン移行�
 
 - GitHubを正本、実行キュー、タスク管理、デプロイ経路、クラウド同期基盤にすること
 - 複数マシンの双方向同期と自動競合解決
-- GitHub Actions、CI、cron、launchd、Git hook、常駐daemonによる時刻駆動のバックアップ
+- GitHub Actions、CI、Git hook、常駐daemon、schedule到達だけを理由とする時刻駆動のバックアップ
 - バックアップ履歴の正本、`BACKUP_STATUS.md`、remote SHAを保存する追跡ファイル
 - 秘密情報、`.tmp/`、`.agent-cache/`、製品側AIメモリの遠隔保存
 
@@ -73,9 +73,8 @@ bash tools/backup-to-github.sh --root-only
 workspace scope（CLI既定）はroot pushの前に全Independent repositoryを監査し、Independent自体は
 pushしない。全repositoryがremoteから復旧可能な場合だけ成功とし、partial materializationでは停止する。
 `--root-only`はrootだけを検査・pushする部分結果で（静的metadataとroot ownership違反は検査する）、
-workspace全体の成功として報告しない。運用の標準scopeはタスクclassで選ぶ。通常のwork/stateは
-`--root-only`、採用revision更新・registry・materialization・移行・復旧・マシン移行・配布前の
-boundaryはworkspaceとする。
+workspace全体の成功として報告しない。通常のwork/stateは`--root-only`、採用revision更新・registry・
+materialization・移行・復旧・マシン移行・配布前のboundaryはworkspaceとする。
 
 | scope | 成功（終了コード0） | dry-run成功 |
 |---|---|---|
@@ -114,9 +113,8 @@ root前提条件は次である。ひとつでも満たさない場合、Toolは
 構造的に非対応な状態（2）はcleanliness（3）より先に判定し、原因を未追跡ファイル報告で隠さない。
 
 停止reasonの網羅的な正本はTool出力とvalidatorの隔離fixtureであり、ここでは分類だけを固定する。
-rootのreasonは実行前提、cleanliness、禁止内容、registry整合、remoteに分かれる。Independent関連は
-未materialize（`missing-independent-repository`、`workspace-partially-materialized`）、attachment不一致の
-`repository-*`、root ownership違反、子cloneの構造・cleanliness・到達性を表す`independent-*`に分かれる。
+rootのreasonは実行前提、cleanliness、禁止内容、registry整合、remoteに、Independent関連は
+未materialize、attachment不一致の`repository-*`、root ownership違反、子cloneの`independent-*`に分かれる。
 
 Toolはfast-forward pushだけを行い、push後に`git ls-remote`でremote SHAを再取得してローカルHEADとの
 完全一致を確認する。成功時とdry-run時は各`URL@SHA`と件数を`DETAIL:`へ列挙し、保存値だけを信用せず
@@ -188,6 +186,10 @@ Single WriterはAgent単位ではなくGitリポジトリ単位の制約であ�
 ファイル1件ごとにpushせず、意味のあるcommit境界で実行する。時刻駆動や常駐にしない。
 フルvalidatorの合否はbackupの必須条件ではない。壊れた状態の保全にもbackupを使う。
 
+cron/launchdのScheduled Maintenance Routine（`routines/ROUTINES.md`）でも、schedule到達自体は
+backup triggerではない。Routineが検証済みcommitを作った場合だけ上記triggerが成立する。
+backup-only Routineは作らない。
+
 ## backupが失敗したとき
 
 backup先が未設定、到達不能、または一時的に失敗しても、検証済みローカルcommitの成功まで取り消さない。
@@ -211,8 +213,8 @@ backup失敗をタスクの失敗として報告せず、逆にbackup成功を�
 remote SHAがローカルHEADのancestorでない場合、Toolは何も変更せず`remote-diverged`で停止し、
 remote SHAとlocal SHAを報告する。
 
-エージェントはpull、merge、rebase、reset、force pushを行わない。分岐は別マシンからの書込、GitHub上の
-直接編集、Single Writer違反のいずれかを意味し、原因特定と採用の決定は利用者が行う。エージェントは
+エージェントはpull、merge、rebase、reset、force pushを行わない。分岐は別マシンからの書込、GitHubでの
+直接編集、Single Writer違反を意味し、原因特定と採用は利用者が決定する。エージェントは
 事実だけを報告して停止する。
 
 ## マシン移行

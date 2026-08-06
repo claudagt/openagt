@@ -84,8 +84,11 @@ agent-directory/
 │   ├── RECOVERY.md               # 目的不一致の復旧時だけ読む
 │   ├── _template/                # PROJECT.mdとSTATE.mdだけ
 │   └── <project-name>/           # PROJECT.md、STATE.md、任意のAGENTS.md・docs/・inputs/・outputs/
+├── routines/
+│   ├── ROUTINES.md               # Routine Trigger層の正本
+│   └── maintenance/ROUTINE.md    # Maintenance Routineの契約
 ├── evals/                        # EVALS.md、cases/、fixtures/
-└── tools/                        # TOOLS.md、BACKUP.md、6つのTool
+└── tools/                        # TOOLS.md、BACKUP.md、固定Tool一式
 ```
 
 ## Attachment境界
@@ -167,6 +170,62 @@ validatorは構造、`AGENTS.md`と`CLAUDE.md`の三層、frontmatter、Project�
 命名、参照上限、サイズ、INDEX、LOG、eval schema、派生cacheの決定的再生成、禁止されたGit追跡を検査する。
 `--base`は不変原資料や閉鎖済みlogの変更も検査する。依存関係、CI、GitHub接続を必要としない。
 
+## Routine（自律定期保守）
+
+`routines/`は、SchedulerがAgentを起動するTrigger層である。RoutineはRouteではなくTriggerであり、
+Human起点と同じRoute・Owner・Target・Verify・例外規則に従う。初期版はMaintenance Routineだけで、
+Research Routineは未実装である。詳細契約は[routines/ROUTINES.md](routines/ROUTINES.md)と
+[routines/maintenance/ROUTINE.md](routines/maintenance/ROUTINE.md)が所有する。
+
+### モデルなしで動くMaintenance
+
+推論ProviderやAPIキーを設定しなくても、標準Maintenanceは完全に実行できる。
+
+```bash
+bash tools/run-routine.sh maintenance            # 日次: cache鮮度 + 標準validator
+bash tools/run-routine.sh maintenance --dry-run  # 検査のみ。変更・commit・backup・外部送信なし
+bash tools/run-routine.sh maintenance --full     # 広域検証を強制
+```
+
+日次scheduleを1つ登録するだけで、7日ごとのfull検証はExecutorが自律判定する。問題も
+tracked変更もなければ`ROUTINE_NOOP`で終了し、API呼び出し・commit・backup・pushを行わない。
+Routineがtracked修正をcommitできた場合だけ、既存の[tools/BACKUP.md](tools/BACKUP.md)の
+event-driven backup契約に従う（schedule到達自体はbackup triggerにならない）。
+
+### optional reasoning（任意）
+
+`.env.example`を`.env`へコピーし、次を設定すると、validatorの具体的なFAILがあるときだけ
+限定的な推論支援と低リスク自動修復が有効になる。
+
+```dotenv
+AGENT_ROUTINE_REASONING_ENABLED=true
+AGENT_ROUTINE_REASONING_PROVIDER=deepseek   # deepseek | openai | anthropic から1つ
+AGENT_ROUTINE_REASONING_MODEL=<provider側のmodel ID。利用者が明示設定する>
+DEEPSEEK_API_KEY=<選択したProviderのkeyだけ>
+```
+
+`ENABLED=true`は、validator診断と直接関係する最小限のtrackedテキスト（最大12ファイル・32KiB）を
+選択した1 Providerへ送信するstanding approvalになる。`.env*`、`knowledge/raw/**`、ログ、秘密情報は
+送信されない。Provider間の自動fallbackはなく、モデル出力は隔離検証を通過した低リスクpatchだけが
+適用される。設定不足でも決定的Maintenanceは失敗しない。
+
+### Scheduler（cron / launchd）
+
+一般的なUnix環境の標準はcron、macOSの推奨はlaunchd（user LaunchAgent）である。
+`--scheduler auto`はmacOSでlaunchd、その他でcronを選ぶ。scheduleはhostのlocal timezoneで動く。
+
+```bash
+# 登録内容の確認（OSへは何も書かない）
+bash tools/manage-routine-schedule.sh --routine maintenance --scheduler auto --at 03:00 --print
+
+# 登録・状態・解除（冪等。無関係なcrontab entryやLaunchAgentへは触れない）
+bash tools/manage-routine-schedule.sh --routine maintenance --scheduler auto --at 03:00 --install
+bash tools/manage-routine-schedule.sh --routine maintenance --scheduler auto --status
+bash tools/manage-routine-schedule.sh --routine maintenance --scheduler auto --remove
+```
+
+Schedulerはclone時に自動installされない。`--install`は利用者の明示操作である。
+
 ## ローカル正本とGitHubバックアップ
 
 ローカルの作業コピーが唯一の書込可能な稼働正本であり、GitHubは最後に確定したコミットの受動的な
@@ -215,6 +274,7 @@ triggerは検証済みcommitの後、破壊的変更前のcheckpoint、採用rev
 | [projects/PROJECTS.md](projects/PROJECTS.md) | 成果契約、Project docs、Domain Canon、Research昇格、attachment、push policy |
 | [projects/REPOSITORIES.md](projects/REPOSITORIES.md) | Independent Projectのattachment registryとentry形式 |
 | [projects/LIFECYCLE.md](projects/LIFECYCLE.md) / [projects/RECOVERY.md](projects/RECOVERY.md) | 状態遷移と削除条件 / 目的不一致からの復旧 |
+| [routines/ROUTINES.md](routines/ROUTINES.md) | Routine Trigger層、Scheduler分離、送信境界、commit/backup条件 |
 | [evals/EVALS.md](evals/EVALS.md) | 振る舞いevalの契約、ケースschema、fixture、最低条件 |
 | [tools/TOOLS.md](tools/TOOLS.md) | Toolの入出力、自律commit、自己修復、サイズ超過、fallback、予算 |
 | [tools/BACKUP.md](tools/BACKUP.md) | backup trigger、remote分類、失敗と復旧、divergence、Single Writer |

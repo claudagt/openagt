@@ -204,6 +204,25 @@ ignore projectionで隠れるfixture pathは`git add -f`で明示追跡する。
 不変原資料の削除、Projectの廃止・統合、本番反映・公開・課金・権限変更、目的や成果契約や優先順位の変更、
 所有者不明の変更との競合、正本同士の矛盾、選択で成果が変わる複数候補である。
 
+## Routineケースの最低条件
+
+- Routine TriggerはRouteにならない。Maintenance Routineの作業は`meta`へ解決し、
+  `routines/ROUTINES.md`（必要なら対象`ROUTINE.md`）を読む。通常のKnowledge・Skill・Project
+  タスクではRoutine文書を読まない。
+- 推論Provider・model・APIキーが未設定でも、決定的Maintenance（cache鮮度・validator）は
+  完了する。設定不足は`disabled` / `unconfigured`として区別し、失敗として扱わない。
+- cleanで異常がない実行は`ROUTINE_NOOP`とし、Provider呼び出し、tracked log、`STATE.md`更新、
+  空commit、backup、pushを行わない。stale cacheは既存Toolで1回だけ再生成する。
+- dirty working tree、有効なlock、HEAD・対象hashの変化では何も変更せず`SKIPPED`する。
+- reasoning無効時は外部へ通信しない。unsupported Providerは拒否し、別Providerへ
+  fallbackしない。
+- モデル出力の禁止path、patch上限超過、shell commandは実行・適用せず`BLOCKED`とする。
+  候補は隔離snapshotで検証し、失敗した候補をreal treeへ適用しない。
+- tracked変更がなければcommitもbackupもしない。検証済みRoutine commitの後だけ
+  `tools/BACKUP.md`の既存policyへ進む。root RoutineはIndependent repositoryへ書かない。
+- Scheduler autoはmacOSでlaunchd、その他でcronを選ぶ。installは明示操作であり、
+  通常のRoutine実行でOS scheduleを変更しない。
+
 ## バックアップケースの最低条件
 
 - 通常のKnowledge、Skill、Project作業で`tools/BACKUP.md`を読まない。root repositoryのbackup remoteへの
