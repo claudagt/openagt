@@ -6,12 +6,10 @@ updated_at: 2026-08-06
 
 ## 現在の到達点
 
-- 本Projectに`docs/EVALUATION.md`（policy v1.0.0）と最小harness（manifest、sandbox、
-  grading、比較、verify.sh）を整備し、harness自己検証が合格している。
-- 2026-08-06の人間レビューで初期構築は合格。P2（root `AGENTS.md`の4KiB超過）は修正済み。
-  実運用開始はP0/P1解消まで保留。
-- 第2段階として実client adapter `scripts/codex-adapter.sh`（codex-cli 0.146.0）を追加。
-  隔離selftest（実モデル呼出なし）は合格。実モデルsmokeはquota上限で未完了。
+- `docs/EVALUATION.md`（policy v1.0.1）と最小harnessを整備し、`verify.sh`の24検査が合格。
+- 2026-08-06の人間レビューで初期構築は合格。実運用開始はP0/P1解消まで保留。
+- 第2段階でadapter（`codex-adapter.sh`）、run分類（`classify-run.py`）、case grader
+  （`grade-case.py`）、trace写像（`map-trace.py`）、外側runner（`run-case.sh`）を追加。
 - 実clientでのbaseline runは未実施。実モデル評価は未検証である。
 
 ## 現在の目標
@@ -57,9 +55,13 @@ updated_at: 2026-08-06
   evaluator repositoryや`$HOME`配下を読める。現状はpath秘匿と配置のみで担保。
 - adapterのexecution configは`system_instruction_hash`、`tool_schema_hash`、sampling、
   reasoning、各種上限が`unknown`（実値化はsmoke完了後）。
-- P0（部分解消）: case grader `grade-case.py`を実装（78 case全部の構文解析、path/command/
-  予算/route照合、3値判定）。**未実装**: 外側runner（fixture overlay、request投入、
-  trace/diff/metrics生成）。現状traceはsynthetic fixtureのみで、実clientのevent形式へは未接続。
+- P0（解消）: case grader `grade-case.py`と外側runner `run-case.sh`を実装。write系は
+  clientの自己申告ではなくsubject sandboxのGitから観測する（偽申告・無申告のいずれでも
+  write gateを通過できないことをverify.shで固定）。
+- **未解消（実client接続）**: codexのitem系event（command_execution、file_change等）の
+  field名が未確認のため、`map-trace.py`はread/runを写像できずunmappedとして数える。
+  結果、実codex traceではread/run系の期待項目がUNVERIFIEDになる。実trace取得後に写像規則を
+  追加する（推測で固定しない）。writeはclient非依存のため現時点でも有効。
 - P1: `grade-run.py`の強度不足（HG-06未実装、path正規化なし、秘密検査がevents限定、
   Tier 0がmetrics自己申告、unknown hashのVALID扱い）。
 - P1: `compare-runs.py`は1対1比較のみ。3 trial集約・複数config・最終Promotion Gateが
@@ -97,12 +99,11 @@ updated_at: 2026-08-06
 
 ## 次の一手
 
-1. 5-4 外側runner（fixture overlay→request投入→trace収集→final state保存→採点）。
-   実clientのevent形式を`grade-case.py`が読むtrace語彙（read/run/write/search/route）へ
-   写像する層が必要。生logはGit管理せず、`runs/`にはsanitized証拠のみ。
-2. 5-5 3 trial集約と最終Promotion Gate（閾値をCLIから上書きできない構造）。
-   併せてP1（grade-run.pyの強度）を独立commitで補強する。
-3. quota回復後: smokeを完了し、resolved model ID・sampling・上限を実値化してから
-   5-6の最初の実baselineを取得する。
+1. 5-5 3 trial集約と最終Promotion Gate（`check-promotion`。閾値をCLIから上書きできない構造）。
+   併せてP1（grade-run.pyの強度: HG-06、path正規化、秘密検査の範囲、Tier 0導出、
+   unknown hash）を独立commitで補強する。
+2. quota回復後: smokeを完了し、codexのitem系eventの実形式を確認して`map-trace.py`へ
+   read/runの写像規則を追加する。併せてresolved model ID・sampling・上限を実値化する。
+3. 5-6 最初の実baseline取得（run開始時点の最新`agent-directory/main`を再取得・固定）。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。

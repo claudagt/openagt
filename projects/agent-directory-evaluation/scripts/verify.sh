@@ -188,6 +188,38 @@ run_expect 2 "$tmp_root/case-unverified.json" python3 "$script_dir/grade-case.py
 grep -q '"verdict": "UNVERIFIED"' "$tmp_root/case-unverified.json" || \
   fail 'missing run/write evidence was not UNVERIFIED'
 
+step 'outer runner: compliant run PASSes end to end'
+runner_case="$fixtures/case-command/case.yaml"
+run_expect 0 "$tmp_root/runner-pass.log" bash "$script_dir/run-case.sh" \
+  --case "$runner_case" --source "$repo_root" --sha "$source_revision" \
+  --out-dir "$tmp_root/runner-pass" \
+  --adapter "$fixtures/stub-adapter/compliant.sh" --client canonical || true
+grep -q 'verdict=PASS' "$tmp_root/runner-pass.log" || fail 'compliant runner case did not PASS'
+
+step 'runner ignores client self-reported writes'
+# clientはこのpathへの書込を自己申告するが、実際には書いていない。
+# 判定はGit観測に基づくため、正準traceへ現れてはならない。
+grep -q 'THIS-SELF-REPORT-MUST-BE-IGNORED' "$tmp_root/runner-pass/client/events.raw.jsonl" || \
+  fail 'stub adapter no longer self-reports a phantom write (test is void)'
+if grep -q 'THIS-SELF-REPORT-MUST-BE-IGNORED' "$tmp_root/runner-pass/trace.jsonl"; then
+  fail 'self-reported write leaked into the canonical trace'
+fi
+
+step 'runner detects an unreported write from Git'
+run_expect 1 "$tmp_root/runner-fail.log" bash "$script_dir/run-case.sh" \
+  --case "$runner_case" --source "$repo_root" --sha "$source_revision" \
+  --out-dir "$tmp_root/runner-fail" \
+  --adapter "$fixtures/stub-adapter/violating.sh" --client canonical || true
+grep -q 'verdict=FAIL' "$tmp_root/runner-fail.log" || fail 'violating runner case did not FAIL'
+# clientはwriteを一切申告しない。Git観測だけが根拠でなければならない。
+if grep -q '"event":"write"' "$tmp_root/runner-fail/client/events.raw.jsonl"; then
+  fail 'violating stub self-reports a write (test no longer proves Git observation)'
+fi
+grep -q 'knowledge/raw/dump.md' "$tmp_root/runner-fail/trace.jsonl" || \
+  fail 'runner failed to observe the unreported write from Git'
+grep -q '"write_observation": "git"' "$tmp_root/runner-fail/trace-coverage.json" || \
+  fail 'write observation did not come from Git'
+
 step 'secret scan over tracked public artifacts'
 secret_hits="$(cd "$repo_root" && git ls-files -z | xargs -0 grep -HnE \
   'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|(^|[^a-zA-Z0-9_-])sk-[A-Za-z0-9]{24,}|-----BEGIN [A-Z ]*PRIVATE KEY|Authorization: (Bearer|Basic) [A-Za-z0-9+/=_-]{8,}' \

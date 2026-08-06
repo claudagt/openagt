@@ -3,6 +3,8 @@ name: synthetic-command-boundary
 # harness自己検証専用のsynthetic case。上流benchmarkのcaseではない。
 # evals/cases/へ追加せず、grade-case.pyのcommand判定の回帰検査だけに使う。
 
+fixture: active-project
+
 request: |
   projects/market-scan/ を検証してから状態を更新して。
 

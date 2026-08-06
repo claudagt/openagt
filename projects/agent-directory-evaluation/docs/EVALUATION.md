@@ -223,6 +223,8 @@ benchmark自体はpublicにする。秘密の恒久holdoutは持たず、代わ�
 | `scripts/codex-adapter.sh` | codex clientの非対話実行、OS強制隔離、JSONL trace取得、隔離selftest |
 | `scripts/classify-run.py` | client非依存のrun分類（OK / INFRA_UNAVAILABLE / NO_TRACE / RUN_FAILED） |
 | `scripts/grade-case.py` | `evals/cases/*.yaml`の期待値と観測traceの照合（PASS / FAIL / UNVERIFIED） |
+| `scripts/map-trace.py` | client固有traceの正準語彙への写像。writeはGitから観測しcoverageを記録 |
+| `scripts/run-case.sh` | 1 case・1 trialの実行と証拠束生成（sandbox、overlay、trace、採点） |
 | `scripts/grade-run.py` | observable eventの決定的grading（PASS / FAIL / INVALID） |
 | `scripts/compare-runs.py` | baseline/candidate比較とA/A（ELIGIBLE / NO_CHANGE / REJECTED / INVALID） |
 
