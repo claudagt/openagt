@@ -9,18 +9,6 @@ Knowledge、Skill、Projectを正本として育てながら、1タスクの読�
 `AGENTS.md`は百科事典ではなく、ブートローダー兼ルーター兼目次である。Routeを一つ決めたら、その領域を
 所有する正本へ引き継ぐ。詳細契約は各正本が持ち、READMEはそこへの入口だけを持つ。
 
-## English overview
-
-A local-first Agent Workspace template for one long-running AI agent. Canonical Markdown and source files may
-grow, while deterministic, status-aware retrieval keeps each task's working context bounded. It is a single
-workspace, not a hub of external repositories: every Project root is `projects/<name>/`, and a Project that
-needs its own remote identity is cloned onto that same path so only the owning Git differs.
-
-`AGENTS.md` is a bootloader and router, not an encyclopedia. It resolves one Route, then hands off to the
-canonical file that owns that domain's rules. The repository is model- and client-agnostic: Codex, Claude Code,
-CLIs, and IDE integrations use the same canonical files and the same `tools/find-context.sh` output.
-Product-side memory and search databases are caches, never the source of truth.
-
 ## 利用開始
 
 1. このリポジトリをエージェント1体につき1つコピーまたはクローンする。
