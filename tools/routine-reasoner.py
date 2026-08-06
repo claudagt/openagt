@@ -196,7 +196,7 @@ def run_request(argv) -> int:
     timeout = positive_int("AGENT_ROUTINE_REASONING_TIMEOUT_SECONDS", 120)
     max_calls = positive_int("AGENT_ROUTINE_REASONING_MAX_MODEL_CALLS", 1,
                              ABSOLUTE_MAX_MODEL_CALLS)
-    max_output_tokens = positive_int("AGENT_ROUTINE_REASONING_MAX_OUTPUT_TOKENS", 4096)
+    max_output_tokens = positive_int("AGENT_ROUTINE_REASONING_MAX_OUTPUT_TOKENS", 8192)
 
     findings = sys.stdin.read()
     if len(context_files) > MAX_CONTEXT_FILES:
