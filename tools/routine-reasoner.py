@@ -27,6 +27,7 @@ patch, the logs, or any error message.
 
 import json
 import os
+import socket
 import sys
 import urllib.error
 import urllib.request
@@ -153,6 +154,20 @@ def build_request(provider: str, model: str, api_key: str, prompt: str,
     return url, headers, body
 
 
+def is_timeout(error) -> bool:
+    """True when a transport failure is specifically the request timing out.
+
+    urllib surfaces timeouts either bare (mid-read) or wrapped in URLError
+    (during connect). socket.timeout is checked alongside TimeoutError for
+    interpreters older than 3.10, where they are distinct classes.
+    """
+    timeout_types = (TimeoutError, socket.timeout)
+    if isinstance(error, timeout_types):
+        return True
+    return isinstance(error, urllib.error.URLError) and \
+        isinstance(error.reason, timeout_types)
+
+
 def check_not_truncated(provider: str, payload) -> None:
     """Separate a budget problem from a malformed reply before parsing.
 
@@ -233,9 +248,11 @@ def run_request(argv) -> int:
     api_key = env(key_variable)
     if not model or not api_key:
         fail("unconfigured")
-    # Reasoning models have been measured at 198-365s per request; the timeout stays
-    # as a hang guard, sized above the slowest observed run.
-    timeout = positive_int("AGENT_ROUTINE_REASONING_TIMEOUT_SECONDS", 600)
+    # Hang guard, not a latency target. Measured worst case is 378s with a single
+    # 23KB context file; the payload budget allows ~1.4x that input, and reasoning
+    # time also grows with problem complexity, so the default sits well above the
+    # extrapolated worst case. Hitting it is reported as model-timeout.
+    timeout = positive_int("AGENT_ROUTINE_REASONING_TIMEOUT_SECONDS", 900)
     max_calls = positive_int("AGENT_ROUTINE_REASONING_MAX_MODEL_CALLS", 1,
                              ABSOLUTE_MAX_MODEL_CALLS)
     max_output_tokens = optional_positive_int("AGENT_ROUTINE_REASONING_MAX_OUTPUT_TOKENS")
@@ -282,9 +299,11 @@ def run_request(argv) -> int:
         except urllib.error.HTTPError as error:
             # HTTP error bodies may contain secrets, so never print them; report only the status.
             fail(f"http-{error.code}")
-        except (urllib.error.URLError, TimeoutError, OSError):
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
             if attempts >= max_calls:
-                fail("transport-error")
+                # A timeout is a budget signal, not a network fault; report it
+                # distinctly so diagnosis points at TIMEOUT_SECONDS, not the wire.
+                fail("model-timeout" if is_timeout(error) else "transport-error")
         except (json.JSONDecodeError, ValueError):
             fail("malformed-response")
     if payload is None:

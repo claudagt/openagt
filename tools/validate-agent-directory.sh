@@ -1845,7 +1845,7 @@ if [[ -f "$repo_root/tools/routine-reasoner.py" ]]; then
     if python3 -c "
 import ast, sys
 tree = ast.parse(open('$repo_root/tools/routine-reasoner.py').read())
-allowed = {'json', 'os', 'sys', 'urllib.error', 'urllib.request'}
+allowed = {'json', 'os', 'socket', 'sys', 'urllib.error', 'urllib.request'}
 for node in ast.walk(tree):
     names = []
     if isinstance(node, ast.Import):
@@ -3322,6 +3322,7 @@ MOCK_RESPONSES
         env "${routine_env[@]}" "${routine_provider_env[@]}" \
         AGENT_ROUTINE_REASONING_PROVIDER="$routine_provider" \
         AGENT_ROUTINE_REASONING_MODEL=fixture-model \
+        AGENT_ROUTINE_REASONING_MAX_OUTPUT_TOKENS= \
         python3 "$routine_work/tools/routine-reasoner.py" --request --root "$routine_work" \
         --context-file "$routine_probe" --output "$routine_adapter_out" 2>/dev/null)"
       routine_adapter_status=$?
@@ -3352,7 +3353,35 @@ MOCK_RESPONSES
       if grep -Fq 'fixture-secret' "$routine_last_request"; then
         fail "routine fixture: the $routine_provider request body leaked the API key"
       fi
+      # No configured output cap: Chat Completions requests omit the cap entirely;
+      # Anthropic keeps the API-required max_tokens floor.
+      if [[ "$routine_provider" == 'anthropic' ]]; then
+        grep -Fq '"max_tokens": 8192' "$routine_last_request" || \
+          fail 'routine fixture: the anthropic request lost the API-required max_tokens floor'
+      elif grep -Eq 'max_tokens|max_completion_tokens' "$routine_last_request"; then
+        fail "routine fixture: the $routine_provider request sent an output cap despite no configured limit"
+      fi
     done
+
+    # An explicitly configured output cap still reaches the request body.
+    cp "$routine_mock_state/good-chat.json" "$routine_mock_state/response.json"
+    rm -f "$routine_adapter_out"
+    set +e
+    routine_adapter_result="$(printf 'FAIL: fixture finding\n' | \
+      env "${routine_env[@]}" DEEPSEEK_API_KEY=fixture-secret \
+      DEEPSEEK_BASE_URL="http://127.0.0.1:$routine_mock_port" \
+      AGENT_ROUTINE_REASONING_PROVIDER=deepseek AGENT_ROUTINE_REASONING_MODEL=fixture-model \
+      AGENT_ROUTINE_REASONING_MAX_OUTPUT_TOKENS=4096 \
+      python3 "$routine_work/tools/routine-reasoner.py" --request --root "$routine_work" \
+      --context-file "$routine_probe" --output "$routine_adapter_out" 2>/dev/null)"
+    routine_adapter_status=$?
+    set -e
+    (( routine_adapter_status == 0 )) && \
+      printf '%s\n' "$routine_adapter_result" | grep -Fq 'REASONING_OK' || \
+      fail 'routine fixture: the explicit output-cap run did not return REASONING_OK'
+    routine_adapter_hits=$((routine_adapter_hits + 1))
+    grep -Fq '"max_tokens": 4096' "$routine_mock_state/request-$routine_adapter_hits.json" || \
+      fail 'routine fixture: an explicitly configured output cap did not reach the request body'
 
     # Malformed response: classified as a failure; no patch is emitted.
     cp "$routine_mock_state/malformed-chat.json" "$routine_mock_state/response.json"

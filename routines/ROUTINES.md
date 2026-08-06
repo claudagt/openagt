@@ -76,7 +76,7 @@ Independent repository、利用者の未追跡ファイルを「古そう」と�
 |---|---|
 | 外部送信payload全体（指示＋診断＋context） | 最大12ファイル・合計32KiB |
 | model call | 1回のRoutineで既定1回、絶対上限3回 |
-| model timeout | `.env`の設定値。既定600秒 |
+| model timeout | `.env`の設定値。既定900秒。超過は`model-timeout`として報告 |
 | model出力token | 既定は上限を送らない（Anthropicのみ`max_tokens`必須のため未設定時8192）。上限超過で切れた応答は`output-truncated`として適用しない |
 | 自動patch | 最大3ファイル・32KiB・200変更行 |
 | 実行時間 | 1回のRoutineは有限時間で終了し、常駐しない |
