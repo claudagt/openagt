@@ -5,3 +5,6 @@
 .DS_Store
 # AIクライアント固有のローカル状態。追跡するとbackup前提条件（未追跡ゼロ）を壊す。
 .claude/
+# Python bytecode cache。成果物ではなく、grader hashを不安定にする。
+__pycache__/
+*.pyc
