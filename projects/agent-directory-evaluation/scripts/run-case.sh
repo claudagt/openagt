@@ -10,14 +10,14 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: %s --case <file> --source <path|url> --sha <40-hex> --out-dir <dir> [--role baseline|candidate] [--trial N] [--model M] [--keep-sandbox]\n' "${0##*/}" >&2
+  printf 'Usage: %s --case <file> --source <path|url> --sha <40-hex> --out-dir <dir> [--role baseline|candidate] [--trial N] [--provider P] [--model M] [--keep-sandbox]\n' "${0##*/}" >&2
   exit 3
 }
 
 case_file='' source_repo='' sha='' out_dir='' trial='1' model='' keep_sandbox='no'
 # adapterとclientは差し替え可能にする。既定は実clientのcodex。
 # harness自己検証は、実モデルを呼ばないstub adapterを注入して同じ経路を通す。
-adapter='' client='codex' role='candidate'
+adapter='' client='codex' role='candidate' provider=''
 while (( $# > 0 )); do
   case "$1" in
     --case) case_file="${2:-}"; shift 2 ;;
@@ -30,6 +30,7 @@ while (( $# > 0 )); do
     --adapter) adapter="${2:-}"; shift 2 ;;
     --client) client="${2:-}"; shift 2 ;;
     --role) role="${2:-}"; shift 2 ;;
+    --provider) provider="${2:-}"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -89,6 +90,7 @@ baseline_commit="$(git -C "$subject" rev-parse HEAD)"
 adapter_out="$out_dir/client"; mkdir -p "$adapter_out"
 adapter_args=(--subject "$subject" --prompt-file "$out_dir/request.txt" --out-dir "$adapter_out")
 [[ -n "$model" ]] && adapter_args+=(--model "$model")
+[[ -n "$provider" ]] && adapter_args+=(--provider "$provider")
 set +e
 bash "$adapter" "${adapter_args[@]}" >"$out_dir/adapter.log" 2>&1
 adapter_rc=$?

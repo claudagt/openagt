@@ -17,8 +17,9 @@
 
 client写像規則の状態（2026-08-06、codex-cli 0.146.0の実runで確認）:
   codex: thread.started / turn.started / turn.completed / turn.failed / error（制御）、
-         item.started / item.completed（item.type = command_execution / agent_message /
-         reasoning / error）。command_executionのみが正準語彙へ写像できる。
+         item.started / item.completed（item.type = command_execution / file_change /
+         agent_message / reasoning / error）。command_executionのみを正準語彙へ写像する。
+         file_changeは出るがwriteの正本はGit観測とし、client申告に依存させない。
          **codexはfile読取専用のeventを出さない。** readは読取専用commandからの推定に留まり、
          byte数は取得できない（max_context_bytesは常にUNVERIFIED）。
 """
@@ -36,6 +37,7 @@ _spec = importlib.util.spec_from_file_location(
 _grade_case = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_grade_case)
 unwrap_shell = _grade_case.unwrap_shell
+SHELL_SEPARATORS = _grade_case.SHELL_SEPARATORS
 
 # 実測で確認済みのevent type。写像しても正準traceへは出さない（制御event）。
 CODEX_CONTROL_EVENTS = {"thread.started", "turn.started", "turn.completed",
@@ -89,18 +91,30 @@ def infer_read_paths(command: str):
     まったく得られないと`must_read`が常にUNVERIFIEDになり、どのcaseも判定できない。
     ここではcommand実行という**観測事実**から、読取専用commandの引数だけを拾う。
     自己申告ではないが推定ではあるため、coverageへinferredと明記する。
+
+    実測（2026-08-06）: agentは`cat A && echo '---' && cat B`のような複合commandを
+    使う。全体を空白分割すると`echo`や区切り文字列までpathとして拾ってしまい、
+    must_not_readの誤検出につながる。segmentへ分解し、各segmentの先頭が読取専用
+    commandのときだけ、その引数からpathらしいtokenを取る。
     """
-    tokens = unwrap_shell(command).split()
-    if not tokens:
-        return []
-    head = tokens[0].rsplit("/", 1)[-1]
-    if head not in READ_COMMANDS:
-        return []
     paths = []
-    for token in tokens[1:]:
-        if token.startswith("-") or any(c in token for c in "<>|&$`*?"):
+    for segment in SHELL_SEPARATORS.split(unwrap_shell(command)):
+        tokens = segment.strip().split()
+        if not tokens:
             continue
-        paths.append(token.strip("'\""))
+        head = tokens[0].rsplit("/", 1)[-1]
+        if head not in READ_COMMANDS:
+            continue
+        for token in tokens[1:]:
+            token = token.strip("'\"")
+            if not token or token.startswith("-"):
+                continue
+            if any(c in token for c in "<>|&$`*?="):
+                continue
+            # pathらしさ: separatorを含むか、既知の拡張子を持つもののみ採る。
+            if "/" not in token and "." not in token:
+                continue
+            paths.append(token)
     return paths
 
 
@@ -130,7 +144,12 @@ def map_codex_events(raw_events):
                     mapped.append({"event": "read", "path": path, "bytes": None,
                                    "inferred": True})
                 continue
-            if item_type in ("agent_message", "reasoning", "error"):
+            if item_type == "file_change":
+                # codexはfile_changeも出すが、writeの正本はGit観測とする。
+                # clientの申告に依存させないため、ここでは採用しない（unmappedでもない）。
+                continue
+            if item_type in ("agent_message", "reasoning", "error", "todo_list",
+                             "web_search", "mcp_tool_call"):
                 continue  # 判定に使う正準語彙を持たない
             unmapped.append(f"item.completed/{item_type or '<none>'}")
             continue

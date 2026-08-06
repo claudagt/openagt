@@ -330,6 +330,29 @@ step 'grader does not judge HG-12 from self-reported metrics'
 grep -q 'HG-12' "$tmp_root/good.json" || \
   fail 'grade-run.py no longer declares HG-12 as out of its scope'
 
+step 'read inference survives compound shell commands'
+run_expect 0 "$tmp_root/read-infer.log" python3 - "$script_dir/map-trace.py" <<'PY' || true
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("mt", sys.argv[1])
+mt = importlib.util.module_from_spec(spec); spec.loader.exec_module(mt)
+
+# 実trace由来: agentは複合commandを使う。segment分解しないとecho引数や
+# 区切り文字列までpathとして拾い、must_not_readの誤検出になる。
+observed = mt.infer_read_paths(
+    "/bin/zsh -lc \"cat projects/AGENTS.md && echo '===== next =====' && "
+    "cat projects/market-scan/PROJECT.md\"")
+expected = ["projects/AGENTS.md", "projects/market-scan/PROJECT.md"]
+assert observed == expected, f"compound read inference: {observed} != {expected}"
+
+# 書込を伴うcommandはread扱いしない
+assert mt.infer_read_paths("/bin/zsh -lc 'echo x > notes.md'") == [], "write inferred as read"
+# 読取専用commandでもpathらしくないtokenは拾わない
+assert mt.infer_read_paths("/bin/zsh -lc 'cat -- -n'") == [], "flag inferred as path"
+print("READ_INFERENCE_OK")
+PY
+grep -q 'READ_INFERENCE_OK' "$tmp_root/read-infer.log" || \
+  fail 'read inference regressed on compound commands'
+
 step 'secret scan over tracked public artifacts'
 secret_hits="$(cd "$repo_root" && git ls-files -z | xargs -0 grep -HnE \
   'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|(^|[^a-zA-Z0-9_-])sk-[A-Za-z0-9]{24,}|-----BEGIN [A-Z ]*PRIVATE KEY|Authorization: (Bearer|Basic) [A-Za-z0-9+/=_-]{8,}' \

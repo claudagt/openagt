@@ -6,7 +6,7 @@ updated_at: 2026-08-06
 
 ## 現在の到達点
 
-- `docs/EVALUATION.md`（policy v1.0.1）と最小harnessを整備し、`verify.sh`の29検査が合格。
+- `docs/EVALUATION.md`（policy v1.0.1）と最小harnessを整備し、`verify.sh`の30検査が合格。
 - 2026-08-06の人間レビューで初期構築は合格。実運用開始はP0/P1解消まで保留。
 - 第2段階でadapter（`codex-adapter.sh`）、run分類（`classify-run.py`）、case grader
   （`grade-case.py`）、trace写像（`map-trace.py`）、外側runner（`run-case.sh`）、
@@ -56,7 +56,8 @@ updated_at: 2026-08-06
   `$HOME`配下を読める。現状はpath秘匿と配置のみで担保。
 - execution configの`unknown`: system instruction、tool schema、sampling、各種上限。
   codexは`deepseek-v4-flash`のmodel metadataを持たずfallbackするため、context上限も未取得。
-- 実caseを実モデルでend-to-end採点した実績がまだない（隔離probeのみ）。
+- route判定不可: codexはroute/search eventを出さないため、全caseで`route`はUNVERIFIED。
+  現状ではcase判定がPASSになる上限がここで決まる。
 - `runs/`は実runの証拠束を保存していないため未作成（先回り生成しない方針）。
 
 ## 現在有効な決定
@@ -89,6 +90,10 @@ updated_at: 2026-08-06
   秘密ファイルはCODEX_HOMEと無関係な一時領域へ置く（CODEX_HOME自体はsubjectへ露出する）。
 - 実runでの観測: agentが自己申告したexit codeのうち1件に対応するrun eventが存在せず、
   filesystem上も痕跡がなかった。自己申告を判定に使わない設計の妥当性を実地で確認した。
+- **最初の実所見（再現済み）**: `project-work-scoped-validation`をDeepSeekで2 trial実行し、
+  両方でsubjectがroot `AGENTS.md`を読まなかった（`must_read:AGENTS.md` FAIL）。
+  他の期待（must_run、must_not_run 2件、must_update、may_write、must_not_modify）は成立。
+  昇格条件には未達（1 config・2 trial、Tier 0一覧未確定）のため上流提案はしない。
 
 ## 失敗・却下済み
 
@@ -99,9 +104,7 @@ updated_at: 2026-08-06
 
 ## 次の一手
 
-1. 実caseを1件、実モデル（DeepSeek）でend-to-end実行し、`run-case.sh`の証拠束が
-   実trace上で成立することを確認する。
-2. 5-6 最初の実baseline取得（run開始時点の最新`agent-directory/main`を再取得・固定）。
-3. Tier 0 case一覧の確定（人間判断）後、`check-promotion.py`へ渡せるようにする。
+1. 5-6 最初の実baseline取得（run開始時点の最新`agent-directory/main`を再取得・固定）。
+2. Tier 0 case一覧の確定（人間判断）後、`check-promotion.py`へ渡せるようにする。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
