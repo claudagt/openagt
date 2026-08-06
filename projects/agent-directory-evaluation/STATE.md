@@ -63,11 +63,9 @@ updated_at: 2026-08-06
   candidate失敗として数えず、Tier 0の3/3の分母にも入れない。
 - 現在のbaseline run: **未確定**。上流HEAD`fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a`で
   A/Aを実施したが不安定のため、baselineとして固定しない。ノイズ低減が先。
-- MDE = max(5pp, A/A実測ノイズ) → **33pp**。`deepseek-v4-flash`はこのbenchmarkに対して
-  非決定性が大きすぎ、33pp未満の改善を検出できない。sampling固定は不可（codexに
-  temperature等のconfigが無い・実測）。run数増でも縮まらないことを実測済み。
-  残る手は、より決定的なmodel（`deepseek-v4-pro`）か、caseごとの合否ではなく
-  check単位の集計へ指標を変えるか（後者はpolicy変更を要する）。
+- MDE = max(5pp, A/A実測ノイズ) → **33pp**。`deepseek-v4-flash`は非決定性が大きく、
+  33pp未満の改善を検出できない。sampling固定は不可、run数増でも縮まらず、
+  より強いmodelはprovider未提供（下記）。ノイズ低減の技術的手段は尽きた。
 - `8325b185... → 最新main`の差分は最初のA/B smokeとして利用してよい。
 - Draft PR作成は`docs/EVALUATION.md#PR昇格条件`充足時のみ、別Promotion sessionで行う
   （standing approval。2026-08-06利用者指示）。
@@ -83,12 +81,10 @@ updated_at: 2026-08-06
   痕跡がなかった。自己申告を判定に使わない設計を実地で確認。
 - write観測はGit由来で完全。write eventが空であること自体が「書込なし」の証拠であり、
   UNVERIFIEDにしない（traceの完全性markerで区別する）。
-- 実caseの実モデル採点が成立: `project-work-scoped-validation`が上流HEAD
-  （`fa2bd21b...`）に対してPASS（3/3 baseline）。
-- **A/A 2回実施・いずれも不安定**: 12 run（role当たり6、分解能16.7pp）→ノイズ16.7pp、
-  36 run（role当たり18、分解能5.6pp）→ノイズ33.3pp。**分解能を3分の1にしてもノイズは
-  縮まらず**、量子化ではなくmodelの実変動と確定。証拠は`runs/2026-08-06-aa-fa2bd21b.json`と
-  `runs/2026-08-06-aa2-fa2bd21b.json`。
+- 実caseの実モデル採点が成立（上流HEAD`fa2bd21b...`）。
+- **A/A 2回とも不安定**: role当たり6 run（分解能16.7pp）→ノイズ16.7pp、18 run
+  （分解能5.6pp）→ノイズ33.3pp。分解能を下げてもノイズは縮まらず、量子化ではなく
+  modelの実変動と確定。証拠は`runs/`の2件。
 
 ## 失敗・却下済み
 
