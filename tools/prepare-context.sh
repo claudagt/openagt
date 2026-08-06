@@ -10,9 +10,10 @@ tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="${AGENT_DIRECTORY_ROOT:-$(cd "$tool_root/.." && pwd)}"
 route=''
 target=''
+task_class='work'
 
 usage() {
-  printf 'Usage: %s --route knowledge|skill|project|meta [--target <repo-relative-path>]\n' \
+  printf 'Usage: %s --route knowledge|skill|project|meta [--target <repo-relative-path>] [--class read|work|state|boundary]\n' \
     "${0##*/}" >&2
 }
 
@@ -28,11 +29,17 @@ while (( $# > 0 )); do
       target="$2"
       shift 2
       ;;
+    --class)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      task_class="$2"
+      shift 2
+      ;;
     *) usage; exit 2 ;;
   esac
 done
 
 case "$route" in knowledge|skill|project|meta) ;; *) usage; exit 2 ;; esac
+case "$task_class" in read|work|state|boundary) ;; *) usage; exit 2 ;; esac
 target="${target%/}"
 if [[ "$target" == /* || "$target" == *..* ]]; then
   printf 'ERROR: --target must be a repository-relative path without ..\n' >&2
@@ -121,8 +128,6 @@ docs_route_refs() {
 
 git_root='.'
 repository_owner='root'
-validation_profile='default'
-backup_profile='root-only'
 
 queue_read 'AGENTS.md'
 
@@ -147,7 +152,6 @@ case "$route" in
       if [[ "$(cd "$toplevel" && pwd -P)" == "$(cd "$repo_root/$project_dir" && pwd -P)" ]]; then
         repository_owner='independent'
         git_root="$project_dir"
-        backup_profile='independent-origin'
       fi
     else
       repository_owner='unresolved'
@@ -190,8 +194,6 @@ case "$route" in
     fi
     ;;
   meta)
-    # meta has broad impact, so fail safe by defaulting to the wide profile.
-    validation_profile='full'
     case "$target" in
       tools/*) queue_read 'tools/TOOLS.md' ;;
       evals/*) queue_read 'evals/EVALS.md' ;;
@@ -202,9 +204,31 @@ case "$route" in
     ;;
 esac
 
+# The agent decides the task class by canon; this tool only maps the decided class to a
+# deterministic profile. `read` never triggers validation, commit, or backup. Only meta
+# work/state and every boundary escalate to the full validator; normal work/state use the
+# scoped (--changed) validator.
+validation_profile='scoped'
+backup_profile='root-only'
+case "$task_class" in
+  read)
+    validation_profile='none'
+    backup_profile='none'
+    ;;
+  work|state)
+    [[ "$route" != 'meta' ]] || validation_profile='full'
+    [[ "$repository_owner" != 'independent' ]] || backup_profile='independent-origin'
+    ;;
+  boundary)
+    validation_profile='full'
+    backup_profile='workspace'
+    ;;
+esac
+
 printf 'TASK_CONTEXT v1\n'
 printf 'route=%s\n' "$route"
 [[ -n "$target" ]] && printf 'target=%s\n' "$target"
+printf 'task_class=%s\n' "$task_class"
 printf 'git_root=%s\n' "$git_root"
 printf 'repository_owner=%s\n' "$repository_owner"
 printf 'validation_profile=%s\n' "$validation_profile"

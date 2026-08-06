@@ -198,6 +198,11 @@ ignore projectionで隠れるfixture pathは`git add -f`で明示追跡する。
 - Independentのpush policyが`auto`と確定していれば、通常pushとremote SHA確認まで自律で行う。
 - backupの失敗と、ローカルタスク・commitの成功を分けて報告する。
 - 大きいKnowledgeは限定取得で扱い、情報損失のある圧縮や要約置換で解かない。
+- readタスクはvalidator、STATE更新、commit、backup、全体manifest生成を実行しない。
+  meta Routeのreadでもfull validatorを起動しない。明示targetがあれば`find-context.sh`を呼ばない。
+- 通常のwork/stateの構造検証は`--changed`の限定検証を使い、full validator、無関係Projectの
+  fixture、Workspace全ファイルhashをFast Pathへ入れない。Tool・eval・構造正本・boundaryの
+  変更だけがfull validatorへ進む。
 
 人間へ上げるケースは、停止した安全上の理由と、利用者が決定すべき一点、推奨する一つの判断を報告する。
 選択肢の丸投げを合格としない。対象はremote divergence、non-fast-forward、force pushが必要な状況、

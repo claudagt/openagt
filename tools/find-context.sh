@@ -71,9 +71,11 @@ else
     *) cache_current=false ;;
   esac
 fi
+# Search needs only the routing catalog. Stale recovery never regenerates the
+# workspace inventory (manifest); that stays with Maintenance and full validation.
 if [[ "$cache_current" != true ]]; then
   AGENT_DIRECTORY_ROOT="$repo_root" AGENT_CACHE_DIR="$cache_dir" \
-    bash "$tool_root/build-context-cache.sh" >/dev/null
+    bash "$tool_root/build-context-cache.sh" --routing-only >/dev/null
 fi
 
 catalog="$cache_dir/catalog.tsv"

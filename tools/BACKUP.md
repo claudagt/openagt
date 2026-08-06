@@ -6,23 +6,21 @@ backup trigger、remote分類、失敗、divergence、復旧、マシン移行�
 
 ## 目的と非ゴール
 
-目的は、ローカルの稼働正本が失われたときに、最後に確定したGitコミットからリポジトリを再構築できる
+目的は、ローカルの稼働正本が失われたとき、最後に確定したGitコミットから再構築できる
 遠隔コピーを1つ持つことである。
 
-非ゴールは次である。これらは実装しない。
+非ゴールは次であり、実装しない。
 
 - GitHubを正本、実行キュー、タスク管理、デプロイ経路、クラウド同期基盤にすること
 - 複数マシンの双方向同期と自動競合解決
 - GitHub Actions、CI、Git hook、常駐daemon、schedule到達だけを理由とする時刻駆動のバックアップ
-- バックアップ履歴の正本、`BACKUP_STATUS.md`、remote SHAを保存する追跡ファイル
+- バックアップ履歴の正本、`BACKUP_STATUS.md`のようなremote SHAをGit追跡で保存するファイル
 - 秘密情報、`.tmp/`、`.agent-cache/`、製品側AIメモリの遠隔保存
 
 ## 用語
 
-- **Active Local Copy** — 稼働中のローカルリポジトリ。唯一の書込可能な正本。
 - **Remote Backup** — エージェント1体ごとに用意する別のGitHub Privateリポジトリ。最後に正常pushされた
   `main`コミットの受動的な復旧コピー。直接編集しない。
-- **Recovery Point** — push後に確認した、ローカルHEADとremote `main`が一致するコミットSHA。
 - **Agent Workspace** — agent-directoryのツリー全体。root repositoryと、materializeされた
   全Independent repositoryを含む。
 - **root repository** — Agent Workspace rootのGit。Embedded Projectの履歴とattachment registryを持つ。
@@ -53,10 +51,10 @@ Independent化するかを利用者へ確認する。
 
 ## リポジトリ構成
 
-- エージェント1体につきGitHub Privateリポジトリを1つ用意する。共用しない。
+- エージェント1体につきGitHub Privateリポジトリを1つ用意し、共用しない。
 - remote名の既定値は`backup`、branchは`main`とする。
 - remoteは常にpush先であり、GitHub Web UI、Codespaces、別マシンから直接編集しない。
-- Private可視性はセットアップ契約であり、利用者が作成時に確認する。Toolは可視性を照会・変更しない。
+- Private可視性はセットアップ契約であり利用者が確認する。Toolは可視性を照会・変更しない。
 
 ## backup Tool
 
@@ -116,9 +114,12 @@ root前提条件は次である。ひとつでも満たさない場合、Toolは
 rootのreasonは実行前提、cleanliness、禁止内容、registry整合、remoteに、Independent関連は
 未materialize、attachment不一致の`repository-*`、root ownership違反、子cloneの`independent-*`に分かれる。
 
-Toolはfast-forward pushだけを行い、push後に`git ls-remote`でremote SHAを再取得してローカルHEADとの
-完全一致を確認する。成功時とdry-run時は各`URL@SHA`と件数を`DETAIL:`へ列挙し、保存値だけを信用せず
-毎回remoteを再確認する。
+Toolはfast-forward pushだけを行い、push後に`git ls-remote`でremote SHAとローカルHEADの完全一致を
+確認する。成功経路のremote通信はこのpushと事後検証だけで、無条件の事前照会はdry-runに限る。
+pushが拒否された場合だけremoteを読み、`remote-diverged`等へ分類する（非fast-forwardの拒否は
+remoteを変更しない）。事後検証済みSHAは`.agent-cache/`のcheckpointへ記録し、次回の
+oversized object監査を新規範囲だけにする。checkpointは削除可能な派生状態であり、欠損・破損・
+remote/branch/URL不一致・非ancestorでは全履歴監査へfallbackする。
 
 `AGENT_BACKUP_MAX_BLOB_BYTES`は隔離fixture検証だけで使う閾値上書きであり、通常運用では設定しない。
 
@@ -203,7 +204,7 @@ recoverability: degraded
 ```
 
 そのタスクの成果契約が「remoteから復旧可能であること」を必須条件としている場合だけ、完了扱いにしない。
-backup失敗をタスクの失敗として報告せず、逆にbackup成功をタスクの検証成功として報告しない。
+backup失敗をタスクの失敗として、backup成功をタスクの検証成功として報告しない。
 
 秘密情報、未コミット状態、remote divergence、対象漏れ、GitHubのhard limit、Single Writer違反、remoteの
 想定外変更は停止条件である。これらを自動解決せず、`AGENTS.md#人間へ上げる例外`として上げる。
@@ -214,8 +215,7 @@ remote SHAがローカルHEADのancestorでない場合、Toolは何も変更せ
 remote SHAとlocal SHAを報告する。
 
 エージェントはpull、merge、rebase、reset、force pushを行わない。分岐は別マシンからの書込、GitHubでの
-直接編集、Single Writer違反を意味し、原因特定と採用は利用者が決定する。エージェントは
-事実だけを報告して停止する。
+直接編集、Single Writer違反を意味し、原因特定と採用は利用者が決定する。
 
 ## マシン移行
 
@@ -231,7 +231,6 @@ remote SHAとlocal SHAを報告する。
 10. 新マシンを唯一の書込者へ昇格し、旧マシンのcloneを破棄するか読み取り専用のまま残す。
 
 Independent cloneは`projects/<name>/`自体へ置き、全件が揃うまではpartial materializationである。
-
 昇格が完了するまで新旧両方から書き込まない。並行編集はdivergenceを作り、自動解決しない。
 
 ## 障害復旧
@@ -281,9 +280,7 @@ cleanで、利用者が明示承認した場合だけ行う。マシン固有の
 
 Git LFSは既定構成へ導入しない。
 
-- 通常のバックアップ対象はテキスト、コード、設定、文書、軽量成果物とする。
+- 通常の対象はテキスト、コード、設定、文書、軽量成果物。大量の動画、音声、モデル、データセット、
+  生成物は通常Gitへ入れず、外部artifact保管先とchecksumはProject側が定義する（`projects/PROJECTS.md`）。
 - 100MiB以上のGit objectはbackup Toolが`oversized-git-object`で停止する。
-- 大量の動画、音声、モデル、データセット、生成物は通常Gitへ入れず、外部artifact保管先とchecksumは
-  Project側が定義する（`projects/PROJECTS.md`）。
-- submoduleまたはGit LFSを検出した場合、完全バックアップを保証できないため自動処理せず、
-  未対応として停止・報告する。
+- submoduleまたはGit LFSは完全バックアップを保証できないため自動処理せず、未対応として停止・報告する。

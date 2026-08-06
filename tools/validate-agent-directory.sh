@@ -7,6 +7,7 @@ failures=0
 warnings=0
 strict=false
 full=false
+changed=false
 base_ref=''
 
 # Syntax-check against bash 3.2 as the compatibility floor. Fall back to the PATH bash where /bin/bash is absent.
@@ -44,13 +45,14 @@ knowledge_source_template="$repo_root/$knowledge_source_template_path"
 knowledge_topic_template="$repo_root/$knowledge_topic_template_path"
 
 usage() {
-  printf 'Usage: %s [--strict] [--full] [--base <git-ref>]\n' "${0##*/}" >&2
+  printf 'Usage: %s [--strict] [--full] [--changed] [--base <git-ref>]\n' "${0##*/}" >&2
 }
 
 while (( $# > 0 )); do
   case "$1" in
     --strict) strict=true; shift ;;
     --full) full=true; shift ;;
+    --changed) changed=true; shift ;;
     --base)
       [[ $# -ge 2 ]] || { usage; exit 2; }
       base_ref="$2"
@@ -984,6 +986,190 @@ is_registered_independent() {
   return 1
 }
 
+validate_knowledge_index_and_log() {
+  local index_items log_records log_file filename
+  index_items="$(grep -Ec '^- ' "$knowledge_index_file" || true)"
+  (( index_items <= 50 )) || fail "$knowledge_index_path has more than 50 route-map items"
+  if grep -Eq '^- .*knowledge/raw/|^## raw/' "$knowledge_index_file"; then
+    fail "$knowledge_index_path must not register knowledge/raw/ as an itemized global ledger"
+  fi
+
+  log_records="$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+' "$knowledge_log_file" || true)"
+  (( log_records <= 1000 )) || fail "$knowledge_log_path has more than 1,000 records and must rotate"
+  if [[ -d "$repo_root/knowledge/wiki/logs" ]]; then
+    while IFS= read -r -d '' log_file; do
+      filename="${log_file##*/}"
+      [[ "$filename" == '.gitkeep' ]] && continue
+      if [[ ! "$filename" =~ ^[0-9]{4}-Q[1-4](-[0-9]{2,})?\.md$ ]]; then
+        fail "$(relative_path "$log_file") has an invalid closed-log filename"
+      fi
+    done < <(find "$repo_root/knowledge/wiki/logs" -type f -print0)
+  fi
+}
+
+# Git-boundary epilogue shared by the scoped (--changed) and full static runs:
+# forbidden tracked paths, and the --base immutability / physical-move diff checks.
+run_git_boundary_checks() {
+  local git_root tracked_file status old_path new_path
+  if git_root="$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null)" && [[ "$git_root" == "$repo_root" ]]; then
+    while IFS= read -r tracked_file; do
+      case "$tracked_file" in
+        .tmp/*|*/.tmp/*|.agent-cache/*|*/.agent-cache/*|.env*|*/.env*|.DS_Store|*/.DS_Store)
+          if [[ "$tracked_file" != '.env.example' && "$tracked_file" != */.env.example ]]; then
+            fail "forbidden tracked file: $tracked_file"
+          fi
+          ;;
+      esac
+    done < <(git -C "$repo_root" ls-files)
+
+    if [[ -n "$base_ref" ]]; then
+      if ! git -C "$repo_root" rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1; then
+        fail "base ref does not resolve to a commit: $base_ref"
+      else
+        while IFS=$'\t' read -r status old_path new_path; do
+          [[ -n "$status" ]] || continue
+          case "$status" in
+            A) ;;
+            *) fail "immutable source changed relative to $base_ref: $status $old_path ${new_path:-}" ;;
+          esac
+        done < <(git -C "$repo_root" diff --name-status "$base_ref" -- knowledge/raw)
+        while IFS=$'\t' read -r status old_path new_path; do
+          [[ -n "$status" ]] || continue
+          case "$status" in
+            A) ;;
+            *) fail "closed Knowledge log changed relative to $base_ref: $status $old_path ${new_path:-}" ;;
+          esac
+        done < <(git -C "$repo_root" diff --name-status "$base_ref" -- knowledge/wiki/logs)
+        while IFS=$'\t' read -r status old_path new_path; do
+          case "$status" in
+            R*) fail "Project physical rename requires an approved migration map: $old_path -> $new_path" ;;
+            D)
+              case "$old_path" in
+                projects/*/PROJECT.md) validate_deleted_project "$base_ref" "$old_path" ;;
+              esac
+              ;;
+          esac
+        done < <(git -C "$repo_root" diff --name-status "$base_ref" -- projects)
+      fi
+    fi
+  else
+    printf 'SKIP: Git tracking and base-diff checks (directory is not a repository root)\n'
+  fi
+}
+
+finish_run() {
+  if (( failures > 0 )); then
+    printf 'FAILED: %d structural issue(s), %d warning(s)\n' "$failures" "$warnings" >&2
+    exit 1
+  fi
+  printf 'PASS: agent-directory structure is valid (%d warning(s))\n' "$warnings"
+  exit 0
+}
+
+# --- scoped (--changed) validation ---------------------------------------------
+# The changed set decides the validation scope: normal work on a Project, a Knowledge
+# page, or a Skill validates only those targets plus the Git-boundary epilogue.
+# Any change touching meta canon (tools, evals, routines, area canon files, templates,
+# the registry, or the ignore projection) falls back safely to the full static run.
+
+if [[ "$changed" == true && "$full" != true ]]; then
+  if ! git -C "$repo_root" rev-parse --show-toplevel >/dev/null 2>&1; then
+    printf 'NOTE: --changed requires a Git repository; running the full static validation\n' >&2
+    changed=false
+  fi
+fi
+if [[ "$changed" == true && "$full" != true ]]; then
+  changed_list="$(
+    {
+      [[ -z "$base_ref" ]] || git -C "$repo_root" diff --name-only "$base_ref" HEAD -- 2>/dev/null
+      git -C "$repo_root" diff --name-only HEAD -- 2>/dev/null
+      git -C "$repo_root" ls-files --others --exclude-standard 2>/dev/null
+    } | LC_ALL=C sort -u
+  )"
+
+  scope_supported=true
+  scoped_projects=''
+  scoped_skills=''
+  scoped_pages=''
+  scoped_index_log=false
+  while IFS= read -r changed_path; do
+    [[ -n "$changed_path" ]] || continue
+    case "$changed_path" in
+      projects/_template/*|projects/AGENTS.md|projects/CLAUDE.md|projects/PROJECTS.md|\
+projects/LIFECYCLE.md|projects/RECOVERY.md|projects/REPOSITORIES.md|projects/.gitignore)
+        scope_supported=false; break ;;
+      projects/*/*)
+        scoped_name="${changed_path#projects/}"
+        scoped_name="${scoped_name%%/*}"
+        if is_registered_independent "$scoped_name" || [[ ! -d "$repo_root/projects/$scoped_name" ]]; then
+          scope_supported=false; break
+        fi
+        printf '%s\n' "$scoped_projects" | grep -Fqx -- "$scoped_name" || \
+          scoped_projects="${scoped_projects}${scoped_name}
+"
+        ;;
+      knowledge/KNOWLEDGE.md|knowledge/wiki/_template/*)
+        scope_supported=false; break ;;
+      knowledge/raw/*)
+        # Additions to immutable source material carry no static schema; modification
+        # and deletion are refused by the --base diff in the shared epilogue.
+        ;;
+      knowledge/wiki/INDEX.md|knowledge/wiki/LOG.md|knowledge/wiki/logs/*)
+        scoped_index_log=true ;;
+      knowledge/wiki/sources/*.md|knowledge/wiki/topics/*.md)
+        [[ ! -f "$repo_root/$changed_path" ]] || {
+          printf '%s\n' "$scoped_pages" | grep -Fqx -- "$changed_path" || \
+            scoped_pages="${scoped_pages}${changed_path}
+"
+        }
+        ;;
+      skills/SKILLS.md|skills/_template/*)
+        scope_supported=false; break ;;
+      skills/*/*)
+        scoped_name="${changed_path#skills/}"
+        scoped_name="${scoped_name%%/*}"
+        if [[ ! -f "$repo_root/skills/$scoped_name/SKILL.md" ]]; then
+          scope_supported=false; break
+        fi
+        printf '%s\n' "$scoped_skills" | grep -Fqx -- "$scoped_name" || \
+          scoped_skills="${scoped_skills}${scoped_name}
+"
+        ;;
+      *)
+        scope_supported=false; break ;;
+    esac
+  done <<< "$changed_list"
+
+  if [[ "$scope_supported" == true ]]; then
+    while IFS= read -r scoped_name; do
+      [[ -n "$scoped_name" ]] || continue
+      scoped_dir="$repo_root/projects/$scoped_name"
+      validate_project_contract "$scoped_dir/PROJECT.md"
+      validate_project_state "$scoped_dir/STATE.md"
+      validate_project_docs "$scoped_dir"
+      if [[ -f "$scoped_dir/AGENTS.md" ]]; then
+        validate_project_agents_file "$scoped_dir/AGENTS.md"
+      elif [[ -f "$scoped_dir/CLAUDE.md" ]]; then
+        fail "projects/$scoped_name/CLAUDE.md exists without a sibling AGENTS.md to import"
+      fi
+    done <<< "$scoped_projects"
+    while IFS= read -r changed_path; do
+      [[ -n "$changed_path" ]] || continue
+      validate_knowledge_page "$repo_root/$changed_path"
+    done <<< "$scoped_pages"
+    while IFS= read -r scoped_name; do
+      [[ -n "$scoped_name" ]] || continue
+      validate_skill "$repo_root/skills/$scoped_name/SKILL.md"
+    done <<< "$scoped_skills"
+    [[ "$scoped_index_log" != true ]] || validate_knowledge_index_and_log
+    printf 'NOTE: scoped validation (--changed) covered %s changed path(s)\n' \
+      "$(printf '%s\n' "$changed_list" | grep -c . || true)" >&2
+    run_git_boundary_checks
+    finish_run
+  fi
+  printf 'NOTE: the changed set reaches meta canon or an unscopeable path; running the full static validation\n' >&2
+fi
+
 required_files=(
   'AGENTS.md' 'CLAUDE.md' 'projects/AGENTS.md' 'projects/CLAUDE.md'
   'README.md' 'knowledge/KNOWLEDGE.md' "$knowledge_index_path" "$knowledge_log_path"
@@ -1304,23 +1490,7 @@ done < <(find \
 validate_knowledge_page "$knowledge_source_template"
 validate_knowledge_page "$knowledge_topic_template"
 
-index_items="$(grep -Ec '^- ' "$knowledge_index_file" || true)"
-(( index_items <= 50 )) || fail "$knowledge_index_path has more than 50 route-map items"
-if grep -Eq '^- .*knowledge/raw/|^## raw/' "$knowledge_index_file"; then
-  fail "$knowledge_index_path must not register knowledge/raw/ as an itemized global ledger"
-fi
-
-log_records="$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+' "$knowledge_log_file" || true)"
-(( log_records <= 1000 )) || fail "$knowledge_log_path has more than 1,000 records and must rotate"
-if [[ -d "$repo_root/knowledge/wiki/logs" ]]; then
-  while IFS= read -r -d '' log_file; do
-    filename="${log_file##*/}"
-    [[ "$filename" == '.gitkeep' ]] && continue
-    if [[ ! "$filename" =~ ^[0-9]{4}-Q[1-4](-[0-9]{2,})?\.md$ ]]; then
-      fail "$(relative_path "$log_file") has an invalid closed-log filename"
-    fi
-  done < <(find "$repo_root/knowledge/wiki/logs" -type f -print0)
-fi
+validate_knowledge_index_and_log
 
 required_cases=(
   project-correction-recovery project-finite-completion
@@ -1329,6 +1499,7 @@ required_cases=(
   knowledge-bounded-retrieval knowledge-superseded-redirect knowledge-original-escalation
   catalog-failure-fallback project-completed-not-default project-required-only context-budget-stop
   large-file-section-read ambiguous-target-no-broad-scan meta-route-validator-change
+  project-read-no-terminal-processing meta-read-no-full-validator project-work-scoped-validation
   knowledge-log-auto-rotation scale-sqlite-auto-enable
   backup-auto-after-verified-commit backup-divergence-refusal restore-single-writer
   backup-failure-local-success backup-workspace-repository-boundary independent-consolidation-audit
@@ -1800,6 +1971,81 @@ elif ! grep -Fq $'nested/kept.txt\t' "$fixture_cache_dir/manifest.tsv"; then
   fail 'build-context-cache.sh nested .tmp test did not scan the adjacent durable file'
 fi
 
+# Routing and inventory are separate responsibilities: a routing-only rebuild refreshes
+# the catalog without touching the manifest, and find-context.sh's stale recovery never
+# produces a full workspace inventory.
+mkdir -p "$log_fixture_dir/knowledge/wiki/topics"
+printf -- '---\nsummary: routing rebuild probe\nstatus: active\naliases: []\n---\n\nrouting rebuild probe body\n' \
+  > "$log_fixture_dir/knowledge/wiki/topics/routing-probe.md"
+manifest_before_routing="$(cat "$fixture_cache_dir/manifest.tsv")"
+if ! AGENT_DIRECTORY_ROOT="$log_fixture_dir" AGENT_CACHE_DIR="$fixture_cache_dir" \
+  bash "$repo_root/tools/build-context-cache.sh" --routing-only >/dev/null; then
+  fail 'build-context-cache.sh --routing-only failed'
+else
+  grep -Fq 'routing-probe' "$fixture_cache_dir/catalog.tsv" || \
+    fail 'build-context-cache.sh --routing-only did not refresh the routing catalog'
+  [[ "$manifest_before_routing" == "$(cat "$fixture_cache_dir/manifest.tsv")" ]] || \
+    fail 'build-context-cache.sh --routing-only regenerated the workspace inventory (manifest)'
+fi
+routing_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-routing.XXXXXX")"
+cleanup_paths+=("$routing_cache_dir")
+if ! AGENT_DIRECTORY_ROOT="$log_fixture_dir" AGENT_CACHE_DIR="$routing_cache_dir" \
+  bash "$repo_root/tools/find-context.sh" --route knowledge --limit 5 -- 'routing rebuild probe' >/dev/null; then
+  fail 'find-context.sh failed to recover from a missing cache'
+else
+  [[ -f "$routing_cache_dir/catalog.tsv" ]] || \
+    fail 'find-context.sh stale recovery did not produce a routing catalog'
+  [[ ! -f "$routing_cache_dir/manifest.tsv" ]] || \
+    fail 'find-context.sh stale recovery generated a full workspace inventory (manifest)'
+fi
+
+# --changed scoped mode: a project-only change validates only that target, and a change
+# reaching meta canon falls back to the full static run. The fixture root deliberately
+# lacks the root canon, so a scoped run passes only if it truly skips the full scan.
+changed_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-changed.XXXXXX")"
+cleanup_paths+=("$changed_fixture_dir")
+changed_env=(
+  HOME="$changed_fixture_dir" GIT_CONFIG_NOSYSTEM=1
+  GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
+  GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
+)
+mkdir -p "$changed_fixture_dir/tools" "$changed_fixture_dir/projects/scoped-proj"
+cp "$repo_root/tools/validate-agent-directory.sh" "$changed_fixture_dir/tools/"
+{
+  printf '%s\n' '---' 'name: scoped-proj' 'description: scoped validation fixture' \
+    'status: active' 'mode: finite' '---' '' '> Scoped validation fixture goal.' '' \
+    '## 目的' '## 判断原則' '## 非ゴール' '## 制約・固定決定' '## 品質基準' '## 入力' \
+    '## 使用するKnowledge' '' '### Required' '' '### Conditional' '' \
+    '## 使用するSkill' '' '### Required' '' '### Conditional' '' \
+    '## 成果物' '## 検証方法' '## 最終ゴール' '## 完了条件' '' '- **PC-01** fixture criterion.'
+} > "$changed_fixture_dir/projects/scoped-proj/PROJECT.md"
+{
+  printf '%s\n' '---' 'updated_at: 2026-08-06' '---' '' '## 現在の到達点' '## 現在の目標' '' \
+    '対象契約: `PROJECT.md#PC-01`' '' '## 目標の合格条件' '## 検証結果' '' \
+    '- 対象: `PROJECT.md#PC-01`' '' '## 未完了・ブロッカー' '## 現在有効な決定' \
+    '## 失敗・却下済み' '## 次の一手'
+} > "$changed_fixture_dir/projects/scoped-proj/STATE.md"
+env "${changed_env[@]}" git -C "$changed_fixture_dir" init -q
+env "${changed_env[@]}" git -C "$changed_fixture_dir" add -A
+env "${changed_env[@]}" git -C "$changed_fixture_dir" commit -q -m 'fixture: scoped baseline'
+printf '%s\n' '' '<!-- scoped fixture edit -->' >> "$changed_fixture_dir/projects/scoped-proj/STATE.md"
+set +e
+changed_output="$(env "${changed_env[@]}" bash "$changed_fixture_dir/tools/validate-agent-directory.sh" --changed 2>&1)"
+changed_status=$?
+set -e
+if (( changed_status != 0 )) || ! printf '%s\n' "$changed_output" | grep -Fq 'scoped validation (--changed)'; then
+  fail "validator --changed did not run a scoped pass on a project-only change: $(printf '%s' "$changed_output" | head -n 3 | tr '\n' ' ')"
+fi
+printf '# scoped fixture meta edit\n' >> "$changed_fixture_dir/tools/validate-agent-directory.sh"
+set +e
+changed_output="$(env "${changed_env[@]}" bash "$changed_fixture_dir/tools/validate-agent-directory.sh" --changed 2>&1)"
+changed_status=$?
+set -e
+if (( changed_status == 0 )) || \
+  ! printf '%s\n' "$changed_output" | grep -Fq 'running the full static validation'; then
+  fail 'validator --changed did not fall back to the full static run when the changed set reached meta canon'
+fi
+
 # A canon file lacking frontmatter must not stop cache generation; warn naming the target and drop it from the candidates.
 mkdir -p "$malformed_fixture_dir/projects/good-project" \
   "$malformed_fixture_dir/projects/no-status" \
@@ -2025,6 +2271,49 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
   materialize_run --all
   materialize_expect_line 'MATERIALIZATION_OK total=0 cloned=0 verified=0' 'an empty registry'
 
+  # Checkpoint and incremental object audit: a verified backup records the remote-confirmed
+  # SHA, the next success audits only the new range, and a missing or corrupt checkpoint
+  # falls back to the full-history scan without weakening the oversized-object stop.
+  backup_run --root-only
+  backup_expect_line "ROOT_BACKUP_OK remote=backup branch=main sha=$(backup_git rev-parse HEAD) scope=root-only" \
+    'initial root-only backup'
+  backup_checkpoint_file="$backup_work/.agent-cache/backup-checkpoint-backup-main"
+  [[ -f "$backup_checkpoint_file" ]] || \
+    fail 'backup fixture: no checkpoint was recorded after a remote-verified backup'
+  grep -Fqx "sha=$(backup_git rev-parse HEAD)" "$backup_checkpoint_file" || \
+    fail 'backup fixture: the checkpoint does not record the remote-verified SHA'
+  printf '%02048d' 0 > "$backup_work/pre-checkpoint-blob.txt"
+  backup_git add pre-checkpoint-blob.txt
+  backup_git commit -q -m 'fixture: blob below the default limit'
+  backup_run --root-only
+  backup_expect_line "ROOT_BACKUP_OK remote=backup branch=main sha=$(backup_git rev-parse HEAD) scope=root-only" \
+    'incremental root-only backup'
+  printf '%s\n' "$backup_output" | grep -Fq 'incremental object audit' || \
+    fail 'backup fixture: the second backup did not use the incremental object audit'
+  # With a verified checkpoint, a lowered fixture-only limit ignores already-backed-up history.
+  set +e
+  backup_output="$(env "${backup_env[@]}" AGENT_BACKUP_MAX_BLOB_BYTES=1024 \
+    AGENT_DIRECTORY_ROOT="$backup_work" bash "$backup_tool" --root-only 2>&1)"
+  backup_status=$?
+  set -e
+  backup_expect_line "ROOT_BACKUP_OK remote=backup branch=main sha=$(backup_git rev-parse HEAD) scope=root-only" \
+    'checkpointed backup rescanning no already-verified history'
+  # Without the checkpoint the same limit audits full history and stops on the old blob.
+  rm -f "$backup_checkpoint_file"
+  set +e
+  backup_output="$(env "${backup_env[@]}" AGENT_BACKUP_MAX_BLOB_BYTES=1024 \
+    AGENT_DIRECTORY_ROOT="$backup_work" bash "$backup_tool" --root-only 2>&1)"
+  backup_status=$?
+  set -e
+  backup_expect_blocked 'oversized-git-object' 'full-history fallback after a missing checkpoint'
+  # A corrupt checkpoint also falls back safely and is rewritten by the next success.
+  printf 'garbage\n' > "$backup_checkpoint_file"
+  backup_run --root-only
+  backup_expect_line "ROOT_BACKUP_OK remote=backup branch=main sha=$(backup_git rev-parse HEAD) scope=root-only" \
+    'backup after a corrupt checkpoint'
+  grep -Fqx "sha=$(backup_git rev-parse HEAD)" "$backup_checkpoint_file" || \
+    fail 'backup fixture: a successful backup did not rewrite the corrupt checkpoint'
+
   write_registry "$independent_revision"
   write_ignore_projection data-pipeline
   backup_git add -A
@@ -2076,10 +2365,12 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
 
   # --- Healthy workspace backup----------------------------------------------------
   independent_remote_before="$(independent_remote_sha)"
+  root_remote_before_dry_run="$(backup_remote_sha)"
   backup_run --dry-run
   backup_expect_line "WORKSPACE_BACKUP_READY remote=backup branch=main sha=$backup_head independent=1" \
     'workspace dry run on a materialized workspace'
-  [[ -z "$(backup_remote_sha)" ]] || fail 'backup fixture: dry run wrote to the root remote'
+  [[ "$(backup_remote_sha)" == "$root_remote_before_dry_run" ]] || \
+    fail 'backup fixture: dry run wrote to the root remote'
 
   backup_run
   backup_expect_line "WORKSPACE_BACKUP_OK remote=backup branch=main sha=$backup_head independent=1" \
@@ -3199,55 +3490,5 @@ MOCK_RESPONSES
   fi
 fi
 
-git_root=''
-if git_root="$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null)" && [[ "$git_root" == "$repo_root" ]]; then
-  while IFS= read -r tracked_file; do
-    case "$tracked_file" in
-      .tmp/*|*/.tmp/*|.agent-cache/*|*/.agent-cache/*|.env*|*/.env*|.DS_Store|*/.DS_Store)
-        if [[ "$tracked_file" != '.env.example' && "$tracked_file" != */.env.example ]]; then
-          fail "forbidden tracked file: $tracked_file"
-        fi
-        ;;
-    esac
-  done < <(git -C "$repo_root" ls-files)
-
-  if [[ -n "$base_ref" ]]; then
-    if ! git -C "$repo_root" rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1; then
-      fail "base ref does not resolve to a commit: $base_ref"
-    else
-      while IFS=$'\t' read -r status old_path new_path; do
-        [[ -n "$status" ]] || continue
-        case "$status" in
-          A) ;;
-          *) fail "immutable source changed relative to $base_ref: $status $old_path ${new_path:-}" ;;
-        esac
-      done < <(git -C "$repo_root" diff --name-status "$base_ref" -- knowledge/raw)
-      while IFS=$'\t' read -r status old_path new_path; do
-        [[ -n "$status" ]] || continue
-        case "$status" in
-          A) ;;
-          *) fail "closed Knowledge log changed relative to $base_ref: $status $old_path ${new_path:-}" ;;
-        esac
-      done < <(git -C "$repo_root" diff --name-status "$base_ref" -- knowledge/wiki/logs)
-      while IFS=$'\t' read -r status old_path new_path; do
-        case "$status" in
-          R*) fail "Project physical rename requires an approved migration map: $old_path -> $new_path" ;;
-          D)
-            case "$old_path" in
-              projects/*/PROJECT.md) validate_deleted_project "$base_ref" "$old_path" ;;
-            esac
-            ;;
-        esac
-      done < <(git -C "$repo_root" diff --name-status "$base_ref" -- projects)
-    fi
-  fi
-else
-  printf 'SKIP: Git tracking and base-diff checks (directory is not a repository root)\n'
-fi
-
-if (( failures > 0 )); then
-  printf 'FAILED: %d structural issue(s), %d warning(s)\n' "$failures" "$warnings" >&2
-  exit 1
-fi
-
-printf 'PASS: agent-directory structure is valid (%d warning(s))\n' "$warnings"
+run_git_boundary_checks
+finish_run

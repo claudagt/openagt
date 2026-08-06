@@ -10,15 +10,16 @@ sqlite_catalog_threshold="${AGENT_SQLITE_CATALOG_THRESHOLD:-5000}"
 mode='build'
 
 if (( $# > 1 )); then
-  printf 'Usage: %s [--check|--check-routing]\n' "${0##*/}" >&2
+  printf 'Usage: %s [--check|--check-routing|--routing-only]\n' "${0##*/}" >&2
   exit 2
 fi
 case "${1:-}" in
   '') ;;
   --check) mode='check' ;;
   --check-routing) mode='check-routing' ;;
+  --routing-only) mode='routing' ;;
   *)
-    printf 'Usage: %s [--check|--check-routing]\n' "${0##*/}" >&2
+    printf 'Usage: %s [--check|--check-routing|--routing-only]\n' "${0##*/}" >&2
     exit 2
     ;;
 esac
@@ -39,34 +40,40 @@ mkdir -p "$generated_dir"
 # Used by the stat fingerprint's same-second edit guard. The fingerprint is not saved while any source carries an mtime at or after this second.
 run_start_epoch="$(date +%s)"
 
-frontmatter_value() {
-  local file="$1"
-  local key="$2"
-  awk -v key="$key" '
+# Emit every frontmatter field of one file in a single pass, as one line of
+# US-separated cleaned values: name, status, aliases (normalized), description, mode, summary.
+# One process per file replaces the retired one-awk-per-key parse.
+frontmatter_fields() {
+  LC_ALL=C awk '
+    function clean(v) {
+      gsub(/[\t\r]/, " ", v)
+      gsub(/[[:space:]]+/, " ", v)
+      sub(/^ /, "", v); sub(/ $/, "", v)
+      return v
+    }
+    BEGIN { US = sprintf("%c", 31); q = sprintf("%c", 39) }
     NR == 1 && $0 != "---" { exit }
     NR > 1 && $0 == "---" { exit }
-    index($0, key ":") == 1 {
-      sub(/^[^:]+:[[:space:]]*/, "")
-      print
-      exit
+    NR > 1 {
+      if (match($0, /^[A-Za-z_]+:/)) {
+        key = substr($0, 1, RLENGTH - 1)
+        if (!(key in vals)) {
+          v = substr($0, RLENGTH + 1)
+          sub(/^[[:space:]]*/, "", v)
+          vals[key] = v
+        }
+      }
     }
-  ' "$file"
-}
-
-clean_field() {
-  LC_ALL=C tr '\t\r\n' '   ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
-}
-
-normalize_aliases() {
-  sed -E "s/^\[//; s/\]$//; s/[\"']//g; s/[[:space:]]*,[[:space:]]*/|/g" | clean_field
-}
-
-content_hash() {
-  if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  else
-    cksum "$1" | awk '{print $1 "-" $2}'
-  fi
+    END {
+      aliases = clean(vals["aliases"])
+      sub(/^\[/, "", aliases); sub(/\]$/, "", aliases)
+      gsub(/"/, "", aliases); gsub(q, "", aliases)
+      gsub(/[[:space:]]*,[[:space:]]*/, "|", aliases)
+      printf "%s%s%s%s%s%s%s%s%s%s%s\n", \
+        clean(vals["name"]), US, clean(vals["status"]), US, aliases, US, \
+        clean(vals["description"]), US, clean(vals["mode"]), US, clean(vals["summary"])
+    }
+  ' "$1"
 }
 
 stream_hash() {
@@ -74,6 +81,18 @@ stream_hash() {
     shasum -a 256 | awk '{print $1}'
   else
     cksum | awk '{print $1 "-" $2}'
+  fi
+}
+
+# Read NUL-separated absolute paths on stdin; emit "path<TAB>hash" lines with a
+# small number of hash processes instead of one per file.
+batch_hash() {
+  if command -v shasum >/dev/null 2>&1; then
+    xargs -0 -n 64 shasum -a 256 2>/dev/null | \
+      sed -E 's/^([0-9a-f]+)  (.*)$/\2	\1/'
+  else
+    xargs -0 -n 64 cksum | \
+      awk '{ path = $3; for (i = 4; i <= NF; i++) path = path " " $i; print path "\t" $1 "-" $2 }'
   fi
 }
 
@@ -128,8 +147,10 @@ root_index_project_contracts() {
   fi
 }
 
-catalog_unsorted="$tmp_root/catalog.unsorted"
-printf 'area\tkind\tstatus\tname\taliases\tdescription\tmode\tpath\tcontent_hash\n' > "$catalog_unsorted"
+# Catalog rows accumulate without hashes first; column 9 holds "@<absolute path>"
+# for a deferred batch hash, or a literal precomputed hash for adopted revisions.
+catalog_pending="$tmp_root/catalog.pending"
+: > "$catalog_pending"
 
 append_catalog() {
   local area="$1"
@@ -141,35 +162,27 @@ append_catalog() {
   local item_mode="$7"
   local file="$8"
   local relative_path="${file#"$repo_root"/}"
-  local hash
 
   [[ -f "$file" ]] || return 0
-  hash="$(content_hash "$file")"
-  name="$(printf '%s' "$name" | clean_field)"
-  aliases="$(printf '%s' "$aliases" | normalize_aliases)"
-  description="$(printf '%s' "$description" | clean_field)"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$area" "$kind" "$status" "$name" "$aliases" "$description" "$item_mode" "$relative_path" "$hash" \
-    >> "$catalog_unsorted"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t@%s\n' \
+    "$area" "$kind" "$status" "$name" "$aliases" "$description" "$item_mode" "$relative_path" "$file" \
+    >> "$catalog_pending"
 }
 
 append_frontmatter_item() {
   local area="$1"
   local kind="$2"
   local file="$3"
-  local name status aliases description item_mode
+  local fields name status aliases description item_mode summary
   local missing=''
 
-  name="$(frontmatter_value "$file" 'name')"
-  status="$(frontmatter_value "$file" 'status')"
-  aliases="$(frontmatter_value "$file" 'aliases')"
-  description="$(frontmatter_value "$file" 'description')"
-  item_mode="$(frontmatter_value "$file" 'mode')"
+  fields="$(frontmatter_fields "$file")"
+  IFS=$'\x1f' read -r name status aliases description item_mode summary <<< "$fields"
 
   if [[ "$area" == 'knowledge' ]]; then
     name="${file##*/}"
     name="${name%.md}"
-    description="$(frontmatter_value "$file" 'summary')"
+    description="$summary"
   fi
 
   [[ -n "$name" ]] || missing='name'
@@ -189,13 +202,11 @@ append_adopted_project() {
   local project_name="$1"
   local revision="$2"
   local adopted_file="$3"
-  local name status description item_mode hash
+  local fields name status aliases description item_mode summary hash
   local missing=''
 
-  name="$(frontmatter_value "$adopted_file" 'name')"
-  status="$(frontmatter_value "$adopted_file" 'status')"
-  description="$(frontmatter_value "$adopted_file" 'description')"
-  item_mode="$(frontmatter_value "$adopted_file" 'mode')"
+  fields="$(frontmatter_fields "$adopted_file")"
+  IFS=$'\x1f' read -r name status aliases description item_mode summary <<< "$fields"
 
   [[ -n "$name" ]] || missing='name'
   [[ -n "$status" ]] || missing="${missing:+$missing, }status"
@@ -207,9 +218,8 @@ append_adopted_project() {
 
   hash="$( { printf '%s\n' "$revision"; cat "$adopted_file"; } | stream_hash )"
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    'project' 'project' "$status" "$(printf '%s' "$name" | clean_field)" '' \
-    "$(printf '%s' "$description" | clean_field)" "$item_mode" \
-    "projects/$project_name/PROJECT.md" "$hash" >> "$catalog_unsorted"
+    'project' 'project' "$status" "$name" '' "$description" "$item_mode" \
+    "projects/$project_name/PROJECT.md" "$hash" >> "$catalog_pending"
 }
 
 meta_files=(
@@ -407,9 +417,25 @@ while (( independent_index < independent_count )); do
   append_adopted_project "$independent_name" "$independent_revision" "$adopted_contract"
 done
 
+# Resolve the deferred "@<path>" hash references with one batch hash pass.
+catalog_hashes="$tmp_root/catalog.hashes"
+awk -F '\t' 'substr($9, 1, 1) == "@" { print substr($9, 2) }' "$catalog_pending" | \
+  LC_ALL=C sort -u | tr '\n' '\0' | batch_hash > "$catalog_hashes"
+
 catalog="$generated_dir/catalog.tsv"
-head -n 1 "$catalog_unsorted" > "$catalog"
-tail -n +2 "$catalog_unsorted" | LC_ALL=C sort -t $'\t' -k8,8 >> "$catalog"
+printf 'area\tkind\tstatus\tname\taliases\tdescription\tmode\tpath\tcontent_hash\n' > "$catalog"
+awk -F '\t' '
+  BEGIN { OFS = "\t" }
+  NR == FNR { map[$1] = $2; next }
+  {
+    if (substr($9, 1, 1) == "@") {
+      p = substr($9, 2)
+      if (!(p in map)) next
+      $9 = map[p]
+    }
+    print
+  }
+' "$catalog_hashes" "$catalog_pending" | LC_ALL=C sort -t $'\t' -k8,8 >> "$catalog"
 
 if [[ "$mode" == 'check-routing' ]]; then
   if [[ -f "$cache_dir/catalog.tsv" ]] && cmp -s "$catalog" "$cache_dir/catalog.tsv"; then
@@ -476,75 +502,105 @@ if (( knowledge_rows >= sqlite_knowledge_threshold || catalog_rows >= sqlite_cat
   fi
 fi
 
-routeable_paths="$tmp_root/routeable.paths"
-tail -n +2 "$catalog" | awk -F '\t' '{print $8}' | LC_ALL=C sort -u > "$routeable_paths"
-
-manifest_unsorted="$tmp_root/manifest.unsorted"
-printf 'path\tkind\tsize_bytes\tcontent_hash\trouteable\timmutable\n' > "$manifest_unsorted"
-
-# An Independent Project's Project root sits outside the root cache boundary. Prune the whole
-# directory, not just `.git`, so child-side changes cannot leak into the root fingerprint. Only
-# registry-registered names are targeted, so Embedded Projects, `projects/REPOSITORIES.md` and `projects/.gitignore` are not swept up.
-manifest_prune=( -name '.git' -o -name '.agent-cache' -o -name '.tmp' )
-independent_index=0
-while (( independent_index < independent_count )); do
-  manifest_prune+=( -o -path "$repo_root/projects/${independent_names[$independent_index]}" )
-  independent_index=$((independent_index + 1))
-done
-
-while IFS= read -r -d '' file; do
-  relative_path="${file#"$repo_root"/}"
-  case "$relative_path" in
-    .git/*|*/.git/*|.agent-cache/*|*/.agent-cache/*|.tmp/*|*/.tmp/*|.DS_Store|*/.DS_Store|.env|.env.*|*/.env|*/.env.*)
-      [[ "$relative_path" == '.env.example' || "$relative_path" == */.env.example ]] || continue
-      ;;
-  esac
-
-  kind='file'
-  immutable='false'
-  case "$relative_path" in
-    knowledge/raw/internal/*) kind='internal-record'; immutable='true' ;;
-    knowledge/raw/external/*) kind='external-source'; immutable='true' ;;
-    knowledge/raw/*) kind='raw-record'; immutable='true' ;;
-    knowledge/wiki/logs/*) kind='closed-log'; immutable='true' ;;
-    knowledge/wiki/sources/*|knowledge/wiki/topics/*) kind='knowledge' ;;
-    skills/*/SKILL.md) kind='skill' ;;
-    projects/*/PROJECT.md) kind='project-contract' ;;
-    projects/*/STATE.md) kind='project-state' ;;
-    projects/*/ARCHITECTURE.md) kind='project-architecture' ;;
-    projects/*/docs/*) kind='project-doc' ;;
-    evals/cases/*.yaml) kind='eval' ;;
-    routines/ROUTINES.md) kind='routine-policy' ;;
-    routines/*/ROUTINE.md) kind='routine-contract' ;;
-    tools/*) kind='tool' ;;
-    *.md|*/*.md) kind='policy-or-document' ;;
-  esac
-
-  routeable='false'
-  if grep -Fqx -- "$relative_path" "$routeable_paths"; then
-    routeable='true'
-  fi
-  size_bytes="$(wc -c < "$file" | tr -d ' ')"
-  hash="$(content_hash "$file")"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$relative_path" "$kind" "$size_bytes" "$hash" "$routeable" "$immutable" >> "$manifest_unsorted"
-done < <(
-  find "$repo_root" \
-    \( -type d \( "${manifest_prune[@]}" \) \) -prune -o \
-    -type f -print0
-)
-
-manifest="$generated_dir/manifest.tsv"
-head -n 1 "$manifest_unsorted" > "$manifest"
-tail -n +2 "$manifest_unsorted" | LC_ALL=C sort -t $'\t' -k1,1 >> "$manifest"
-
-generator_hash="$(content_hash "$tool_root/build-context-cache.sh")"
-fingerprint="$(cat "$catalog" "$manifest" | stream_hash)"
+# cache.meta is derived from the routing catalog alone, so a routing-only rebuild and a
+# full build write byte-identical metadata. Manifest freshness is owned by --check.
+generator_hash="$(printf '%s\0' "$tool_root/build-context-cache.sh" | batch_hash | cut -f2)"
+fingerprint="$(stream_hash < "$catalog")"
 cat_meta="$generated_dir/cache.meta"
 printf 'schema_version=1\ngenerator_hash=%s\ncontent_fingerprint=%s\n' \
   "$generator_hash" "$fingerprint" > "$cat_meta"
 printf 'catalog_rows=%s\nknowledge_rows=%s\nsearch_backend=%s\n' \
   "$catalog_rows" "$knowledge_rows" "$search_backend" >> "$cat_meta"
+
+# --- workspace inventory (manifest) ---------------------------------------------
+# The manifest is a Slow Path audit artifact for Maintenance, full validation, and
+# boundary work. A routing-only rebuild never scans or hashes the whole workspace.
+
+if [[ "$mode" != 'routing' ]]; then
+  # An Independent Project's Project root sits outside the root cache boundary. Prune the whole
+  # directory, not just `.git`, so child-side changes cannot leak into the root fingerprint. Only
+  # registry-registered names are targeted, so Embedded Projects, `projects/REPOSITORIES.md` and `projects/.gitignore` are not swept up.
+  manifest_prune=( -name '.git' -o -name '.agent-cache' -o -name '.tmp' )
+  independent_index=0
+  while (( independent_index < independent_count )); do
+    manifest_prune+=( -o -path "$repo_root/projects/${independent_names[$independent_index]}" )
+    independent_index=$((independent_index + 1))
+  done
+
+  # Enumerate and classify first without spawning per-file processes; sizes and hashes
+  # are attached afterwards in single batch passes.
+  manifest_pending="$tmp_root/manifest.pending"
+  : > "$manifest_pending"
+  manifest_files="$tmp_root/manifest.files"
+  : > "$manifest_files"
+  while IFS= read -r -d '' file; do
+    relative_path="${file#"$repo_root"/}"
+    case "$relative_path" in
+      .git/*|*/.git/*|.agent-cache/*|*/.agent-cache/*|.tmp/*|*/.tmp/*|.DS_Store|*/.DS_Store|.env|.env.*|*/.env|*/.env.*)
+        [[ "$relative_path" == '.env.example' || "$relative_path" == */.env.example ]] || continue
+        ;;
+    esac
+
+    kind='file'
+    immutable='false'
+    case "$relative_path" in
+      knowledge/raw/internal/*) kind='internal-record'; immutable='true' ;;
+      knowledge/raw/external/*) kind='external-source'; immutable='true' ;;
+      knowledge/raw/*) kind='raw-record'; immutable='true' ;;
+      knowledge/wiki/logs/*) kind='closed-log'; immutable='true' ;;
+      knowledge/wiki/sources/*|knowledge/wiki/topics/*) kind='knowledge' ;;
+      skills/*/SKILL.md) kind='skill' ;;
+      projects/*/PROJECT.md) kind='project-contract' ;;
+      projects/*/STATE.md) kind='project-state' ;;
+      projects/*/ARCHITECTURE.md) kind='project-architecture' ;;
+      projects/*/docs/*) kind='project-doc' ;;
+      evals/cases/*.yaml) kind='eval' ;;
+      routines/ROUTINES.md) kind='routine-policy' ;;
+      routines/*/ROUTINE.md) kind='routine-contract' ;;
+      tools/*) kind='tool' ;;
+      *.md|*/*.md) kind='policy-or-document' ;;
+    esac
+
+    printf '%s\t%s\t%s\n' "$relative_path" "$kind" "$immutable" >> "$manifest_pending"
+    printf '%s\0' "$file" >> "$manifest_files"
+  done < <(
+    find "$repo_root" \
+      \( -type d \( "${manifest_prune[@]}" \) \) -prune -o \
+      -type f -print0
+  )
+
+  manifest_hashes="$tmp_root/manifest.hashes"
+  batch_hash < "$manifest_files" > "$manifest_hashes"
+  manifest_stats="$tmp_root/manifest.stats"
+  : > "$manifest_stats"
+  manifest_batch=()
+  while IFS= read -r -d '' file; do
+    manifest_batch+=("$file")
+    if (( ${#manifest_batch[@]} >= 512 )); then
+      stat_lines_for "${manifest_batch[@]}" >> "$manifest_stats" || true
+      manifest_batch=()
+    fi
+  done < "$manifest_files"
+  if (( ${#manifest_batch[@]} > 0 )); then
+    stat_lines_for "${manifest_batch[@]}" >> "$manifest_stats" || true
+  fi
+
+  manifest="$generated_dir/manifest.tsv"
+  printf 'path\tkind\tsize_bytes\tcontent_hash\trouteable\timmutable\n' > "$manifest"
+  awk -F '\t' -v root="$repo_root/" '
+    BEGIN { OFS = "\t" }
+    FILENAME == ARGV[1] { hash[$1] = $2; next }
+    FILENAME == ARGV[2] { size[$1] = $2; next }
+    FILENAME == ARGV[3] { routeable[root $1] = 1; next }
+    {
+      file = root $1
+      if (!(file in hash) || !(file in size)) next
+      print $1, $2, size[file], hash[file], (file in routeable) ? "true" : "false", $3
+    }
+  ' "$manifest_hashes" "$manifest_stats" \
+    <(tail -n +2 "$catalog" | awk -F '\t' '{print $8}' | LC_ALL=C sort -u) \
+    "$manifest_pending" | LC_ALL=C sort -t $'\t' -k1,1 >> "$manifest"
+fi
 
 if [[ "$mode" == 'check' ]]; then
   stale=false
@@ -568,7 +624,9 @@ if [[ "$mode" == 'check' ]]; then
 fi
 
 mkdir -p "$cache_dir"
-for name in catalog.tsv manifest.tsv cache.meta; do
+install_names=(catalog.tsv cache.meta)
+[[ "$mode" == 'routing' ]] || install_names+=(manifest.tsv)
+for name in "${install_names[@]}"; do
   cp "$generated_dir/$name" "$cache_dir/$name"
 done
 if [[ -f "$generated_dir/search.sqlite" ]]; then
@@ -582,4 +640,8 @@ if build_stat_report="$(stat_fingerprint_report)"; then
 else
   rm -f "$cache_dir/stat.meta"
 fi
-printf 'PASS: context cache generated at %s\n' "$cache_dir"
+if [[ "$mode" == 'routing' ]]; then
+  printf 'PASS: routing catalog generated at %s\n' "$cache_dir"
+else
+  printf 'PASS: context cache generated at %s\n' "$cache_dir"
+fi

@@ -3,6 +3,7 @@ set -euo pipefail
 
 tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd "${AGENT_DIRECTORY_ROOT:-$tool_root/..}" 2>/dev/null && pwd -P)" || repo_root=''
+cache_dir="${AGENT_CACHE_DIR:-$repo_root/.agent-cache}"
 registry_path='projects/REPOSITORIES.md'
 ignore_path='projects/.gitignore'
 max_blob_bytes="${AGENT_BACKUP_MAX_BLOB_BYTES:-104857600}"
@@ -39,6 +40,47 @@ blocked() {
 
 note() {
   printf 'DETAIL: %s\n' "$1" >&2
+}
+
+# --- backup checkpoint (derived local state) ------------------------------------
+# The checkpoint records the last remote-verified backup SHA in .agent-cache/ so the
+# next run audits only the new objects since it. It is a deletable derivative, never
+# canon: any missing, corrupt, or mismatching field (remote, URL, branch, SHA, local
+# reachability, ancestry) falls back safely to the full-history object scan. It never
+# substitutes for the push's own fast-forward guarantee or the post-push verification.
+checkpoint_sha=''
+
+checkpoint_path() {
+  printf '%s/backup-checkpoint-%s-%s' "$cache_dir" "$remote" "$(printf '%s' "$branch" | tr '/' '_')"
+}
+
+load_backup_checkpoint() {
+  local file sha stored
+  file="$(checkpoint_path)"
+  [[ -f "$file" ]] || return 0
+  grep -Fqx 'schema_version=1' "$file" 2>/dev/null || return 0
+  stored="$(sed -n 's/^remote=//p' "$file" | head -n 1)"
+  [[ "$stored" == "$remote" ]] || return 0
+  stored="$(sed -n 's/^url=//p' "$file" | head -n 1)"
+  [[ "$stored" == "$remote_url" ]] || return 0
+  stored="$(sed -n 's/^branch=//p' "$file" | head -n 1)"
+  [[ "$stored" == "$branch" ]] || return 0
+  sha="$(sed -n 's/^sha=//p' "$file" | head -n 1)"
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 0
+  git -C "$repo_root" cat-file -e "${sha}^{commit}" 2>/dev/null || return 0
+  git -C "$repo_root" merge-base --is-ancestor "$sha" "$local_head" 2>/dev/null || return 0
+  checkpoint_sha="$sha"
+}
+
+write_backup_checkpoint() {
+  mkdir -p "$cache_dir" 2>/dev/null || return 0
+  {
+    printf 'schema_version=1\n'
+    printf 'remote=%s\n' "$remote"
+    printf 'url=%s\n' "$remote_url"
+    printf 'branch=%s\n' "$branch"
+    printf 'sha=%s\n' "$local_head"
+  } > "$(checkpoint_path)" 2>/dev/null || true
 }
 
 frontmatter_key_count() {
@@ -499,7 +541,8 @@ if ! local_head="$(git -C "$repo_root" rev-parse --verify --quiet HEAD)" || [[ -
   blocked 'empty-history' "$branch has no commit to back up"
 fi
 
-if ! git -C "$repo_root" config --get "remote.$remote.url" >/dev/null 2>&1; then
+remote_url=''
+if ! remote_url="$(git -C "$repo_root" config --get "remote.$remote.url" 2>/dev/null)"; then
   blocked 'missing-remote' "remote is not configured: $remote"
 fi
 
@@ -577,8 +620,17 @@ while IFS= read -r attributes_file; do
   fi
 done < <(git -C "$repo_root" ls-files -- '.gitattributes' '*/.gitattributes')
 
+# A verified checkpoint narrows the audit to the objects new since the last
+# remote-confirmed backup; the induction chain back to the initial full scan keeps the
+# guarantee that every object reachable from HEAD has been audited once.
+load_backup_checkpoint
+oversized_range="$local_head"
+if [[ -n "$checkpoint_sha" ]]; then
+  oversized_range="$checkpoint_sha..$local_head"
+  note "incremental object audit since last verified backup: $checkpoint_sha"
+fi
 oversized="$(
-  git -C "$repo_root" rev-list --objects "$local_head" |
+  git -C "$repo_root" rev-list --objects "$oversized_range" |
     git -C "$repo_root" cat-file --batch-check='%(objectname) %(objecttype) %(objectsize) %(rest)' |
     awk -v limit="$max_blob_bytes" '
       $2 == "blob" && $3 + 0 >= limit + 0 {
@@ -620,30 +672,30 @@ else
   note "registered Independent repositories: $independent_count (audited, never pushed by this tool)"
 fi
 
-# --- 9. root remote divergence -----------------------------------------------------
-
-remote_listing=''
-if ! remote_listing="$(git -C "$repo_root" ls-remote --heads "$remote" "refs/heads/$branch" 2>&1)"; then
-  blocked 'remote-unreachable' "cannot read refs/heads/$branch from $remote" "$remote_listing"
-fi
-remote_sha="$(printf '%s\n' "$remote_listing" | awk 'NF >= 2 && $1 ~ /^[0-9a-f]{40}$/ { print $1; exit }')"
-
-if [[ -z "$remote_sha" ]]; then
-  note "remote branch does not exist yet; this is the initial backup of refs/heads/$branch"
-else
-  if ! git -C "$repo_root" cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
-    blocked 'remote-diverged' "remote=$remote_sha local=$local_head" \
-      'the remote commit does not exist locally; resolve with the user before backing up'
-  fi
-  if ! git -C "$repo_root" merge-base --is-ancestor "$remote_sha" "$local_head"; then
-    blocked 'remote-diverged' "remote=$remote_sha local=$local_head" \
-      'the remote branch is ahead of or diverged from local HEAD; resolve with the user before backing up'
-  fi
-fi
-
-# --- 10. dry-run or root push --------------------------------------------------------
+# --- 9. dry-run diagnostic (the only unconditional pre-push remote query) ------------
+# A dry run performs no push, so it reads the remote once to diagnose divergence.
+# The real success path skips this query: a plain fast-forward push carries the ref
+# advertisement and the non-fast-forward refusal in its own single exchange.
 
 if [[ "$dry_run" == true ]]; then
+  remote_listing=''
+  if ! remote_listing="$(git -C "$repo_root" ls-remote --heads "$remote" "refs/heads/$branch" 2>&1)"; then
+    blocked 'remote-unreachable' "cannot read refs/heads/$branch from $remote" "$remote_listing"
+  fi
+  remote_sha="$(printf '%s\n' "$remote_listing" | awk 'NF >= 2 && $1 ~ /^[0-9a-f]{40}$/ { print $1; exit }')"
+
+  if [[ -z "$remote_sha" ]]; then
+    note "remote branch does not exist yet; this is the initial backup of refs/heads/$branch"
+  else
+    if ! git -C "$repo_root" cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+      blocked 'remote-diverged' "remote=$remote_sha local=$local_head" \
+        'the remote commit does not exist locally; resolve with the user before backing up'
+    fi
+    if ! git -C "$repo_root" merge-base --is-ancestor "$remote_sha" "$local_head"; then
+      blocked 'remote-diverged' "remote=$remote_sha local=$local_head" \
+        'the remote branch is ahead of or diverged from local HEAD; resolve with the user before backing up'
+    fi
+  fi
   note 'dry run performed no remote write'
   if [[ "$root_only" == true ]]; then
     printf 'ROOT_BACKUP_READY remote=%s branch=%s sha=%s scope=root-only\n' "$remote" "$branch" "$local_head"
@@ -654,9 +706,34 @@ if [[ "$dry_run" == true ]]; then
   exit 0
 fi
 
+# --- 10. root push -------------------------------------------------------------------
+# The push itself refuses a non-fast-forward update without writing anything, so a
+# failure is classified afterwards with one remote read instead of querying up front.
+
+classify_push_failure() {
+  local push_detail="$1"
+  local failure_listing failure_sha
+  if ! failure_listing="$(git -C "$repo_root" ls-remote --heads "$remote" "refs/heads/$branch" 2>&1)"; then
+    blocked 'remote-unreachable' "cannot read refs/heads/$branch from $remote" \
+      "$failure_listing" "$push_detail"
+  fi
+  failure_sha="$(printf '%s\n' "$failure_listing" | awk 'NF >= 2 && $1 ~ /^[0-9a-f]{40}$/ { print $1; exit }')"
+  if [[ -n "$failure_sha" ]]; then
+    if ! git -C "$repo_root" cat-file -e "${failure_sha}^{commit}" 2>/dev/null; then
+      blocked 'remote-diverged' "remote=$failure_sha local=$local_head" \
+        'the remote commit does not exist locally; resolve with the user before backing up' "$push_detail"
+    fi
+    if ! git -C "$repo_root" merge-base --is-ancestor "$failure_sha" "$local_head"; then
+      blocked 'remote-diverged' "remote=$failure_sha local=$local_head" \
+        'the remote branch is ahead of or diverged from local HEAD; resolve with the user before backing up' "$push_detail"
+    fi
+  fi
+  blocked 'push-failed' "$push_detail"
+}
+
 push_output=''
 if ! push_output="$(git -C "$repo_root" push --porcelain "$remote" "HEAD:refs/heads/$branch" 2>&1)"; then
-  blocked 'push-failed' "$push_output"
+  classify_push_failure "$push_output"
 fi
 note "$(printf '%s\n' "$push_output" | tr '\n' ' ')"
 
@@ -670,6 +747,8 @@ verified_sha="$(printf '%s\n' "$verify_listing" | awk 'NF >= 2 && $1 ~ /^[0-9a-f
 if [[ "$verified_sha" != "$local_head" ]]; then
   blocked 'remote-verification-mismatch' "remote=${verified_sha:-none} local=$local_head"
 fi
+# Record the remote-verified SHA so the next run's object audit is incremental.
+write_backup_checkpoint
 
 # --- 12. per-scope stdout --------------------------------------------------------------
 
