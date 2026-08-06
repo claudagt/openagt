@@ -220,6 +220,78 @@ grep -q 'knowledge/raw/dump.md' "$tmp_root/runner-fail/trace.jsonl" || \
 grep -q '"write_observation": "git"' "$tmp_root/runner-fail/trace-coverage.json" || \
   fail 'write observation did not come from Git'
 
+step 'promotion gate: scenario decisions are deterministic'
+promo_root="$tmp_root/promotion"
+python3 - "$promo_root" <<'PY'
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+
+
+def bundle(scenario, config, case, role, trial, verdict, gate_fail=None):
+    target = root / scenario / f"{config}-{case}-{role}-{trial}"
+    target.mkdir(parents=True, exist_ok=True)
+    checks = [{"check": "route", "verdict": "pass"}]
+    if gate_fail:
+        checks.append({"check": gate_fail, "verdict": "fail", "detail": "was written"})
+    (target / "evidence.json").write_text(json.dumps({
+        "schema": "openagt-run-evidence/v1", "case": case, "role": role, "trial": trial,
+        "source_sha": "0" * 40, "execution_config_hash": f"sha256:{config}",
+        "verdict": verdict, "validity": {"status": "OK"},
+        "case_result": {"verdict": verdict, "checks": checks},
+    }, indent=2), encoding="utf-8")
+
+
+for config in ("aaa", "bbb"):
+    for trial in (1, 2, 3):
+        # 改善あり・違反なし
+        bundle("eligible", config, "case-x", "baseline", trial, "FAIL")
+        bundle("eligible", config, "case-x", "candidate", trial, "PASS")
+        # Hard Gate違反あり
+        bundle("rejected", config, "case-x", "baseline", trial, "FAIL")
+        bundle("rejected", config, "case-x", "candidate", trial, "PASS",
+               gate_fail="must_not_write:knowledge/raw/**" if trial == 1 else None)
+        # 改善なし
+        bundle("nochange", config, "case-x", "baseline", trial, "PASS")
+        bundle("nochange", config, "case-x", "candidate", trial, "PASS")
+        for scenario in ("eligible", "rejected", "nochange"):
+            bundle(scenario, config, "tier0-case", "baseline", trial, "PASS")
+            bundle(scenario, config, "tier0-case", "candidate", trial, "PASS")
+    for trial in (1, 2):  # trial不足
+        bundle("shorttrials", config, "case-x", "baseline", trial, "FAIL")
+        bundle("shorttrials", config, "case-x", "candidate", trial, "PASS")
+(root / "tier0.txt").write_text("tier0-case\n", encoding="utf-8")
+PY
+promo_confirmed=(--tier0-file "$promo_root/tier0.txt" --complexity-verified
+                 --upstream-validator-passed --evidence-commit deadbeef)
+for scenario in eligible:0:ELIGIBLE rejected:1:REJECTED nochange:0:NO_CHANGE shorttrials:2:INVALID; do
+  promo_name="${scenario%%:*}"; promo_rest="${scenario#*:}"
+  promo_code="${promo_rest%%:*}"; promo_want="${promo_rest##*:}"
+  run_expect "$promo_code" "$tmp_root/promo-$promo_name.json" \
+    python3 "$script_dir/check-promotion.py" --runs-dir "$promo_root/$promo_name" \
+    "${promo_confirmed[@]}" || true
+  grep -q "\"decision\": \"$promo_want\"" "$tmp_root/promo-$promo_name.json" || \
+    fail "promotion scenario $promo_name was not $promo_want"
+done
+
+step 'promotion gate thresholds cannot be overridden from the CLI'
+if python3 "$script_dir/check-promotion.py" --runs-dir "$promo_root/nochange" \
+  --mde 0 --out /dev/null >/dev/null 2>&1; then
+  fail 'check-promotion.py accepted an MDE override from the CLI'
+fi
+grep -q '"cli_overridable": false' "$tmp_root/promo-eligible.json" || \
+  fail 'promotion result does not record thresholds as non-overridable'
+
+step 'promotion gate fails closed on unconfirmed conditions'
+run_expect 2 "$tmp_root/promo-no-tier0.json" python3 "$script_dir/check-promotion.py" \
+  --runs-dir "$promo_root/eligible" --complexity-verified \
+  --upstream-validator-passed --evidence-commit deadbeef || true
+grep -q '"decision": "INVALID"' "$tmp_root/promo-no-tier0.json" || \
+  fail 'missing Tier 0 list did not fail closed'
+run_expect 2 "$tmp_root/promo-no-human.json" python3 "$script_dir/check-promotion.py" \
+  --runs-dir "$promo_root/eligible" --tier0-file "$promo_root/tier0.txt" || true
+grep -q '"decision": "INVALID"' "$tmp_root/promo-no-human.json" || \
+  fail 'missing human confirmation did not fail closed'
+
 step 'secret scan over tracked public artifacts'
 secret_hits="$(cd "$repo_root" && git ls-files -z | xargs -0 grep -HnE \
   'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|(^|[^a-zA-Z0-9_-])sk-[A-Za-z0-9]{24,}|-----BEGIN [A-Z ]*PRIVATE KEY|Authorization: (Bearer|Basic) [A-Za-z0-9+/=_-]{8,}' \

@@ -6,10 +6,11 @@ updated_at: 2026-08-06
 
 ## 現在の到達点
 
-- `docs/EVALUATION.md`（policy v1.0.1）と最小harnessを整備し、`verify.sh`の24検査が合格。
+- `docs/EVALUATION.md`（policy v1.0.1）と最小harnessを整備し、`verify.sh`の27検査が合格。
 - 2026-08-06の人間レビューで初期構築は合格。実運用開始はP0/P1解消まで保留。
 - 第2段階でadapter（`codex-adapter.sh`）、run分類（`classify-run.py`）、case grader
-  （`grade-case.py`）、trace写像（`map-trace.py`）、外側runner（`run-case.sh`）を追加。
+  （`grade-case.py`）、trace写像（`map-trace.py`）、外側runner（`run-case.sh`）、
+  最終Gate（`check-promotion.py`）を追加。
 - 実clientでのbaseline runは未実施。実モデル評価は未検証である。
 
 ## 現在の目標
@@ -53,19 +54,21 @@ updated_at: 2026-08-06
 - P0（部分解消）: write root制限、HOME/CODEX_HOME分離、network遮断、利用者設定/rules非読込は
   adapterでOS強制・実測済み。**未解消**: sandboxはread側を制限せず、subjectから
   evaluator repositoryや`$HOME`配下を読める。現状はpath秘匿と配置のみで担保。
-- adapterのexecution configは`system_instruction_hash`、`tool_schema_hash`、sampling、
-  reasoning、各種上限が`unknown`（実値化はsmoke完了後）。
-- P0（解消）: case grader `grade-case.py`と外側runner `run-case.sh`を実装。write系は
-  clientの自己申告ではなくsubject sandboxのGitから観測する（偽申告・無申告のいずれでも
-  write gateを通過できないことをverify.shで固定）。
+  adapterのexecution configはsystem instruction・tool schema・sampling・各種上限が`unknown`。
+- P0（解消）: `grade-case.py`と`run-case.sh`を実装。write系はclientの自己申告ではなく
+  subject sandboxのGitから観測する（偽申告・無申告のいずれでもwrite gateを通過できない
+  ことをverify.shで固定）。
 - **未解消（実client接続）**: codexのitem系event（command_execution、file_change等）の
   field名が未確認のため、`map-trace.py`はread/runを写像できずunmappedとして数える。
   結果、実codex traceではread/run系の期待項目がUNVERIFIEDになる。実trace取得後に写像規則を
   追加する（推測で固定しない）。writeはclient非依存のため現時点でも有効。
 - P1: `grade-run.py`の強度不足（HG-06未実装、path正規化なし、秘密検査がevents限定、
   Tier 0がmetrics自己申告、unknown hashのVALID扱い）。
-- P1: `compare-runs.py`は1対1比較のみ。3 trial集約・複数config・最終Promotion Gateが
-  未実装で、MDE・noise幅がCLIから上書き可能。
+- P1（解消）: `check-promotion.py`が3 trial集約・複数config・Tier 0・回帰・MDEを一括判定する。
+  閾値引数を持たないためCLIから緩められない。`compare-runs.py`は部品に降格。
+- **人間判断待ち**: Tier 0 caseの一覧が未確定。`check-promotion.py`は`--tier0-file`必須で、
+  未指定ならINVALID（推論しない）。一覧の確定は`EVALUATION.md#benchmark`のfamily 10・15を
+  どのcaseに割り当てるかの決定であり、policy側の決定事項。
 - `runs/`は実runが発生していないため未作成（先回り生成しない方針）。
 
 ## 現在有効な決定
@@ -99,9 +102,8 @@ updated_at: 2026-08-06
 
 ## 次の一手
 
-1. 5-5 3 trial集約と最終Promotion Gate（`check-promotion`。閾値をCLIから上書きできない構造）。
-   併せてP1（grade-run.pyの強度: HG-06、path正規化、秘密検査の範囲、Tier 0導出、
-   unknown hash）を独立commitで補強する。
+1. P1補強: `grade-run.py`の強度（HG-06、path正規化、秘密検査の範囲、unknown hashの扱い）。
+   grader_hashが変わるため独立commitにする。
 2. quota回復後: smokeを完了し、codexのitem系eventの実形式を確認して`map-trace.py`へ
    read/runの写像規則を追加する。併せてresolved model ID・sampling・上限を実値化する。
 3. 5-6 最初の実baseline取得（run開始時点の最新`agent-directory/main`を再取得・固定）。

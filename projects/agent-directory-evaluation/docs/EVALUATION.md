@@ -226,7 +226,8 @@ benchmark自体はpublicにする。秘密の恒久holdoutは持たず、代わ�
 | `scripts/map-trace.py` | client固有traceの正準語彙への写像。writeはGitから観測しcoverageを記録 |
 | `scripts/run-case.sh` | 1 case・1 trialの実行と証拠束生成（sandbox、overlay、trace、採点） |
 | `scripts/grade-run.py` | observable eventの決定的grading（PASS / FAIL / INVALID） |
-| `scripts/compare-runs.py` | baseline/candidate比較とA/A（ELIGIBLE / NO_CHANGE / REJECTED / INVALID） |
+| `scripts/compare-runs.py` | baseline/candidate比較とA/Aの部品。**最終判定には使わない** |
+| `scripts/check-promotion.py` | 最終Promotion Gate。閾値はpolicy固定でCLIから上書きできない |
 
 `scripts/adapters/`、`scripts/graders/`、`scripts/lib/`、`dashboard/`、`database/`、
 `services/`、`packages/`は、必要性が実測されるまで作らない。

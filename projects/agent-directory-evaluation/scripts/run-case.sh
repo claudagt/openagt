@@ -10,14 +10,14 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: %s --case <file> --source <path|url> --sha <40-hex> --out-dir <dir> [--trial N] [--model M] [--keep-sandbox]\n' "${0##*/}" >&2
+  printf 'Usage: %s --case <file> --source <path|url> --sha <40-hex> --out-dir <dir> [--role baseline|candidate] [--trial N] [--model M] [--keep-sandbox]\n' "${0##*/}" >&2
   exit 3
 }
 
 case_file='' source_repo='' sha='' out_dir='' trial='1' model='' keep_sandbox='no'
 # adapterとclientは差し替え可能にする。既定は実clientのcodex。
 # harness自己検証は、実モデルを呼ばないstub adapterを注入して同じ経路を通す。
-adapter='' client='codex'
+adapter='' client='codex' role='candidate'
 while (( $# > 0 )); do
   case "$1" in
     --case) case_file="${2:-}"; shift 2 ;;
@@ -29,10 +29,13 @@ while (( $# > 0 )); do
     --keep-sandbox) keep_sandbox='yes'; shift ;;
     --adapter) adapter="${2:-}"; shift 2 ;;
     --client) client="${2:-}"; shift 2 ;;
+    --role) role="${2:-}"; shift 2 ;;
     *) usage ;;
   esac
 done
 [[ -n "$case_file" && -n "$source_repo" && -n "$sha" && -n "$out_dir" ]] || usage
+[[ "$role" == 'baseline' || "$role" == 'candidate' ]] || \
+  { echo "ERROR: --role must be baseline or candidate" >&2; exit 3; }
 [[ -f "$case_file" ]] || { echo "ERROR: case not found: $case_file" >&2; exit 3; }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -125,9 +128,9 @@ else
 fi
 
 # --- 証拠束（sanitized。生logは含めない） ---
-python3 - "$out_dir" "$case_file" "$sha" "$trial" "$baseline_commit" "$fixture_applied" "$verdict" <<'PY'
+python3 - "$out_dir" "$case_file" "$sha" "$trial" "$baseline_commit" "$fixture_applied" "$verdict" "$role" <<'PY'
 import hashlib, json, pathlib, sys
-out, case_file, sha, trial, baseline, fixture, verdict = sys.argv[1:8]
+out, case_file, sha, trial, baseline, fixture, verdict, role = sys.argv[1:9]
 out = pathlib.Path(out)
 
 
@@ -147,7 +150,14 @@ evidence = {
     "case_path": case_file,
     "case_sha256": "sha256:" + hashlib.sha256(pathlib.Path(case_file).read_bytes()).hexdigest(),
     "source_sha": sha,
+    "role": role,
     "trial": int(trial),
+    # execution configはadapterが出す。取得できない場合は0埋めせずunknownとする。
+    "execution_config_hash": (
+        "sha256:" + hashlib.sha256(
+            json.dumps(load("client/execution-config.json"), sort_keys=True,
+                       separators=(",", ":")).encode("utf-8")).hexdigest()
+        if load("client/execution-config.json") is not None else "unknown"),
     "fixture": fixture,
     "baseline_commit": baseline,
     "verdict": verdict,
