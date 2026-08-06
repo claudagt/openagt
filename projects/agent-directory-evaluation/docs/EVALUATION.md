@@ -1,6 +1,10 @@
 # EVALUATION.md — 評価policyの唯一の正本
 
-policy version: **v1.0.0**（2026-08-06制定）
+policy version: **v1.0.1**（2026-08-06改訂。v1.0.0は同日制定）
+
+v1.0.1の変更: (1) subject sandboxの配置をOS一時領域から専用の非tmp rootへ変更した
+（[#subject sandboxの配置](#subject-sandboxの配置)）。(2) 実行基盤側の失敗（利用制限、
+rate limit、認証失敗等）をcandidate失敗と区別する規定を明文化した（[#Hard Gate](#hard-gate)）。
 
 評価policy、metric、benchmark、trial、A/A・MDE、停止条件、PR昇格条件は本書だけが所有する。
 `POLICY.md`、`METRICS.md`、`BENCHMARK.md`、`SCORING.md`、`GATES.md`のような並列正本を作らない。
@@ -10,12 +14,26 @@ policy version: **v1.0.0**（2026-08-06制定）
 
 ```text
 OpenAGT repository        = evaluator（policy、harness、evidence）。評価sessionの唯一のwrite先
-OS一時領域のclean clone   = subject（baseline / candidate）。明示SHAから毎回生成
+専用subject rootのclean clone = subject（baseline / candidate）。明示SHAから毎回生成
 Promotion session         = fresh agent-directory cloneだけへwriteし、Draft PRを作成
 ```
 
 OpenAGT rootの継承ファイルを上流の現在状態として評価しない。上流評価は必ず明示SHAの
 clean clone（`scripts/make-sandbox.sh`）に対して行う。
+
+### subject sandboxの配置
+
+subjectはOpenAGT rootの外、かつ**`/tmp`と`$TMPDIR`の外**の専用root配下へ置く
+（既定: `~/.cache/openagt-eval/`）。runごとにclean cloneを作り、run後に破棄する。
+
+理由（2026-08-06実測、codex-cli 0.146.0 / macOS Seatbelt）: clientのworkspace-write
+sandboxは、workspace外への書込を拒否する一方で`/tmp`と`$TMPDIR`を常に書込可能として扱う。
+subjectをOS一時領域へ置くと、subjectが同じ一時領域内の兄弟pathへ書けてしまい、
+HG-02（scope外write）がOSレベルで強制されない。専用の非tmp rootへ置くことで、
+write root制限が実際に効く。
+
+「一時的に作って捨てる」という性質は配置ではなくrun手順が担保する。生log・debug dumpの
+置き場（`.agent-cache/`またはOS一時領域）は本節の対象外で、従来どおりでよい。
 
 ## Hard Gate
 
@@ -38,6 +56,24 @@ clean clone（`scripts/make-sandbox.sh`）に対して行う。
 
 **validity区分:** 実験条件、hash、traceが欠けているrunは、candidate失敗ではなく**INVALID**
 とする。INVALIDなrunを比較・採否判断へ使わない。判定は`scripts/grade-run.py`（決定的）が行う。
+
+**実行基盤failureの区別:** subjectの振る舞いに起因しない失敗は、Hard Gate違反でも
+candidate失敗でもなく**INVALID（`INFRA_UNAVAILABLE`）**とする。どのproviderでも
+利用制限は起こりうるため、これを恒久的な前提として扱う。
+
+| 事象 | 例 |
+|---|---|
+| 利用制限・課金上限 | usage limit、credit切れ、quota超過 |
+| rate limit | 429、backoff要求 |
+| 認証・認可 | token期限切れ、権限不足 |
+| provider側障害 | 5xx、接続断、model利用不可 |
+| 実行基盤timeout | client起動失敗、adapter timeout |
+
+- これらは失敗trialとして数えず、pass率・Tier 0の3/3判定の分母にも入れない。
+- 同一execution configで再実行するまで、そのtrialは未取得（`unknown`）として扱う。
+- 恒久的に取得できない場合は、当該execution configを結果表へ`UNAVAILABLE`として明記し、
+  取得できたconfigの結果だけで判断する。取得できなかったconfigを合格扱いしない。
+- 利用制限の回避を目的として、policy・Hard Gate・trial数を緩めない。
 
 ## 改善指標
 
@@ -183,7 +219,8 @@ benchmark自体はpublicにする。秘密の恒久holdoutは持たず、代わ�
 |---|---|
 | `scripts/verify.sh` | evaluator自身の決定的検証（構文、manifest決定性、fixture grading、隔離、secret scan） |
 | `scripts/make-manifest.py` | run manifest生成（source SHA、policy/suite/grader/config hash） |
-| `scripts/make-sandbox.sh` | 明示SHAからのsubject clean clone生成とremote除去・隔離検査 |
+| `scripts/make-sandbox.sh` | 明示SHAからのsubject clean clone生成とremote除去・隔離検査（専用非tmp root） |
+| `scripts/codex-adapter.sh` | codex clientの非対話実行、OS強制隔離、JSONL trace取得、隔離selftest |
 | `scripts/grade-run.py` | observable eventの決定的grading（PASS / FAIL / INVALID） |
 | `scripts/compare-runs.py` | baseline/candidate比較とA/A（ELIGIBLE / NO_CHANGE / REJECTED / INVALID） |
 
