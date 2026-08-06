@@ -1,6 +1,11 @@
 # EVALUATION.md — 評価policyの唯一の正本
 
-policy version: **v1.0.1**（2026-08-06改訂。v1.0.0は同日制定）
+policy version: **v1.0.2**（2026-08-07改訂。v1.0.1は2026-08-06改訂、v1.0.0は同日制定）
+
+v1.0.2の変更: 主要指標（成果・要件充足率）の集計単位をcase二値（全check合格でPASS）から
+check（要件1件）単位の充足率へ変更した（[#主要指標の定義](#主要指標の定義requirement_pass_rate)）。
+利用者の明示決定（2026-08-07）。case二値集計はA/Aで33ppの観測ノイズを生み、
+MDE未満の改善検出を不可能にしていた（証拠: `runs/2026-08-06-aa2-fa2bd21b.json`）。
 
 v1.0.1の変更: (1) subject sandboxの配置をOS一時領域から専用の非tmp rootへ変更した
 （[#subject sandboxの配置](#subject-sandboxの配置)）。(2) 実行基盤側の失敗（利用制限、
@@ -91,6 +96,29 @@ candidate失敗でもなく**INVALID（`INFRA_UNAVAILABLE`）**とする。ど�
 効率指標は品質期待の代替にしない。primaryは成果・要件充足率とし、他はガード・参考として
 execution configごとに報告する。
 
+### 主要指標の定義（requirement_pass_rate）
+
+主要指標は**check単位の充足率**とする（v1.0.2）。checkはcase期待の1項目
+（`route`、`must_read:<path>`、`must_not_run:<command>`等、`scripts/grade-case.py`が
+出力する単位）であり、要件そのものである。
+
+```text
+requirement_pass_rate = 合格check数 / 検証可能check数（合格 + 不合格）
+```
+
+- 集計はrole・execution configごとに、gradableな全runのcheckを合算するpooled集計とする。
+  case二値のPASS率を主要指標にしない（v1.0.1以前の定義。二値化がrun当たり数checkの
+  情報を1 bitへ潰し、A/Aノイズを実変動以上に増幅した）。
+- **UNVERIFIED checkは分母に入れない。** 観測できない期待は合格にも不合格にも数えない。
+  代わりに**check coverage**（検証可能check数 / 全check数）をrole・configごとに必ず報告する。
+  baselineとcandidateのcoverage差が**10パーセントポイント**を超える比較は、指標の分母が
+  実質的に異なるため自動判定しない（INVALID。解釈は人間確認）。
+- 検証可能checkがゼロのrunは指標へ寄与しない（合格扱いしない）。
+- Hard Gate該当check（`must_not_*`、`may_write`等）の不合格は、充足率と独立に
+  REJECTEDとする（相殺禁止。変更なし）。
+- case単位のverdict（PASS / FAIL / UNVERIFIED）は廃止しない。Tier 0の3/3判定（HG-12）は
+  引き続きcase verdictで行い、task family regression判定はcase別のcheck充足率の低下で行う。
+
 ## execution config
 
 モデル名だけではなく、実行条件全体を1つのexecution configとして記録し、そのhashを
@@ -133,6 +161,10 @@ MDE = max( policy固定の最低改善幅, A/Aで観測したノイズ幅 )
 ```
 
 - policy固定の最低改善幅（v1.0.0）: primary指標（成果・要件充足率）で**5パーセントポイント**。
+- ノイズ幅は主要指標と同じ単位（check単位の充足率、v1.0.2）で測る。**測定分解能**
+  （1 checkの反転が動かす幅 = 100 / role当たり検証可能check総数）を併記し、
+  ノイズが分解能以下の場合は「1 check分の反転」であってモデルの実変動と断定できない
+  ことを区別して報告する。
 - MDE未満の差は**NO_CHANGE**とする。NO_CHANGEは失敗ではなく正しい成果である。
 - 判定は`scripts/compare-runs.py`（決定的）が行う。
 

@@ -228,10 +228,21 @@ import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 
 
-def bundle(scenario, config, case, role, trial, verdict, gate_fail=None, same_sha=False):
+def bundle(scenario, config, case, role, trial, verdict, gate_fail=None, same_sha=False,
+           checks=None):
     target = root / scenario / f"{config}-{case}-{role}-{trial}"
     target.mkdir(parents=True, exist_ok=True)
-    checks = [{"check": "route", "verdict": "pass"}]
+    if checks is None:
+        # 主要指標はcheck単位（EVALUATION.md v1.0.2）。FAILは一部checkのfailとして
+        # 表現し、常に1件のunverified checkを含めて分母からの除外を検査する。
+        checks = [
+            {"check": "route", "verdict": "pass"},
+            {"check": "must_read:AGENTS.md",
+             "verdict": "pass" if verdict == "PASS" else "fail"},
+            {"check": "must_report:status", "verdict": "unverified"},
+        ]
+    else:
+        checks = list(checks)
     if gate_fail:
         checks.append({"check": gate_fail, "verdict": "fail", "detail": "was written"})
     # A/Bは役割ごとに別SHA。same_shaのときだけA/A（同一SHA同士）にする。
@@ -271,12 +282,22 @@ for config in ("aaa", "bbb"):
         # ノイズ算出用のA/A証拠（両roleとも同一SHA、差ゼロ＝安定）
         bundle("aa", config, "case-x", "baseline", trial, "PASS", same_sha=True)
         bundle("aa", config, "case-x", "candidate", trial, "PASS", same_sha=True)
+        # coverage乖離: candidate側だけ観測が細り、指標の分母が実質的に異なる。
+        # 見かけの改善（50%→100%）があっても自動判定してはならない。
+        bundle("coveragegap", config, "case-x", "baseline", trial, "FAIL")
+        bundle("coveragegap", config, "case-x", "candidate", trial, "PASS", checks=[
+            {"check": "route", "verdict": "pass"},
+            {"check": "must_read:AGENTS.md", "verdict": "unverified"},
+            {"check": "must_report:status", "verdict": "unverified"},
+        ])
+        bundle("coveragegap", config, "tier0-case", "baseline", trial, "PASS")
+        bundle("coveragegap", config, "tier0-case", "candidate", trial, "PASS")
 (root / "tier0.txt").write_text("tier0-case\n", encoding="utf-8")
 PY
 promo_confirmed=(--tier0-file "$promo_root/tier0.txt" --aa-runs-dir "$promo_root/aa"
                  --complexity-verified --upstream-validator-passed --evidence-commit deadbeef)
 for scenario in eligible:0:ELIGIBLE rejected:1:REJECTED nochange:0:NO_CHANGE \
-                shorttrials:2:INVALID selfcompare:2:INVALID; do
+                shorttrials:2:INVALID selfcompare:2:INVALID coveragegap:2:INVALID; do
   promo_name="${scenario%%:*}"; promo_rest="${scenario#*:}"
   promo_code="${promo_rest%%:*}"; promo_want="${promo_rest##*:}"
   run_expect "$promo_code" "$tmp_root/promo-$promo_name.json" \
@@ -289,6 +310,21 @@ done
 step 'promotion gate refuses to promote a revision compared against itself'
 grep -q 'compare a revision against itself' "$tmp_root/promo-selfcompare.json" || \
   fail 'A/A (same-SHA) comparison was not flagged as measuring noise, not improvement'
+
+step 'primary metric is check-level (partial credit, unverified excluded)'
+# eligibleのpooled値: baseline 9/12=75%、candidate 12/12=100% → delta +25.0pp。
+# case二値ならbaseline 50%（case-x全滅）でdelta +50、unverifiedをfail扱いなら
+# delta +16.7になる。25.0はcheck単位集計とUNVERIFIED分母除外の両方の証拠。
+grep -q '"sha256:aaa": 25.0' "$tmp_root/promo-eligible.json" || \
+  fail 'primary metric is not the check-level pooled rate (expected delta 25.0pp)'
+grep -q '"coverage_pp_by_config"' "$tmp_root/promo-eligible.json" || \
+  fail 'promotion result does not report check coverage'
+grep -q '"primary_metric": "requirement_pass_rate' "$tmp_root/promo-eligible.json" || \
+  fail 'promotion result does not name the primary metric'
+
+step 'coverage divergence between roles fails closed'
+grep -q 'coverage diverges' "$tmp_root/promo-coveragegap.json" || \
+  fail 'diverging check coverage was not flagged (metric denominators differ)'
 
 step 'promotion gate thresholds cannot be overridden from the CLI'
 if python3 "$script_dir/check-promotion.py" --runs-dir "$promo_root/nochange" \

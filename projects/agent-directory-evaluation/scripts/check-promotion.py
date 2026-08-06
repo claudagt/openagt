@@ -33,6 +33,8 @@ REQUIRED_TRIALS = 3
 TIER0_REQUIRED_PASSES = 3
 # EVALUATION.md#PR昇格条件: 特定modelだけの改善を採用しない（PC-04）
 MIN_EXECUTION_CONFIGS = 2
+# EVALUATION.md#主要指標の定義: coverage差がこれを超える比較は分母が異なり自動判定しない
+COVERAGE_DIVERGENCE_LIMIT_PP = 10.0
 
 EXIT = {"ELIGIBLE": 0, "NO_CHANGE": 0, "REJECTED": 1, "INVALID": 2}
 
@@ -66,12 +68,40 @@ def hard_gate_failures(bundle):
             if c.get("verdict") == "fail" and c["check"].startswith(HARD_GATE_PREFIXES)]
 
 
-def pass_rate(bundles):
-    """PASSした割合。UNVERIFIEDはPASSに数えない。"""
-    if not bundles:
+def check_counts(bundles):
+    """(合格check数, 検証可能check数, 全check数) をpooledで数える。"""
+    passed = verifiable = total = 0
+    for b in bundles:
+        for c in (b.get("case_result") or {}).get("checks") or []:
+            total += 1
+            verdict = c.get("verdict")
+            if verdict == "pass":
+                passed += 1
+                verifiable += 1
+            elif verdict == "fail":
+                verifiable += 1
+    return passed, verifiable, total
+
+
+def check_pass_rate(bundles):
+    """主要指標（EVALUATION.md v1.0.2）: 合格check / 検証可能check。
+
+    集計単位はcheck（要件1件）であり、case二値のPASS率ではない。
+    UNVERIFIEDは分母に入れない（合格にも不合格にも数えない）。
+    検証可能checkがゼロなら算出できずNone（fail closed。合格扱いしない）。
+    """
+    passed, verifiable, _ = check_counts(bundles)
+    if verifiable == 0:
         return None
-    passed = sum(1 for b in bundles if b.get("verdict") == "PASS")
-    return 100.0 * passed / len(bundles)
+    return 100.0 * passed / verifiable
+
+
+def check_coverage(bundles):
+    """check coverage: 検証可能check数 / 全check数（パーセント）。"""
+    _, verifiable, total = check_counts(bundles)
+    if total == 0:
+        return None
+    return 100.0 * verifiable / total
 
 
 def main() -> int:
@@ -182,20 +212,28 @@ def main() -> int:
     # A/A（baselineとcandidateが同一source SHA）では、両者の差はすべてノイズである。
     # そのdeltaをそのままノイズ幅として採る。
     #
-    # ただしpass率はrole当たりrun数Nで量子化され、最小の非ゼロ差は100/Nになる。
-    # 観測ノイズがこの分解能と同じなら、それは「1 runが反転しただけ」であり、
-    # モデルのばらつきではなく測定粒度を見ている可能性が高い。両者を区別して報告する
-    # （区別しないと、run数を増やせば消える値をMDEとして固定してしまう）。
+    # ただし指標は検証可能check総数Mで量子化され、最小の非ゼロ差は100/Mになる
+    # （EVALUATION.md#A/AとMDE）。観測ノイズがこの分解能以下なら、それは「1 checkが
+    # 反転しただけ」であり、モデルのばらつきと断定できない。両者を区別して報告する
+    # （区別しないと、check数を増やせば消える値をMDEとして固定してしまう）。
     per_config_delta = {}
+    coverage_by_config = {}
     noise_by_config = {}
     resolution_by_config = {}
+    coverage_gaps = {}
     aa_configs = []
     for config in configs:
         baseline = [b for b in gradable if b.get("execution_config_hash") == config
                     and b.get("role") == "baseline"]
         candidate = [b for b in gradable if b.get("execution_config_hash") == config
                      and b.get("role") == "candidate"]
-        base_rate, cand_rate = pass_rate(baseline), pass_rate(candidate)
+        base_cov, cand_cov = check_coverage(baseline), check_coverage(candidate)
+        coverage_by_config[config] = {"baseline": base_cov, "candidate": cand_cov}
+        if (base_cov is not None and cand_cov is not None
+                and abs(base_cov - cand_cov) > COVERAGE_DIVERGENCE_LIMIT_PP):
+            coverage_gaps[config] = (f"baseline {base_cov:.1f}% vs candidate {cand_cov:.1f}% "
+                                     f"(limit {COVERAGE_DIVERGENCE_LIMIT_PP}pp)")
+        base_rate, cand_rate = check_pass_rate(baseline), check_pass_rate(candidate)
         if base_rate is None or cand_rate is None:
             per_config_delta[config] = None
             continue
@@ -205,6 +243,12 @@ def main() -> int:
         if base_shas and base_shas == cand_shas:
             # --runs-dir自体がA/A。改善を論じる対象がない。
             aa_configs.append(config)
+
+    # coverage差が大きい比較は主要指標の分母が実質的に異なる。自動でELIGIBLEにしない
+    # （EVALUATION.md#主要指標の定義。fail closed、解釈は人間確認）。
+    record("check coverage comparable between roles", not coverage_gaps,
+           f"coverage diverges beyond {COVERAGE_DIVERGENCE_LIMIT_PP}pp: {coverage_gaps}"
+           if coverage_gaps else "")
 
     # ノイズは別途与えられたA/A証拠から算出する。スカラー指定は受け付けない
     # （数値で渡せるとMDEを緩めてcandidateを通せてしまい、HG-10に当たる）。
@@ -220,37 +264,44 @@ def main() -> int:
                 continue
             if {b.get("source_sha") for b in aa_base} != {b.get("source_sha") for b in aa_cand}:
                 continue  # 同一SHA同士でなければA/Aではない
-            noise_by_config[config] = abs(pass_rate(aa_cand) - pass_rate(aa_base))
-            resolution_by_config[config] = 100.0 / min(len(aa_base), len(aa_cand))
+            aa_base_rate = check_pass_rate(aa_base)
+            aa_cand_rate = check_pass_rate(aa_cand)
+            if aa_base_rate is None or aa_cand_rate is None:
+                continue  # 検証可能checkゼロのA/Aはノイズの証拠にならない
+            noise_by_config[config] = abs(aa_cand_rate - aa_base_rate)
+            _, base_verifiable, _ = check_counts(aa_base)
+            _, cand_verifiable, _ = check_counts(aa_cand)
+            resolution_by_config[config] = 100.0 / min(base_verifiable, cand_verifiable)
 
     missing_noise = [c for c in configs if c not in noise_by_config]
     record("A/A noise measured", not missing_noise,
            "no A/A evidence for every config (--aa-runs-dir); MDE cannot be derived "
            "from observation" if missing_noise else "")
 
-    # 量子化と真のばらつきの区別を明示する
+    # 量子化と真のばらつきの区別を明示する。ノイズが1 check反転分以下なら、
+    # モデルの実変動ではなく測定粒度を見ている可能性がある。
     quantization_limited = {
-        c: f"noise {noise_by_config[c]:.1f}pp == resolution {resolution_by_config[c]:.1f}pp "
-           f"(a single run flipping); increase runs per role before treating it as model variance"
+        c: f"noise {noise_by_config[c]:.1f}pp <= resolution {resolution_by_config[c]:.1f}pp "
+           f"(a single check flipping); add verifiable checks before treating it as model variance"
         for c in noise_by_config
         if resolution_by_config.get(c) is not None
-        and abs(noise_by_config[c] - resolution_by_config[c]) < 1e-9
+        and noise_by_config[c] <= resolution_by_config[c] + 1e-9
     }
 
     mde_by_config = {c: max(POLICY_MIN_IMPROVEMENT_PP, n)
                      for c, n in noise_by_config.items() if n is not None}
 
-    # --- 回帰: candidateがbaselineより悪化したcaseがないこと ---
+    # --- 回帰: candidateがbaselineより悪化したcaseがないこと（case別check充足率） ---
     regressions = {}
     for config in configs:
         for case in {b.get("case") for b in gradable
                      if b.get("execution_config_hash") == config}:
-            base = pass_rate([b for b in gradable
-                              if b.get("execution_config_hash") == config
-                              and b.get("case") == case and b.get("role") == "baseline"])
-            cand = pass_rate([b for b in gradable
-                              if b.get("execution_config_hash") == config
-                              and b.get("case") == case and b.get("role") == "candidate"])
+            base = check_pass_rate([b for b in gradable
+                                    if b.get("execution_config_hash") == config
+                                    and b.get("case") == case and b.get("role") == "baseline"])
+            cand = check_pass_rate([b for b in gradable
+                                    if b.get("execution_config_hash") == config
+                                    and b.get("case") == case and b.get("role") == "candidate"])
             if base is not None and cand is not None and cand < base:
                 regressions[f"{case}@{config[:12]}"] = f"{base:.0f}% -> {cand:.0f}%"
     record("no task family regression", not regressions,
@@ -286,11 +337,14 @@ def main() -> int:
     result = {
         "schema": "openagt-promotion/v1",
         "decision": decision,
+        "primary_metric": "requirement_pass_rate "
+                          "(check-level pooled; docs/EVALUATION.md v1.0.2)",
         "policy_thresholds": {
             "min_improvement_pp": POLICY_MIN_IMPROVEMENT_PP,
             "required_trials": REQUIRED_TRIALS,
             "tier0_required_passes": TIER0_REQUIRED_PASSES,
             "min_execution_configs": MIN_EXECUTION_CONFIGS,
+            "coverage_divergence_limit_pp": COVERAGE_DIVERGENCE_LIMIT_PP,
             "source": "docs/EVALUATION.md",
             "cli_overridable": False,
         },
@@ -299,6 +353,7 @@ def main() -> int:
         "runs_skipped_infra": skipped_infra,
         "execution_configs": configs,
         "delta_pp_by_config": per_config_delta,
+        "coverage_pp_by_config": coverage_by_config,
         "mde_by_config": mde_by_config,
         "aa_configs": aa_configs,
         "noise_pp_by_config": noise_by_config,
