@@ -118,6 +118,32 @@ def infer_read_paths(command: str):
     return paths
 
 
+# Route → 入口正本。subjectの`AGENTS.md#Route`表が定義する対応をそのまま使う。
+# 独自の判定基準を作らない（判定はどの入口を実際に読んだかという観測に基づく）。
+# meta / none は固有の入口正本を持たないため、ここからは導出できない。
+ROUTE_ENTRY_CANON = {
+    "knowledge/KNOWLEDGE.md": "knowledge",
+    "skills/SKILLS.md": "skill",
+    "projects/AGENTS.md": "project",
+}
+
+
+def infer_route(read_events):
+    """読まれた入口正本からRouteを導出する。
+
+    codexはroute/search eventを出さないため、これが無いと全caseで`route`が
+    UNVERIFIEDになり、どのcaseもPASSに到達できない。入口正本の読取という観測事実から
+    導出し、複数Routeの入口を読んでいて一意に決まらない場合は導出しない（fail closed）。
+    """
+    routes = set()
+    for event in read_events:
+        path = (event.get("path") or "").lstrip("./")
+        for entry, route in ROUTE_ENTRY_CANON.items():
+            if path == entry or path.endswith("/" + entry):
+                routes.add(route)
+    return routes.pop() if len(routes) == 1 else None
+
+
 def map_codex_events(raw_events):
     """codexのJSONL eventを正準語彙へ写像する。未知のeventはunmappedへ回す。
 
@@ -207,6 +233,11 @@ def main() -> int:
     raw = load_jsonl(pathlib.Path(args.client_events))
     mapped, unmapped = MAPPERS[args.client](raw)
 
+    # Routeは入口正本の読取から導出する（clientがroute eventを出さないため）。
+    inferred_route = infer_route([e for e in mapped if e.get("event") == "read"])
+    if inferred_route:
+        mapped.append({"event": "route", "value": inferred_route, "inferred": True})
+
     writes, git_error = git_writes(pathlib.Path(args.subject))
     if writes is not None:
         mapped.extend(writes)
@@ -234,6 +265,10 @@ def main() -> int:
         # 観測事実（command実行）に基づくが推定であることを明示する。
         "read_observation": ("inferred-from-commands" if "read" in observed_kinds
                              else "unavailable"),
+        # Routeはclient eventでは得られず、入口正本の読取から導出する。
+        # 複数Routeの入口を読んでいて一意に決まらない場合は導出しない。
+        "route_observation": ("inferred-from-entry-canon" if inferred_route
+                              else "unavailable"),
         "complete": not unmapped and writes is not None,
     }
     pathlib.Path(args.meta_out).write_text(

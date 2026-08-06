@@ -353,6 +353,26 @@ PY
 grep -q 'READ_INFERENCE_OK' "$tmp_root/read-infer.log" || \
   fail 'read inference regressed on compound commands'
 
+step 'route is derived from the entry canon, and stays unset when ambiguous'
+run_expect 0 "$tmp_root/route-infer.log" python3 - "$script_dir/map-trace.py" <<'PY' || true
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("mt", sys.argv[1])
+mt = importlib.util.module_from_spec(spec); spec.loader.exec_module(mt)
+
+read = lambda p: {"event": "read", "path": p}
+# 入口正本の読取からRouteを導出する（subjectのAGENTS.md#Route表に従う）
+assert mt.infer_route([read("projects/AGENTS.md")]) == "project"
+assert mt.infer_route([read("knowledge/KNOWLEDGE.md")]) == "knowledge"
+assert mt.infer_route([read("skills/SKILLS.md")]) == "skill"
+# 入口を読んでいなければ導出しない
+assert mt.infer_route([read("projects/market-scan/STATE.md")]) is None
+# 複数Routeの入口を読んでいれば一意に決まらないので導出しない（fail closed）
+assert mt.infer_route([read("projects/AGENTS.md"), read("knowledge/KNOWLEDGE.md")]) is None
+print("ROUTE_INFERENCE_OK")
+PY
+grep -q 'ROUTE_INFERENCE_OK' "$tmp_root/route-infer.log" || \
+  fail 'route inference regressed'
+
 step 'secret scan over tracked public artifacts'
 secret_hits="$(cd "$repo_root" && git ls-files -z | xargs -0 grep -HnE \
   'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|(^|[^a-zA-Z0-9_-])sk-[A-Za-z0-9]{24,}|-----BEGIN [A-Z ]*PRIVATE KEY|Authorization: (Bearer|Basic) [A-Za-z0-9+/=_-]{8,}' \
