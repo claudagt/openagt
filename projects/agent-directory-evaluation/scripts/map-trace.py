@@ -15,17 +15,27 @@
   UNVERIFIEDになる（証拠が無いものを合格にしない）。
 - 各clientのevent schemaは実測でのみ確定する。未確認の写像規則をverified扱いしない。
 
-client写像規則の状態:
-  codex: thread.started / turn.started / error / turn.failed は実runで確認済み。
-         item系（command_execution、file_change等）のfield名は未確認のため、
-         推測でmapせずunmappedとして数える。実traceが得られた時点で追加する。
+client写像規則の状態（2026-08-06、codex-cli 0.146.0の実runで確認）:
+  codex: thread.started / turn.started / turn.completed / turn.failed / error（制御）、
+         item.started / item.completed（item.type = command_execution / agent_message /
+         reasoning / error）。command_executionのみが正準語彙へ写像できる。
+         **codexはfile読取専用のeventを出さない。** readは読取専用commandからの推定に留まり、
+         byte数は取得できない（max_context_bytesは常にUNVERIFIED）。
 """
 
 import argparse
+import importlib.util
 import json
 import pathlib
 import subprocess
 import sys
+
+# command正規化規則はgrade-case.pyが単一の正本。ここで別実装を持たない（HG-06）。
+_spec = importlib.util.spec_from_file_location(
+    "openagt_grade_case", pathlib.Path(__file__).resolve().parent / "grade-case.py")
+_grade_case = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_grade_case)
+unwrap_shell = _grade_case.unwrap_shell
 
 # 実測で確認済みのevent type。写像しても正準traceへは出さない（制御event）。
 CODEX_CONTROL_EVENTS = {"thread.started", "turn.started", "turn.completed",
@@ -67,15 +77,63 @@ def git_writes(subject: pathlib.Path):
     return events, None
 
 
+# 読取専用のfile accessと見なせるcommand。read eventの推定に使う。
+# 書換えうるcommandは含めない（推定を広げると誤った合格を生む）。
+READ_COMMANDS = ("cat", "head", "tail", "less", "more", "bat", "wc", "nl", "od")
+
+
+def infer_read_paths(command: str):
+    """command文字列から読まれたpathを推定する。
+
+    codexはfile読取専用のeventを出さず、shell commandとして実行する。read eventが
+    まったく得られないと`must_read`が常にUNVERIFIEDになり、どのcaseも判定できない。
+    ここではcommand実行という**観測事実**から、読取専用commandの引数だけを拾う。
+    自己申告ではないが推定ではあるため、coverageへinferredと明記する。
+    """
+    tokens = unwrap_shell(command).split()
+    if not tokens:
+        return []
+    head = tokens[0].rsplit("/", 1)[-1]
+    if head not in READ_COMMANDS:
+        return []
+    paths = []
+    for token in tokens[1:]:
+        if token.startswith("-") or any(c in token for c in "<>|&$`*?"):
+            continue
+        paths.append(token.strip("'\""))
+    return paths
+
+
 def map_codex_events(raw_events):
-    """codexのJSONL eventを正準語彙へ写像する。未知のeventはunmappedへ回す。"""
+    """codexのJSONL eventを正準語彙へ写像する。未知のeventはunmappedへ回す。
+
+    実測schema（codex-cli 0.146.0、2026-08-06の実runで確認）:
+      {"type":"item.completed","item":{"type":"command_execution",
+       "command":"/bin/zsh -lc '...'","exit_code":0,"status":"completed"}}
+    item.startedはitem.completedと重複するため採らない。
+    """
     mapped, unmapped = [], []
     for event in raw_events:
         kind = event.get("type") or event.get("event") or ""
         if kind in CODEX_CONTROL_EVENTS:
             continue
-        # 実測で確認済みの写像規則がまだ無いため、他はすべてunmappedとする。
-        # 推測でreadやrunへ写像すると、誤った合格を生む。
+        if kind == "item.started":
+            continue  # completedで拾う
+        if kind == "item.completed":
+            item = event.get("item") or {}
+            item_type = item.get("item_type") or item.get("type") or ""
+            if item_type == "command_execution":
+                command = str(item.get("command", ""))
+                mapped.append({"event": "run", "command": command,
+                               "exit_code": item.get("exit_code")})
+                for path in infer_read_paths(command):
+                    mapped.append({"event": "read", "path": path, "bytes": None,
+                                   "inferred": True})
+                continue
+            if item_type in ("agent_message", "reasoning", "error"):
+                continue  # 判定に使う正準語彙を持たない
+            unmapped.append(f"item.completed/{item_type or '<none>'}")
+            continue
         unmapped.append(kind or "<no-type>")
     return mapped, unmapped
 
@@ -152,8 +210,11 @@ def main() -> int:
         "write_observation": "git" if writes is not None else "unavailable",
         "write_observation_error": git_error,
         # readとrunはclient event由来。写像規則が未確立なら不完全と明示する。
-        "read_run_observation": "client-events" if any(
-            k in observed_kinds for k in ("read", "run")) else "unavailable",
+        "run_observation": "client-events" if "run" in observed_kinds else "unavailable",
+        # readはclientがeventを出さないため、読取専用commandからの推定。
+        # 観測事実（command実行）に基づくが推定であることを明示する。
+        "read_observation": ("inferred-from-commands" if "read" in observed_kinds
+                             else "unavailable"),
         "complete": not unmapped and writes is not None,
     }
     pathlib.Path(args.meta_out).write_text(

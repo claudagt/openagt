@@ -298,7 +298,6 @@ for grader_case in \
   'known-bad-path-escape:1:HG-02' \
   'known-bad-parallel-canon:1:HG-06' \
   'known-bad-duplicate-canon:1:HG-06' \
-  'known-bad-secret-in-metrics:1:HG-03' \
   'invalid-unknown-hash:2:not reproducible'; do
   grader_name="${grader_case%%:*}"; grader_rest="${grader_case#*:}"
   grader_code="${grader_rest%%:*}"; grader_want="${grader_rest##*:}"
@@ -307,6 +306,22 @@ for grader_case in \
   grep -q "$grader_want" "$tmp_root/grader-$grader_name.json" || \
     fail "$grader_name did not report $grader_want"
 done
+# 秘密形状の値はリポジトリへ置かない（tracked成果物のsecret scanと衝突する）。
+# 検出器を検査するための値は、検査時にだけ合成する。
+secret_case="$tmp_root/secret-in-metrics"
+mkdir -p "$secret_case"
+cp "$fixtures/known-good/manifest.json" "$fixtures/known-good/events.jsonl" "$secret_case/"
+python3 -c "
+import json, pathlib, sys
+metrics = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+metrics['note'] = 'AKIA' + 'A' * 16
+pathlib.Path(sys.argv[2]).write_text(json.dumps(metrics, indent=2) + '\n', encoding='utf-8')
+" "$fixtures/known-good/metrics.json" "$secret_case/metrics.json"
+run_expect 1 "$tmp_root/grader-secret.json" python3 "$script_dir/grade-run.py" "$secret_case" || true
+grep -q 'HG-03' "$tmp_root/grader-secret.json" || fail 'secret in metrics.json was not detected'
+grep -q 'metrics.json' "$tmp_root/grader-secret.json" || \
+  fail 'secret detection did not report the source file'
+
 # 正規化がなければ subject/../../etc/passwd は startswith("subject/") を素通りする
 grep -q 'escapes the allowed roots' "$tmp_root/grader-known-bad-path-escape.json" || \
   fail 'path escape was not detected as an escape'

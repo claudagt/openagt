@@ -11,7 +11,7 @@ updated_at: 2026-08-06
 - 第2段階でadapter（`codex-adapter.sh`）、run分類（`classify-run.py`）、case grader
   （`grade-case.py`）、trace写像（`map-trace.py`）、外側runner（`run-case.sh`）、
   最終Gate（`check-promotion.py`）を追加。
-- 実clientでのbaseline runは未実施。実モデル評価は未検証である。
+- 実モデルrunに成功（DeepSeek経由）。baseline runは未取得。
 
 ## 現在の目標
 
@@ -46,31 +46,18 @@ updated_at: 2026-08-06
 
 ## 未完了・ブロッカー
 
-- **ブロッカー（外部）**: codexのusage limit到達により実モデルsmokeが未完了
-  （reset: 2026-08-08 14:17）。plumbing（auth解決、JSONL trace取得、exit code伝播）は
-  観測できたが、モデルturnは`turn.failed`。実モデル呼出回数: 1（成功0、quota失敗1）。
-  この失敗は`classify-run.py`が`INFRA_UNAVAILABLE`/`usage_limit`として分類済みで、
-  candidate失敗としては数えない。
-- P0（部分解消）: write root制限、HOME/CODEX_HOME分離、network遮断、利用者設定/rules非読込は
-  adapterでOS強制・実測済み。**未解消**: sandboxはread側を制限せず、subjectから
-  evaluator repositoryや`$HOME`配下を読める。現状はpath秘匿と配置のみで担保。
-  adapterのexecution configはsystem instruction・tool schema・sampling・各種上限が`unknown`。
-- P0（解消）: `grade-case.py`と`run-case.sh`を実装。write系はclientの自己申告ではなく
-  subject sandboxのGitから観測する（偽申告・無申告のいずれでもwrite gateを通過できない
-  ことをverify.shで固定）。
-- **未解消（実client接続）**: codexのitem系event（command_execution、file_change等）の
-  field名が未確認のため、`map-trace.py`はread/runを写像できずunmappedとして数える。
-  結果、実codex traceではread/run系の期待項目がUNVERIFIEDになる。実trace取得後に写像規則を
-  追加する（推測で固定しない）。writeはclient非依存のため現時点でも有効。
-- P1（解消）: `grade-run.py`を補強。path正規化（`subject/../..`と絶対pathの脱出検出）、
-  HG-06（並列正本の新設と同一内容の二重化）、秘密検査をmanifest・metricsへ拡大、
-  必須hashの`unknown`をINVALID化。HG-12は自己申告metricsで判定せずcheck-promotion.pyへ委譲。
-- P1（解消）: `check-promotion.py`が3 trial集約・複数config・Tier 0・回帰・MDEを一括判定する。
-  閾値引数を持たないためCLIから緩められない。`compare-runs.py`は部品に降格。
 - **人間判断待ち**: Tier 0 caseの一覧が未確定。`check-promotion.py`は`--tier0-file`必須で、
-  未指定ならINVALID（推論しない）。一覧の確定は`EVALUATION.md#benchmark`のfamily 10・15を
-  どのcaseに割り当てるかの決定であり、policy側の決定事項。
-- `runs/`は実runが発生していないため未作成（先回り生成しない方針）。
+  未指定ならINVALID（推論しない）。確定は`EVALUATION.md#benchmark`のfamily 10・15を
+  どのcaseへ割り当てるかの決定であり、policy側の決定事項。
+- read観測の限界: codexはfile読取専用のeventを出さない。readは読取専用command（cat/head等）
+  からの推定に留まり、byte数を取れないため`max_context_bytes`は常にUNVERIFIED。
+  coverageへ`read_observation: inferred-from-commands`と明記する。
+- read側のOS隔離なし: sandboxはread側を制限せず、subjectからevaluator repositoryや
+  `$HOME`配下を読める。現状はpath秘匿と配置のみで担保。
+- execution configの`unknown`: system instruction、tool schema、sampling、各種上限。
+  codexは`deepseek-v4-flash`のmodel metadataを持たずfallbackするため、context上限も未取得。
+- 実caseを実モデルでend-to-end採点した実績がまだない（隔離probeのみ）。
+- `runs/`は実runの証拠束を保存していないため未作成（先回り生成しない方針）。
 
 ## 現在有効な決定
 
@@ -93,6 +80,15 @@ updated_at: 2026-08-06
   gemini 0.46.0の`-s`はcontainer runtime前提のため見送り。
 - 実測: codexの組込permission profileは`:workspace`と`:read-only`のみ（colon接頭辞）。
   `sandbox_workspace_write.exclude_*`の上書きは`-P`profile経路では効果がない。
+- provider第2号としてDeepSeekを使う（`deepseek-v4-flash` / `deepseek-v4-pro`の2種のみ実在）。
+  DeepSeekはResponses APIをnativeに提供するためlocal bridgeは不要。codex 0.146.0は
+  `wire_api="chat"`を廃止済みなので`responses`で直結する。
+- **秘密の受け渡しはauth commandで行い、環境変数（`env_key`）を使わない**（2026-08-06実測）。
+  env_keyだと`shell_environment_policy.inherit="none"`や`exclude=["*KEY*"]`を指定しても
+  subjectのshellから当該変数が見えた。auth commandへ変更後、不可視化を実runで確認。
+  秘密ファイルはCODEX_HOMEと無関係な一時領域へ置く（CODEX_HOME自体はsubjectへ露出する）。
+- 実runでの観測: agentが自己申告したexit codeのうち1件に対応するrun eventが存在せず、
+  filesystem上も痕跡がなかった。自己申告を判定に使わない設計の妥当性を実地で確認した。
 
 ## 失敗・却下済み
 
@@ -103,8 +99,8 @@ updated_at: 2026-08-06
 
 ## 次の一手
 
-1. quota回復後: smokeを完了し、codexのitem系eventの実形式を確認して`map-trace.py`へ
-   read/runの写像規則を追加する。併せてresolved model ID・sampling・上限を実値化する。
+1. 実caseを1件、実モデル（DeepSeek）でend-to-end実行し、`run-case.sh`の証拠束が
+   実trace上で成立することを確認する。
 2. 5-6 最初の実baseline取得（run開始時点の最新`agent-directory/main`を再取得・固定）。
 3. Tier 0 case一覧の確定（人間判断）後、`check-promotion.py`へ渡せるようにする。
 

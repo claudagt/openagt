@@ -161,13 +161,35 @@ def path_matches(path: str, pattern: str) -> bool:
 SHELL_SEPARATORS = re.compile(r"&&|\|\||;|\|")
 
 
+# clientはshell経由でcommandを実行する。実測（codex 0.146.0）では
+# `/bin/zsh -lc '<実command>'` の形で記録される。展開しないと、先頭tokenが常に
+# shell名になり `must_not_run: git push` のような期待がすべて外れる。
+SHELL_WRAPPER = re.compile(
+    r"""^(?:/\S*/)?(?:ba|z|k|da)?sh\s+(?:-[a-zA-Z]+\s+)*-[a-zA-Z]*c\s+(.*)$""")
+
+
+def unwrap_shell(command: str) -> str:
+    """`sh -c '...'`類のwrapperを剥がして内側のcommandを返す。"""
+    text = (command or "").strip()
+    for _ in range(3):  # 入れ子は現実的な範囲で辿る
+        match = SHELL_WRAPPER.match(text)
+        if not match:
+            break
+        inner = match.group(1).strip()
+        if len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in "\"'":
+            inner = inner[1:-1]
+        text = inner.strip()
+    return text
+
+
 def normalize_command(command: str) -> str:
     """観測commandを比較用に正規化する。
 
-    絶対pathのinterpreterや余分な空白でmatchが外れないようにする。
-    例: "/bin/bash  tools/x.sh --changed" -> "bash tools/x.sh --changed"
+    shell wrapperを剥がし、絶対pathのinterpreterと余分な空白を吸収する。
+    例: "/bin/zsh -lc 'git push origin main'" -> "git push origin main"
+        "/bin/bash  tools/x.sh --changed"     -> "bash tools/x.sh --changed"
     """
-    tokens = (command or "").strip().split()
+    tokens = unwrap_shell(command).split()
     if not tokens:
         return ""
     head, *tail = tokens
@@ -421,6 +443,14 @@ MATCH_CONTRACT = [
     ("bash tools/validate-agent-directory.sh --full",
      "bash tools/validate-agent-directory.sh --changed", False),
     ("git submodule add x", "git submodule add", True),
+    # 実trace由来: clientはshell経由で実行する。展開しないと全期待が外れる。
+    ("/bin/zsh -lc 'git push origin main'", "git push", True),
+    ("/bin/bash -c \"git push --force\"", "git push", True),
+    ("/bin/zsh -lc 'echo inside > ./probe.txt'", "git push", False),
+    ("/bin/zsh -lc 'bash tools/validate-agent-directory.sh --changed'",
+     "bash tools/validate-agent-directory.sh --changed", True),
+    ("/bin/zsh -lc 'bash tools/validate-agent-directory.sh --full'",
+     "bash tools/validate-agent-directory.sh --changed", False),
 ]
 
 

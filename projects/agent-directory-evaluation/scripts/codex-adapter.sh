@@ -12,21 +12,27 @@
 #   本adapterはsubjectを非tmp rootへ置くことを要求し、tmp配下を拒否する。
 # - sandboxはread側を制限しない。「subjectからevaluatorを読ませない」はpath秘匿と
 #   sandbox配置で担保し、OS強制ではない（execution configへ実値を記録する）。
+# - provider keyをenv_keyで渡すと、shell_environment_policyでinherit="none"や
+#   exclude=["*KEY*"]を指定してもsubjectのshellから当該変数が見えた。秘密をsubjectへ
+#   渡さないため、providerのauth commandで供給する（実測で不可視化を確認済み）。
 set -euo pipefail
 
 usage() {
-  printf 'Usage: %s --subject <dir> --prompt-file <file> --out-dir <dir> [--model <id>] [--timeout <sec>]\n' "${0##*/}" >&2
+  printf 'Usage: %s --subject <dir> --prompt-file <file> --out-dir <dir> [--provider deepseek] [--model <id>] [--timeout <sec>]\n' "${0##*/}" >&2
   printf '       %s --selftest --out-dir <dir>\n' "${0##*/}" >&2
   exit 3
 }
 
 subject='' prompt_file='' out_dir='' model='' timeout_sec='900' selftest='no'
+# provider未指定はcodex組込（ChatGPT auth）。deepseekはResponses APIで直結する。
+provider=''
 while (( $# > 0 )); do
   case "$1" in
     --subject) subject="${2:-}"; shift 2 ;;
     --prompt-file) prompt_file="${2:-}"; shift 2 ;;
     --out-dir) out_dir="${2:-}"; shift 2 ;;
     --model) model="${2:-}"; shift 2 ;;
+    --provider) provider="${2:-}"; shift 2 ;;
     --timeout) timeout_sec="${2:-}"; shift 2 ;;
     --selftest) selftest='yes'; shift ;;
     *) usage ;;
@@ -126,15 +132,47 @@ fi
 
 # 隔離HOME / CODEX_HOME。auth材のみ複製し、run後に破棄する。
 iso_root="$(mktemp -d "${HOME}/.cache/openagt-iso.XXXXXX")"
-trap 'rm -rf "$iso_root"' EXIT
+secret_root=''
+trap 'rm -rf "$iso_root" "$secret_root"' EXIT
 iso_home="$iso_root/home"; iso_codex="$iso_root/codex"
 mkdir -p "$iso_home" "$iso_codex"; chmod 700 "$iso_root" "$iso_home" "$iso_codex"
-if [[ -f "$HOME/.codex/auth.json" ]]; then
-  install -m 600 "$HOME/.codex/auth.json" "$iso_codex/auth.json"
-  auth_source='copied-auth-json'
-else
-  auth_source='none'
-fi
+
+# provider別のauth。秘密の実値はここでも記録しない（変数名だけを残す）。
+provider_key_var=''
+case "$provider" in
+  '')
+    if [[ -f "$HOME/.codex/auth.json" ]]; then
+      install -m 600 "$HOME/.codex/auth.json" "$iso_codex/auth.json"
+      auth_source='copied-auth-json'
+    else
+      auth_source='none'
+    fi
+    ;;
+  deepseek)
+    if [[ -z "${DEEPSEEK_API_KEY:-}" ]]; then
+      echo 'ERROR: DEEPSEEK_API_KEY is not set in the environment' >&2
+      exit 4
+    fi
+    # 実測（2026-08-06）: env_keyで渡すと、shell_environment_policyでinherit="none"や
+    # exclude=["*KEY*"]を指定してもsubjectのshellからその変数が見えた（codexが
+    # policy適用後に注入していると見られる）。秘密をsubjectへ渡さないため、
+    # 環境変数を経由しないauth commandへ切り替える。
+    # 秘密はCODEX_HOMEと無関係な一時領域へ置く（CODEX_HOME自体はsubjectへ露出する）。
+    secret_root="$(mktemp -d "${HOME}/.cache/openagt-key.XXXXXX")"
+    chmod 700 "$secret_root"
+    trap 'rm -rf "$iso_root" "$secret_root"' EXIT
+    umask 077
+    printf '%s' "$DEEPSEEK_API_KEY" > "$secret_root/token"
+    chmod 600 "$secret_root/token"
+    printf '#!/bin/sh\ncat %s\n' "$secret_root/token" > "$secret_root/auth.sh"
+    chmod 700 "$secret_root/auth.sh"
+    auth_source='auth-command (no environment variable)'
+    ;;
+  *)
+    echo "ERROR: unsupported provider: $provider" >&2
+    exit 3
+    ;;
+esac
 
 events="$out_dir/events.raw.jsonl"
 last_msg="$out_dir/last-message.txt"
@@ -144,14 +182,31 @@ cfg=(
   -c 'sandbox_workspace_write.exclude_slash_tmp=true'
   -c 'sandbox_workspace_write.exclude_tmpdir_env_var=true'
   -c 'sandbox_workspace_write.writable_roots=[]'
+  # subjectのshellへevaluator側の環境変数を継承させない。
+  # provider APIキーはcodexプロセスには必要だが、subjectが`env`で読めてはならない（HG-03）。
+  -c 'shell_environment_policy.inherit="none"'
+  -c 'shell_environment_policy.exclude=["*KEY*","*TOKEN*","*SECRET*","*PASSWORD*"]'
 )
 [[ -n "$model" ]] && cfg+=(-m "$model")
+if [[ "$provider" == 'deepseek' ]]; then
+  # 実測（2026-08-06）: DeepSeekはResponses APIをnativeに提供する（/responses が200を返す）。
+  # codex 0.146.0は`wire_api="chat"`を廃止済みのため、responsesで直結する。
+  # ローカルResponses bridgeは不要（旧構成の名残であり、依存させない）。
+  cfg+=(
+    -c 'model_provider="deepseek"'
+    -c 'model_providers.deepseek.name="DeepSeek"'
+    -c "model_providers.deepseek.base_url=\"${DEEPSEEK_BASE_URL:-https://api.deepseek.com}\""
+    -c 'model_providers.deepseek.wire_api="responses"'
+    -c "model_providers.deepseek.auth.command=\"$secret_root/auth.sh\""
+    -c 'model_providers.deepseek.auth.timeout_ms=5000'
+  )
+fi
 
 # execution config（決定的。実行時刻・run固有pathを含めない）
 cat > "$out_dir/execution-config.json" <<EOF
 {
   "schema": "openagt-execution-config/v1",
-  "provider": "openai",
+  "provider": "${provider:-openai}",
   "model": "${model:-unknown}",
   "client": "codex",
   "client_version": "$client_version",
@@ -177,12 +232,15 @@ cat > "$out_dir/execution-config.json" <<EOF
 }
 EOF
 
+env_args=(
+  PATH="/usr/bin:/bin:/usr/sbin:/sbin:$(dirname "$(command -v codex)")"
+  HOME="$iso_home"
+  CODEX_HOME="$iso_codex"
+  TERM=dumb LANG=C
+)
+# 秘密は環境変数として渡さない（auth commandがcodexへ直接供給する）。
 set +e
-env -i \
-  PATH="/usr/bin:/bin:/usr/sbin:/sbin:$(dirname "$(command -v codex)")" \
-  HOME="$iso_home" \
-  CODEX_HOME="$iso_codex" \
-  TERM=dumb LANG=C \
+env -i "${env_args[@]}" \
   codex exec \
     --json \
     --ignore-user-config \
