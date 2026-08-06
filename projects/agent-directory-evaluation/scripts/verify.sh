@@ -12,7 +12,9 @@ project_dir="$(cd "$script_dir/.." && pwd -P)"
 repo_root="$(cd "$project_dir/../.." && pwd -P)"
 fixtures="$project_dir/fixtures"
 tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/openagt-verify.XXXXXX")"
-trap 'rm -rf "$tmp_root"' EXIT
+# subject sandboxはtmp外へ作る（docs/EVALUATION.md#subject-sandboxの配置）
+subject_root="$(mktemp -d "$HOME/.cache/openagt-verify.XXXXXX")"
+trap 'rm -rf "$tmp_root" "$subject_root"' EXIT
 
 failures=0
 step() { printf '== %s\n' "$1"; }
@@ -91,7 +93,7 @@ if run_expect 2 "$tmp_root/mismatch.json" python3 "$script_dir/compare-runs.py" 
 fi
 
 step 'subject sandbox isolation'
-sandbox_dest="$tmp_root/sandbox"
+sandbox_dest="$subject_root/sandbox"
 if run_expect 0 "$tmp_root/sandbox.log" bash "$script_dir/make-sandbox.sh" \
   --source "$repo_root" --sha "$source_revision" --dest "$sandbox_dest"; then
   subject="$sandbox_dest/subject"
@@ -104,7 +106,48 @@ if run_expect 0 "$tmp_root/sandbox.log" bash "$script_dir/make-sandbox.sh" \
   case "$subject/" in
     "$repo_root"/*) fail 'sandbox was created inside the evaluator repository' ;;
   esac
+  for tmp_root_check in /tmp /private/tmp "${TMPDIR:-}"; do
+    [[ -n "$tmp_root_check" && -d "$tmp_root_check" ]] || continue
+    tmp_root_check="$(cd "$tmp_root_check" && pwd -P)"
+    case "$subject/" in
+      "$tmp_root_check"/*) fail 'sandbox was created under /tmp or $TMPDIR' ;;
+    esac
+  done
 fi
+
+step 'tmp-resident sandbox is refused (HG-02 stays OS-enforced)'
+run_expect 1 "$tmp_root/tmp-refusal.log" bash "$script_dir/make-sandbox.sh" \
+  --source "$repo_root" --sha "$source_revision" --dest "$tmp_root/rejected-sandbox" || true
+grep -q 'must NOT be under /tmp' "$tmp_root/tmp-refusal.log.err" || \
+  fail 'make-sandbox.sh did not refuse a tmp-resident dest'
+
+step 'adapter refuses a tmp-resident subject'
+mkdir -p "$tmp_root/fake-subject"
+run_expect 1 "$tmp_root/adapter-refusal.log" bash "$script_dir/codex-adapter.sh" \
+  --subject "$tmp_root/fake-subject" --prompt-file "$0" --out-dir "$tmp_root/adapter-out" || true
+grep -q 'must NOT live under /tmp' "$tmp_root/adapter-refusal.log.err" || \
+  fail 'codex-adapter.sh did not refuse a tmp-resident subject'
+
+step 'infra failure is INVALID, not a candidate failure'
+for infra_case in infra-usage-limit:usage_limit infra-rate-limit:rate_limit; do
+  infra_dir="${infra_case%%:*}"; infra_kind="${infra_case##*:}"
+  run_expect 75 "$tmp_root/$infra_dir.json" python3 "$script_dir/classify-run.py" \
+    --events "$fixtures/$infra_dir/events.jsonl" --client codex --client-exit-code 1 || true
+  grep -q "\"status\": \"INFRA_UNAVAILABLE\"" "$tmp_root/$infra_dir.json" || \
+    fail "$infra_dir was not classified INFRA_UNAVAILABLE"
+  grep -q "\"infra_failure\": \"$infra_kind\"" "$tmp_root/$infra_dir.json" || \
+    fail "$infra_dir was not attributed to $infra_kind"
+done
+
+step 'a clean trace is not misread as an infra failure'
+run_expect 0 "$tmp_root/infra-ok.json" python3 "$script_dir/classify-run.py" \
+  --events "$fixtures/known-good/events.jsonl" --client codex --client-exit-code 0 || true
+grep -q '"status": "OK"' "$tmp_root/infra-ok.json" || fail 'known-good trace was not classified OK'
+
+step 'a missing trace is NO_TRACE, not OK'
+run_expect 76 "$tmp_root/infra-notrace.json" python3 "$script_dir/classify-run.py" \
+  --events "$tmp_root/does-not-exist.jsonl" --client codex --client-exit-code 0 || true
+grep -q '"status": "NO_TRACE"' "$tmp_root/infra-notrace.json" || fail 'missing trace was not NO_TRACE'
 
 step 'secret scan over tracked public artifacts'
 secret_hits="$(cd "$repo_root" && git ls-files -z | xargs -0 grep -HnE \

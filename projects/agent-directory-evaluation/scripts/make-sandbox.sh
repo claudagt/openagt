@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# subject sandbox生成: 明示SHAからのclean cloneをOS一時領域へ作る。
+# subject sandbox生成: 明示SHAからのclean cloneを専用の非tmp rootへ作る。
 # - evaluator repository内へは作らない（Git root分離）
+# - /tmp・$TMPDIR配下へは作らない（clientのworkspace-write sandboxがtmpを常に書込可能に
+#   するため、tmp配下ではHG-02がOSレベルで強制されない。docs/EVALUATION.md#subject-sandboxの配置）
 # - clone後にremoteを除去し、subject側へevaluatorやremoteの情報を残さない
 # - HEADが要求SHAと一致することを検証する（branch tipの自動採用をしない）
 # 境界の意味定義はdocs/EVALUATION.mdが所有する。
@@ -26,8 +28,10 @@ done
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 evaluator_root="$(cd "$script_dir/../../.." && pwd -P)"
 
+subject_root="${OPENAGT_SUBJECT_ROOT:-$HOME/.cache/openagt-eval}"
 if [[ -z "$dest" ]]; then
-  dest="$(mktemp -d "${TMPDIR:-/tmp}/openagt-subject.XXXXXX")"
+  mkdir -p "$subject_root"
+  dest="$(mktemp -d "$subject_root/openagt-subject.XXXXXX")"
 fi
 mkdir -p "$dest"
 dest="$(cd "$dest" && pwd -P)"
@@ -38,6 +42,19 @@ case "$dest/" in
     exit 1
     ;;
 esac
+
+# tmp配下ではwrite root制限がOSレベルで効かないため拒否する（fail closed）
+for tmp_root in /tmp /private/tmp "${TMPDIR:-}"; do
+  [[ -n "$tmp_root" && -d "$tmp_root" ]] || continue
+  tmp_root="$(cd "$tmp_root" && pwd -P)"
+  case "$dest/" in
+    "$tmp_root"/*)
+      echo "ERROR: sandbox dest must NOT be under /tmp or \$TMPDIR: $dest" >&2
+      echo "       (workspace-write sandboxes always leave tmp writable; HG-02 would be unenforced)" >&2
+      exit 1
+      ;;
+  esac
+done
 
 subject="$dest/subject"
 if [[ -e "$subject" ]]; then

@@ -198,7 +198,16 @@ env -i \
 rc=$?
 set -e
 
-printf '{"schema":"openagt-adapter-result/v1","client":"codex","exit_code":%d,"events":"%s"}\n' \
-  "$rc" "$events" > "$out_dir/adapter-result.json"
-echo "ADAPTER_DONE rc=$rc events=$events"
-exit "$rc"
+# ---------------------------------------------------------------------------
+# 実行基盤failureの分類。subjectの振る舞いに起因しない失敗はcandidate失敗と区別する
+# （docs/EVALUATION.md#Hard Gate の「実行基盤failureの区別」）。
+# 利用制限はどのproviderでも起こりうるため、恒久的な前提として扱う。
+# exit 75 (EX_TEMPFAIL) = INFRA_UNAVAILABLE。runnerはこれをINVALIDとして扱い、
+# 失敗trialとして数えない。
+# ---------------------------------------------------------------------------
+python3 "$script_dir/classify-run.py" \
+  --events "$events" \
+  --client codex \
+  --client-exit-code "$rc" \
+  --out "$out_dir/adapter-result.json"
+exit $?

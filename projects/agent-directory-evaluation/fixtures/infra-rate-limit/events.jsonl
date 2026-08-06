@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"00000000-0000-0000-0000-000000000000"}
+{"type":"turn.started"}
+{"type":"error","message":"HTTP 429 Too Many Requests: rate limit exceeded; retry after backoff."}
+{"type":"turn.failed","error":{"message":"HTTP 429 Too Many Requests: rate limit exceeded; retry after backoff."}}
