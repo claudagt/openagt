@@ -10,10 +10,10 @@ tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="${AGENT_DIRECTORY_ROOT:-$(cd "$tool_root/.." && pwd)}"
 route=''
 target=''
-task_class='work'
+task_class=''
 
 usage() {
-  printf 'Usage: %s --route knowledge|skill|project|meta [--target <repo-relative-path>] [--class read|work|state|boundary]\n' \
+  printf 'Usage: %s --route knowledge|skill|project|meta --class read|work|state|boundary [--target <repo-relative-path>]\n' \
     "${0##*/}" >&2
 }
 
@@ -39,6 +39,7 @@ while (( $# > 0 )); do
 done
 
 case "$route" in knowledge|skill|project|meta) ;; *) usage; exit 2 ;; esac
+# --class is mandatory: an unspecified class is never treated as an implicit work.
 case "$task_class" in read|work|state|boundary) ;; *) usage; exit 2 ;; esac
 target="${target%/}"
 if [[ "$target" == /* || "$target" == *..* ]]; then

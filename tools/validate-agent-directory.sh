@@ -988,14 +988,20 @@ is_registered_independent() {
 
 validate_knowledge_index_and_log() {
   local index_items log_records log_file filename
-  index_items="$(grep -Ec '^- ' "$knowledge_index_file" || true)"
-  (( index_items <= 50 )) || fail "$knowledge_index_path has more than 50 route-map items"
-  if grep -Eq '^- .*knowledge/raw/|^## raw/' "$knowledge_index_file"; then
-    fail "$knowledge_index_path must not register knowledge/raw/ as an itemized global ledger"
+  # Existence of these canon files is enforced by required_files in the full static
+  # run; a scoped fixture root may legitimately lack them.
+  if [[ -f "$knowledge_index_file" ]]; then
+    index_items="$(grep -Ec '^- ' "$knowledge_index_file" || true)"
+    (( index_items <= 50 )) || fail "$knowledge_index_path has more than 50 route-map items"
+    if grep -Eq '^- .*knowledge/raw/|^## raw/' "$knowledge_index_file"; then
+      fail "$knowledge_index_path must not register knowledge/raw/ as an itemized global ledger"
+    fi
   fi
 
-  log_records="$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+' "$knowledge_log_file" || true)"
-  (( log_records <= 1000 )) || fail "$knowledge_log_path has more than 1,000 records and must rotate"
+  if [[ -f "$knowledge_log_file" ]]; then
+    log_records="$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+' "$knowledge_log_file" || true)"
+    (( log_records <= 1000 )) || fail "$knowledge_log_path has more than 1,000 records and must rotate"
+  fi
   if [[ -d "$repo_root/knowledge/wiki/logs" ]]; then
     while IFS= read -r -d '' log_file; do
       filename="${log_file##*/}"
@@ -1079,6 +1085,10 @@ if [[ "$changed" == true && "$full" != true ]]; then
   fi
 fi
 if [[ "$changed" == true && "$full" != true ]]; then
+  # Without an explicit --base, uncommitted work is judged against HEAD so the
+  # immutability diffs (knowledge/raw, closed logs, project moves) always run in
+  # the shared epilogue. An explicit --base <start-sha> covers start SHA -> working tree.
+  [[ -n "$base_ref" ]] || base_ref='HEAD'
   changed_list="$(
     {
       [[ -z "$base_ref" ]] || git -C "$repo_root" diff --name-only "$base_ref" HEAD -- 2>/dev/null
@@ -1117,11 +1127,16 @@ projects/LIFECYCLE.md|projects/RECOVERY.md|projects/REPOSITORIES.md|projects/.gi
       knowledge/wiki/INDEX.md|knowledge/wiki/LOG.md|knowledge/wiki/logs/*)
         scoped_index_log=true ;;
       knowledge/wiki/sources/*.md|knowledge/wiki/topics/*.md)
-        [[ ! -f "$repo_root/$changed_path" ]] || {
+        if [[ -f "$repo_root/$changed_path" ]]; then
           printf '%s\n' "$scoped_pages" | grep -Fqx -- "$changed_path" || \
             scoped_pages="${scoped_pages}${changed_path}
 "
-        }
+        else
+          # A deleted wiki page is never silently skipped: deletion is boundary work
+          # (zero inbound references, non-active status, a retention or replacement
+          # target, and explicit user approval) and cannot pass as normal work.
+          fail "$changed_path was deleted; deleting a Knowledge page is boundary work under the deletion contract, not normal --changed work"
+        fi
         ;;
       skills/SKILLS.md|skills/_template/*)
         scope_supported=false; break ;;
@@ -2036,6 +2051,56 @@ set -e
 if (( changed_status != 0 )) || ! printf '%s\n' "$changed_output" | grep -Fq 'scoped validation (--changed)'; then
   fail "validator --changed did not run a scoped pass on a project-only change: $(printf '%s' "$changed_output" | head -n 3 | tr '\n' ' ')"
 fi
+
+# --changed immutability boundary: with no explicit --base, the uncommitted work is
+# judged against HEAD, so edits/deletions of immutable source material and closed
+# logs are refused while plain additions pass, and a deleted wiki page never slips
+# through as normal work.
+changed_run() {
+  set +e
+  changed_output="$(env "${changed_env[@]}" bash "$changed_fixture_dir/tools/validate-agent-directory.sh" --changed 2>&1)"
+  changed_status=$?
+  set -e
+}
+mkdir -p "$changed_fixture_dir/knowledge/raw/internal" \
+  "$changed_fixture_dir/knowledge/wiki/topics" "$changed_fixture_dir/knowledge/wiki/logs"
+printf 'immutable record\n' > "$changed_fixture_dir/knowledge/raw/internal/record.txt"
+printf -- '---\nsummary: scoped page\nstatus: active\naliases: []\n---\n\nscoped page body\n' \
+  > "$changed_fixture_dir/knowledge/wiki/topics/scoped-page.md"
+printf '# 2026-Q1 closed log\n' > "$changed_fixture_dir/knowledge/wiki/logs/2026-Q1.md"
+env "${changed_env[@]}" git -C "$changed_fixture_dir" add -A
+env "${changed_env[@]}" git -C "$changed_fixture_dir" commit -q -m 'fixture: knowledge baseline'
+
+printf 'tamper\n' >> "$changed_fixture_dir/knowledge/raw/internal/record.txt"
+changed_run
+if (( changed_status == 0 )) || ! printf '%s\n' "$changed_output" | grep -Fq 'immutable source changed'; then
+  fail 'validator --changed accepted an edit of immutable source material without --base'
+fi
+env "${changed_env[@]}" git -C "$changed_fixture_dir" checkout -q -- knowledge/raw/internal/record.txt
+
+printf 'new record\n' > "$changed_fixture_dir/knowledge/raw/internal/new-record.txt"
+env "${changed_env[@]}" git -C "$changed_fixture_dir" add knowledge/raw/internal/new-record.txt
+changed_run
+if (( changed_status != 0 )); then
+  fail "validator --changed refused a plain addition of immutable source material: $(printf '%s' "$changed_output" | head -n 2 | tr '\n' ' ')"
+fi
+env "${changed_env[@]}" git -C "$changed_fixture_dir" reset -q HEAD -- knowledge/raw/internal/new-record.txt
+rm -f "$changed_fixture_dir/knowledge/raw/internal/new-record.txt"
+
+printf 'tamper\n' >> "$changed_fixture_dir/knowledge/wiki/logs/2026-Q1.md"
+changed_run
+if (( changed_status == 0 )) || ! printf '%s\n' "$changed_output" | grep -Fq 'closed Knowledge log changed'; then
+  fail 'validator --changed accepted an edit of a closed Knowledge log without --base'
+fi
+env "${changed_env[@]}" git -C "$changed_fixture_dir" checkout -q -- knowledge/wiki/logs/2026-Q1.md
+
+rm -f "$changed_fixture_dir/knowledge/wiki/topics/scoped-page.md"
+changed_run
+if (( changed_status == 0 )) || ! printf '%s\n' "$changed_output" | grep -Fq 'deletion contract'; then
+  fail 'validator --changed silently passed a deleted Knowledge page'
+fi
+env "${changed_env[@]}" git -C "$changed_fixture_dir" checkout -q -- knowledge/wiki/topics/scoped-page.md
+
 printf '# scoped fixture meta edit\n' >> "$changed_fixture_dir/tools/validate-agent-directory.sh"
 set +e
 changed_output="$(env "${changed_env[@]}" bash "$changed_fixture_dir/tools/validate-agent-directory.sh" --changed 2>&1)"
@@ -2044,6 +2109,25 @@ set -e
 if (( changed_status == 0 )) || \
   ! printf '%s\n' "$changed_output" | grep -Fq 'running the full static validation'; then
   fail 'validator --changed did not fall back to the full static run when the changed set reached meta canon'
+fi
+
+# prepare-context.sh maps the agent-decided class deterministically: --class is
+# mandatory (never an implicit work), and meta read maps to no validation and no backup.
+set +e
+prepare_probe_output="$(bash "$repo_root/tools/prepare-context.sh" --route meta --target tools/TOOLS.md 2>/dev/null)"
+prepare_probe_status=$?
+set -e
+if (( prepare_probe_status != 2 )); then
+  fail 'prepare-context.sh must reject a missing --class instead of assuming an implicit work'
+fi
+set +e
+prepare_probe_output="$(bash "$repo_root/tools/prepare-context.sh" --route meta --target tools/TOOLS.md --class read 2>/dev/null)"
+prepare_probe_status=$?
+set -e
+if (( prepare_probe_status != 0 )) || \
+  ! printf '%s\n' "$prepare_probe_output" | grep -Fqx 'validation_profile=none' || \
+  ! printf '%s\n' "$prepare_probe_output" | grep -Fqx 'backup_profile=none'; then
+  fail 'prepare-context.sh --class read must map meta read to validation none and backup none'
 fi
 
 # A canon file lacking frontmatter must not stop cache generation; warn naming the target and drop it from the candidates.
@@ -2282,6 +2366,12 @@ if [[ -f "$backup_tool" ]] && command -v git >/dev/null 2>&1; then
     fail 'backup fixture: no checkpoint was recorded after a remote-verified backup'
   grep -Fqx "sha=$(backup_git rev-parse HEAD)" "$backup_checkpoint_file" || \
     fail 'backup fixture: the checkpoint does not record the remote-verified SHA'
+  if grep -Eq '^url=' "$backup_checkpoint_file" || \
+    grep -Fq "$backup_remote_dir" "$backup_checkpoint_file"; then
+    fail 'backup fixture: the checkpoint stores the remote URL in the clear instead of a hash'
+  fi
+  grep -Eq '^url_hash=' "$backup_checkpoint_file" || \
+    fail 'backup fixture: the checkpoint does not record a deterministic URL hash'
   printf '%02048d' 0 > "$backup_work/pre-checkpoint-blob.txt"
   backup_git add pre-checkpoint-blob.txt
   backup_git commit -q -m 'fixture: blob below the default limit'
@@ -2992,6 +3082,24 @@ ROUTINE_STANDIN
   routine_use_standin_validator
   routine_run maintenance
   routine_expect 'cache=current' 'the warm second run'
+
+  # The daily run owns routing freshness only; the workspace inventory (manifest) is
+  # checked and rebuilt once by the full cycle, and a dry run only reports it stale.
+  rm -f "$routine_work/.agent-cache/manifest.tsv"
+  routine_run maintenance
+  routine_expect 'ROUTINE_NOOP id=maintenance' 'the daily run with a missing manifest'
+  routine_expect 'cache=current' 'the daily run with a missing manifest'
+  [[ ! -f "$routine_work/.agent-cache/manifest.tsv" ]] || \
+    fail 'routine fixture: the daily run regenerated the workspace inventory (manifest)'
+  routine_run maintenance --full --dry-run
+  routine_expect 'cache=manifest-stale' 'the full dry run with a missing manifest'
+  [[ ! -f "$routine_work/.agent-cache/manifest.tsv" ]] || \
+    fail 'routine fixture: the full dry run regenerated the manifest'
+  routine_run maintenance --full
+  routine_expect 'ROUTINE_NOOP id=maintenance' 'the full run with a missing manifest'
+  routine_expect 'cache=rebuilt' 'the full run with a missing manifest'
+  [[ -f "$routine_work/.agent-cache/manifest.tsv" ]] || \
+    fail 'routine fixture: the full run did not regenerate the manifest'
 
   # An unknown Routine ID is rejected without changing anything.
   routine_run bogus-routine

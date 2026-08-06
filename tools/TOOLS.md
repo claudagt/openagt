@@ -42,7 +42,7 @@ Markdown、原資料、Project入出力、eval、Toolコードが正本である
 - 一つのsessionが一つのGit rootだけへ書き、作業ツリーから自分の変更を安全に分離できる。
 - commitが意味的に一つの作業単位になっている。
 
-commit messageは変更内容と理由が分かる一文を先頭に置く。長い作業の中断時は残件を明記した
+commit messageは変更内容と理由が分かる一文を先頭に置く。中断時は残件を明記した
 checkpoint commitを作ってよいが、完了報告にも成果契約の達成にもしない。commit後は`tools/BACKUP.md`の
 triggerとpolicyが許す場合だけbackupまたは通常pushへ進む。
 
@@ -79,9 +79,9 @@ Toolへの決定的な入力不備、自分の変更が壊したtestである。
 | state | 目標・到達点・検証結果の変化 | 上記に加えSTATE更新 |
 | boundary | 契約、attachment、registry、移行、復旧 | full検証、必要な承認、workspace backup |
 
-classはAgentが決め、`prepare-context.sh --class`がprofileへ決定的に写像する（metaのwork/stateは
-full）。明示targetがあれば検索せず、決定的なコマンド列は1回のTool呼び出しへまとめ、成功時出力は
-短く保つ。実行した事実や日付だけを記録するために`STATE.md`を変更しない。現在目標、到達点、
+classはAgentが決め、必須の`prepare-context.sh --class`がprofileへ決定的に写像する
+（metaのwork/stateはfull）。未指定classを暗黙のworkとして扱わない。明示targetがあれば
+検索せず、決定的なコマンド列は1回のTool呼び出しへまとめ、成功時出力は短く保つ。実行した事実や日付だけを記録するために`STATE.md`を変更しない。現在目標、到達点、
 検証結果、ブロッカー、次の一手のいずれも変わらなければSTATEは不変とする。
 
 ## build-context-cache.sh
@@ -103,8 +103,8 @@ bash tools/build-context-cache.sh [--check|--check-routing|--routing-only]
 一致すれば本文再読なしで即PASSし、不一致・欠損時だけrouteable正本を再計算して比較する。
 Git HEADは鮮度入力に使わない。
 
-Project選択の単位は`PROJECT.md`である。`ARCHITECTURE.md`、Project docs、`knowledge/raw/`は
-manifestで分類するがrouteable catalogへ入れず、通常検索結果へ全件投入しない。
+Project選択の単位は`PROJECT.md`。`ARCHITECTURE.md`、Project docs、`knowledge/raw/`は
+routeable catalogへ入れず、通常検索結果へ全件投入しない。
 
 Embeddedはroot indexの`projects/*/PROJECT.md`から、Independentは`projects/REPOSITORIES.md`から
 列挙し、採用revisionのfrontmatterだけを`git show`で読んでcontent_hashへrevisionを混ぜる。
@@ -134,7 +134,7 @@ tools/prepare-context.sh --route meta --target tools/find-context.sh --class rea
 ```
 
 Route確定後の初期読込を1回のContext Packetへまとめる。Git root、attachment、Required参照、
-読込順序を決定的に列挙し、本文は出力しない。`--class`（既定work）はAgentが決め、Toolは
+読込順序を決定的に列挙し、本文は出力しない。`--class`は必須であり、Agentが決めたclassからToolが
 タスク分類表に対応するvalidation（none|scoped|full）とbackup（none|root-only|workspace|
 independent-origin）のprofileを決定的に返す。Conditionalの成立判断はエージェントが行い、
 読込予算・読込順序の規約は変えない。出力は`TASK_CONTEXT v1`のkey=value行と
@@ -147,7 +147,7 @@ tools/append-knowledge-log.sh --type ingest --target knowledge/wiki/topics/examp
 ```
 
 - 入力: `--type`、`--target`、`--summary`、任意の`--date YYYY-MM-DD`。
-- 出力: `APPENDED: <date> <target>`、ローテーション時は`ROTATED: <path> (<記録数>, <byte数>)`を追加で出す。
+- 出力: `APPENDED: <date> <target>`、ローテーション時は`ROTATED: <path> (<記録数>, <byte数>)`を追加。
 - 追記先は`knowledge/wiki/LOG.md`だけとし、1,000記録または128KiBで`logs/YYYY-QN[-NN].md`へ閉じ、
   現在のLOGをヘッダーだけへ戻す。閉鎖済みlogは以後変更しない。
 - 記録の種別と意味的な運用規則は`knowledge/KNOWLEDGE.md#LOG`が所有する。
@@ -182,11 +182,11 @@ bash tools/materialize-project-repositories.sh --project <name>
 registryの登録と採用revisionから`projects/<name>/`へ通常cloneを再現する
 （復旧、マシン移行、partial materializationの解消）。
 
-- 入力: `--all`または`--project <name>`のどちらか一つと任意の`--check`。列挙は
-  `projects/REPOSITORIES.md`だけを正本とし、`PROJECT.md`のfrontmatterを走査しない。
-  `AGENT_DIRECTORY_ROOT`と`AGENT_ALLOW_LOCAL_REPOSITORY_URL=true`は隔離fixture用。
+- 入力: `--all`か`--project <name>`と任意の`--check`。列挙は`projects/REPOSITORIES.md`だけを
+  正本とし、`PROJECT.md`のfrontmatterを走査しない。`AGENT_ALLOW_LOCAL_REPOSITORY_URL=true`は
+  隔離fixture用。
 - 出力: 成功`MATERIALIZATION_OK total=<n> cloned=<n> verified=<n>`をstdoutへ1行。
-  停止時は`MATERIALIZATION_BLOCKED reason=<reason> project=<name>`をstderrへ出し、終了コードを非0にする。
+  停止時は`MATERIALIZATION_BLOCKED reason=<reason> project=<name>`をstderrへ出し非0で終了する。
 - 動作: registryとignore projectionの整合を先に検査し、targetが無いときだけ`--no-checkout`cloneで
   採用revisionをdetached checkoutする。branch tipへ勝手に進めず、clone直後にtoplevel、`origin`、
   HEAD、採用commitを検査する。`--check`はcloneせず整合だけを検査する。

@@ -1,13 +1,14 @@
 # projects/AGENTS.md — Project作業の入口
 
-Project Routeの入口。詳細は`projects/PROJECTS.md`が所有する。
+詳細は`projects/PROJECTS.md`が所有する。
 
 ## 着手
 
 1. 対象を一つに確定する。明示パスがなければ`tools/find-context.sh --route project --limit 5`。
    明示依頼なく新設しない。
-2. 作業cwdは`projects/<name>/`（所有Gitによらず唯一のProject root）。
-3. `git -C projects/<name> rev-parse --show-toplevel`でGit所有境界を判定する。
+2. 作業cwdは`projects/<name>/`（唯一のProject root）。
+3. classを決め`tools/prepare-context.sh --route project --target projects/<name>
+   --class <class>`でGit所有境界とprofileを得る。
 4. `AGENTS.md`（あれば）→`PROJECT.md`全文→`STATE.md`の順に読む。
 5. 対象契約（`PROJECT.md#PC-xx`か`#status`）と合格条件を特定する。
 6. 成立したDocs Route条件の正本とRequired参照だけを読む。

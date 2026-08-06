@@ -33,7 +33,7 @@ backup trigger、remote分類、失敗、divergence、復旧、マシン移行�
 ## バックアップ対象
 
 `main`のコミットから到達可能なGit管理ファイルと履歴を対象とする。永続正本と永続成果物は、領域を問わず
-Git追跡されていること。対象外は次である。復旧は別経路で行う。
+Git追跡されていること。対象外は次で、復旧は別経路で行う。
 
 - `.env`、`.env.local`などの秘密情報、SSH鍵、Git認証情報、ローカルGit設定
 - `.tmp/`、`.agent-cache/`、`.DS_Store`、製品側AIメモリ
@@ -46,7 +46,7 @@ Git追跡されていること。対象外は次である。復旧は別経路�
 そもそも正本として置かない。
 
 許可されるnested Gitは登録済みの`projects/<name>/.git/`だけで、それ以外のnested Gitとsubmoduleは
-ignore状態にかかわらずToolが停止する。エージェントは追加、削除、ignore、submodule化で回避せず、
+ignore状態にかかわらずToolが停止する（backup対象外の派生領域`.tmp/`・`.agent-cache/`は走査しない）。エージェントは追加、削除、ignore、submodule化で回避せず、
 Independent化するかを利用者へ確認する。
 
 ## リポジトリ構成
@@ -72,7 +72,7 @@ workspace scope（CLI既定）はroot pushの前に全Independent repositoryを�
 pushしない。全repositoryがremoteから復旧可能な場合だけ成功とし、partial materializationでは停止する。
 `--root-only`はrootだけを検査・pushする部分結果で（静的metadataとroot ownership違反は検査する）、
 workspace全体の成功として報告しない。通常のwork/stateは`--root-only`、採用revision更新・registry・
-materialization・移行・復旧・マシン移行・配布前のboundaryはworkspaceとする。
+materialization・移行・復旧・配布前のboundaryはworkspaceとする。
 
 | scope | 成功（終了コード0） | dry-run成功 |
 |---|---|---|
@@ -117,9 +117,9 @@ rootのreasonは実行前提、cleanliness、禁止内容、registry整合、rem
 Toolはfast-forward pushだけを行い、push後に`git ls-remote`でremote SHAとローカルHEADの完全一致を
 確認する。成功経路のremote通信はこのpushと事後検証だけで、無条件の事前照会はdry-runに限る。
 pushが拒否された場合だけremoteを読み、`remote-diverged`等へ分類する（非fast-forwardの拒否は
-remoteを変更しない）。事後検証済みSHAは`.agent-cache/`のcheckpointへ記録し、次回の
-oversized object監査を新規範囲だけにする。checkpointは削除可能な派生状態であり、欠損・破損・
-remote/branch/URL不一致・非ancestorでは全履歴監査へfallbackする。
+remoteを変更しない）。事後検証済みSHAは`.agent-cache/`のcheckpointへ記録し（remote URLはhashで保持し実値を
+残さない）、次回のoversized object監査を新規範囲だけにする。checkpointは削除可能な派生状態で、
+欠損・破損・remote/branch/URL不一致・非ancestorでは全履歴監査へfallbackする。
 
 `AGENT_BACKUP_MAX_BLOB_BYTES`は隔離fixture検証だけで使う閾値上書きであり、通常運用では設定しない。
 
@@ -131,7 +131,7 @@ remote branch削除、tagや全branchの一括push、remote側の競合自動解
 GitHubリポジトリの作成・可視性変更、GitHub Actionsの実行、Independent remoteへの書込、
 子cloneのfetch・checkout・reset・merge・rebase・stashによる変形。
 
-Toolはコミットを作らない。対象を確定するのは検証済みのcommitであり、Toolではない。
+Toolはコミットを作らない。対象を確定するのは検証済みのcommitである。
 
 ## remoteの分類
 
@@ -178,10 +178,9 @@ Single WriterはAgent単位ではなくGitリポジトリ単位の制約であ�
 実行せず、未設定である事実を報告する。
 
 - 正常に検証・commitされた意味のある変更の後
-- 破壊的変更前のcleanなcheckpoint
 - 復旧可能性に関わるmetadata変更後
 - Independent Projectの採用revision更新後
-- 長い作業を中断する際の検証済みcheckpoint
+- 破壊的変更前や長い作業を中断する際のcleanな検証済みcheckpoint
 - マシン移行前
 
 ファイル1件ごとにpushせず、意味のあるcommit境界で実行する。時刻駆動や常駐にしない。
@@ -220,24 +219,24 @@ remote SHAとlocal SHAを報告する。
 ## マシン移行
 
 1. 旧マシンで作業を確定し、`bash tools/backup-to-github.sh`が`WORKSPACE_BACKUP_OK`を出すまで実行する。
-2. 旧マシンの書込を停止し、以後読み取り専用として扱う。
+2. 旧マシンの書込を停止し読み取り専用として扱う。
 3. 新マシンでPrivate backupから新しいディレクトリへcloneする。
 4. `git remote rename origin backup`で新マシンでもremote名を`backup`にする。
 5. `git rev-parse HEAD`と`git ls-remote --heads backup main`が一致することを確認する。
 6. `bash tools/materialize-project-repositories.sh --all`で全Independent repositoryを揃える。
 7. `bash tools/validate-agent-directory.sh`を実行する。
 8. `bash tools/build-context-cache.sh`で`.agent-cache/`を正本から再生成する。
-9. `.env`などの秘密情報をパスワードマネージャー等の別経路から復旧する。
-10. 新マシンを唯一の書込者へ昇格し、旧マシンのcloneを破棄するか読み取り専用のまま残す。
+9. `.env`などの秘密情報を別経路から復旧する。
+10. 新マシンを唯一の書込者へ昇格し、旧cloneは破棄するか読み取り専用で残す。
 
 Independent cloneは`projects/<name>/`自体へ置き、全件が揃うまではpartial materializationである。
 昇格が完了するまで新旧両方から書き込まない。並行編集はdivergenceを作り、自動解決しない。
 
 ## 障害復旧
 
-ローカルが失われた場合も手順は移行と同じである。相違点は次だけである。
+ローカルが失われた場合も手順は移行と同じで、相違点は次だけである。
 
-- 旧マシンからの`WORKSPACE_BACKUP_OK`が取れないため、復旧点は最後に成功したバックアップコミットとなる。
+- 旧マシンの`WORKSPACE_BACKUP_OK`が取れないため、復旧点は最後に成功したバックアップコミットになる。
 - 最後のバックアップ以降の未コミット変更、未追跡ファイル、stashは復旧できない。失われた範囲を
   利用者へ明示する。
 - 秘密情報はリポジトリに存在しないため、必ず別経路から再設定する。
@@ -262,7 +261,7 @@ root Gitが`PROJECT.md`と`STATE.md`を持ち、child Gitが`repository/`にあ�
 4. child repoで両ファイルを含めて検証、commit、`origin`へ通常pushし、commit SHAを取得する。
 5. rootへregistry entryと`projects/.gitignore`のmanaged entryを追加する。
 6. root indexから旧`PROJECT.md`と`STATE.md`を削除し、root commitを作成する。
-7. child cloneを一時退避し、`projects/<name>/`を消失させない形でclone全体を一段上へ移動する。
+7. `projects/<name>/`を消失させない形でclone全体を一段上へ移動する。
 8. `.git`が`projects/<name>/.git/`にあること、`PROJECT.md`、`STATE.md`、`origin`、HEAD、全refを再確認する。
 9. validatorとcacheを実行し、`bash tools/backup-to-github.sh`が`WORKSPACE_BACKUP_OK`を出すことを確認する。
 10. 利用者の明示承認を得た後だけ旧一時copyを削除する。

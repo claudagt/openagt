@@ -22,8 +22,8 @@ bash tools/run-routine.sh maintenance --full     # 広域検証を強制
 1. 実行rootを確定し、instance lockを取得する。
 2. working tree、index、untracked、branch、HEADを確認し、base SHAを記録する。
    cleanでなければ`SKIPPED`する。
-3. `tools/build-context-cache.sh --check-routing`でcache鮮度を確認し、欠損・staleの
-   場合だけ`tools/build-context-cache.sh`で1回再生成して再確認する。
+3. `tools/build-context-cache.sh --check-routing`でrouting鮮度を確認し、欠損・staleの
+   場合だけ`--routing-only`で1回再生成して再確認する。manifestは日次の対象外とする。
 4. 標準validator `tools/validate-agent-directory.sh`を実行する。
 5. 自分が所有する`.agent-cache/routines/**`のrun logとstale lockだけを限定的に保守する。
 6. machine-readableな結果を出力する。
@@ -37,6 +37,8 @@ Knowledge LOGへは追記しない。LOGのローテーションは`tools/append
 
 - `.agent-cache/routines/state/`の最終成功時刻から7日以上経過、記録なし、または`--full`
   指定で、`--full` validatorを実行する。
+- full実行時は`tools/build-context-cache.sh --check`でmanifest鮮度も確認し、staleなら
+  通常buildを1回実行して再確認する。dry-runは再生成せずstaleを報告する。
 - 導入済みAgentでプレースホルダー（`<agent-name>`等）が解消済みの場合は`--strict`も
   併用する。公開スケルトンの意図されたプレースホルダーをstrict通過のために書き換えない。
 

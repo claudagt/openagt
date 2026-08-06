@@ -54,15 +54,25 @@ checkpoint_path() {
   printf '%s/backup-checkpoint-%s-%s' "$cache_dir" "$remote" "$(printf '%s' "$branch" | tr '/' '_')"
 }
 
+# The checkpoint never stores the remote URL itself (it may carry userinfo); only a
+# deterministic hash of the URL is stored and compared.
+checkpoint_url_hash() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$remote_url" | shasum -a 256 | awk '{print $1}'
+  else
+    printf '%s' "$remote_url" | cksum | awk '{print $1 "-" $2}'
+  fi
+}
+
 load_backup_checkpoint() {
   local file sha stored
   file="$(checkpoint_path)"
   [[ -f "$file" ]] || return 0
-  grep -Fqx 'schema_version=1' "$file" 2>/dev/null || return 0
+  grep -Fqx 'schema_version=2' "$file" 2>/dev/null || return 0
   stored="$(sed -n 's/^remote=//p' "$file" | head -n 1)"
   [[ "$stored" == "$remote" ]] || return 0
-  stored="$(sed -n 's/^url=//p' "$file" | head -n 1)"
-  [[ "$stored" == "$remote_url" ]] || return 0
+  stored="$(sed -n 's/^url_hash=//p' "$file" | head -n 1)"
+  [[ "$stored" == "$(checkpoint_url_hash)" ]] || return 0
   stored="$(sed -n 's/^branch=//p' "$file" | head -n 1)"
   [[ "$stored" == "$branch" ]] || return 0
   sha="$(sed -n 's/^sha=//p' "$file" | head -n 1)"
@@ -75,9 +85,9 @@ load_backup_checkpoint() {
 write_backup_checkpoint() {
   mkdir -p "$cache_dir" 2>/dev/null || return 0
   {
-    printf 'schema_version=1\n'
+    printf 'schema_version=2\n'
     printf 'remote=%s\n' "$remote"
-    printf 'url=%s\n' "$remote_url"
+    printf 'url_hash=%s\n' "$(checkpoint_url_hash)"
     printf 'branch=%s\n' "$branch"
     printf 'sha=%s\n' "$local_head"
   } > "$(checkpoint_path)" 2>/dev/null || true
@@ -583,8 +593,10 @@ fi
 
 # --- 6. forbidden content in root -------------------------------------------------
 
-# The only nested Git repositories allowed are the Project roots of registered Independent Projects.
-nested_prune=( -path "$repo_root/.git" )
+# The only nested Git repositories allowed are the Project roots of registered Independent
+# Projects. The contract-defined derived areas .tmp/ and .agent-cache/ are outside every
+# backup target, so they are pruned instead of being walked on every run.
+nested_prune=( -path "$repo_root/.git" -o -name '.tmp' -o -name '.agent-cache' )
 if (( independent_count > 0 )); then
   scan_index=0
   while (( scan_index < independent_count )); do

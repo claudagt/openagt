@@ -138,17 +138,20 @@ tools/find-context.sh --route knowledge --limit 5 -- "資本配分"
 # 明示的な監査時だけ非activeも含める
 tools/find-context.sh --route project --include-inactive -- "site migration"
 
-# 対象確定後の初期読込を1回のContext Packetへまとめる
-tools/prepare-context.sh --route project --target projects/<name>
+# 対象確定後の初期読込とtask class profileを1回のContext Packetへまとめる
+tools/prepare-context.sh --route project --target projects/<name> --class work
+tools/prepare-context.sh --route meta --target tools/TOOLS.md --class read
 ```
 
 明示パスと正本の明示参照を最優先とし、検索結果は候補として扱う。選択後に正本を読む。
-`.agent-cache/`のcatalogとmanifestは正本から再生成され、欠損・stale時はToolが一度作り直す。
+`.agent-cache/`は正本から再生成され、検索のstale回復はrouting catalogだけを一度作り直す。
+manifest（全体inventory）はMaintenanceとfull検証だけが再生成する。
 探索順位、fallback、読込予算の詳細は[tools/TOOLS.md](tools/TOOLS.md)と[AGENTS.md](AGENTS.md)が所有する。
 
 ## 検証
 
 ```bash
+bash tools/validate-agent-directory.sh --changed          # 通常work: 変更対象だけの限定検証
 bash tools/validate-agent-directory.sh
 bash tools/validate-agent-directory.sh --strict --full
 bash tools/validate-agent-directory.sh --full --base main
@@ -156,7 +159,10 @@ bash tools/validate-agent-directory.sh --full --base main
 
 validatorは構造、`AGENTS.md`と`CLAUDE.md`の三層、frontmatter、Project契約、状態、Project docsの境界と
 命名、参照上限、サイズ、INDEX、LOG、eval schema、派生cacheの決定的再生成、禁止されたGit追跡を検査する。
-`--base`は不変原資料や閉鎖済みlogの変更も検査する。依存関係、CI、GitHub接続を必要としない。
+`--changed`は変更されたProject・Knowledge・Skillだけを検査し、baseline未指定ならHEAD、タスク開始SHAが
+あるなら`--base <sha>`で開始点からworking treeまでを検査する。不変原資料・閉鎖済みlogの編集や削除、
+Knowledgeページの削除は通常workとして通らない。meta正本への変更は全体静的検査へ自動fallbackする。
+依存関係、CI、GitHub接続を必要としない。
 
 ## Routine（自律定期保守）
 

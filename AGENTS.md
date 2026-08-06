@@ -1,6 +1,6 @@
 # AGENTS.md — 最上位ブートローダー
 
-共通規約の正本。詳細規則は各Route正本が所有。
+共通規約の正本。詳細は各Route正本が所有。
 
 ## 自己定義
 
@@ -10,43 +10,38 @@
 
 ## 共通判断原則
 
-1. 明示指示を優先。
-2. 会話記憶・派生キャッシュよりリポジトリ正本を優先。
-3. 検証可能な結果を最大化。
-4. 正本を複数保持しない。
-5. 構造と変更を最小に保つ。
+明示指示、リポジトリ正本（会話記憶・派生キャッシュより優先）、検証可能な結果を優先する。
+正本を複数保持せず、構造と変更を最小に保つ。
 
 ## Route
 
-依頼・明示パス・成果物からRouteを決め、入口を読む。
+依頼・明示パス・成果物からRouteを決めて入口を読む。
 
 | Route | 対象 | 入口 |
 |---|---|---|
-| `knowledge` | 取り込み、記憶、照会、統合 | `knowledge/KNOWLEDGE.md` |
+| `knowledge` | 取り込み、照会、統合 | `knowledge/KNOWLEDGE.md` |
 | `skill` | 再利用手順・研究方法 | `skills/SKILLS.md`と対象`SKILL.md` |
-| `project` | 固有作業・成果物・具体的な研究 | `projects/AGENTS.md` |
+| `project` | 固有作業・成果物・研究 | `projects/AGENTS.md` |
 | `meta` | 構造、規約、eval、tool | 対象領域の正本と変更対象 |
 | `none` | 永続変更のない回答 | 追加ロードなし |
 
-Project Route順序は`projects/AGENTS.md`が所有。
-
 ## Context Loading
 
-- 明示相対パスを最優先。
-- 探索は`tools/find-context.sh`が所有。確定後に正本を読む。
+- 明示相対パス最優先。明示targetでは検索しない。探索は`tools/find-context.sh`が所有し、
+  確定後に正本を読む。
 - 台帳、INDEX、LOG、履歴、`runs/`、`docs/**`、`.agent-cache/`を一括読込しない。
 - 24KiB超の正本は見出し・検索で絞って読む。
-- 読込予算は`min(16,000 tokens, コンテキストの25%)`＝32KiB・12ファイル。到達時は停止報告。
+- 読込予算は32KiB・12ファイル=`min(16,000 tokens, 25%)`。到達時は停止報告。
 
 ## 自律実行
 
-Human-on-the-loop。変更前に**Route**、**Owner**、**Target**、**Verify**を一意特定。sessionの書込Git rootは1つとし判定は`projects/AGENTS.md`が所有。
+Human-on-the-loop。変更前に**Route**、**Owner**、**Target**、**Verify**、task class（read|work|state|boundary）を一意特定し、`tools/prepare-context.sh --class`でprofileを得る。readは検証・commit・backupなし。work/stateは`--changed`、boundaryとmeta正本変更はfull。書込Git rootはsession毎に1つ（判定は`projects/AGENTS.md`）。
 
-TriggerはHumanまたはRoutine（Routeではない）。Routineも同一規則に従い、関連時だけ`routines/ROUTINES.md`を読む。
+TriggerはHumanまたはRoutine（Routeではない）。同一規則に従い、関連時だけ`routines/ROUTINES.md`を読む。
 
-4つが一意、依頼範囲内、リポジトリ完結、可逆、外部影響なし、契約不変、正本衝突・秘密情報なし、既存検証で確認できる操作は確認せず完了・事後報告。フロー: `対象確定 → 最小読込 → 変更 → 自己検査 → 検証 → 状態更新 → commit → policy準拠push/backup → 報告`。
+特定が一意、依頼範囲内、リポジトリ完結、可逆、外部影響なし、契約不変、正本衝突・秘密情報なし、既存検証で確認できる操作は確認せず完了・事後報告。フロー: `対象確定 → 最小読込 → 変更 → 検証 → commit → push/backup → 報告`。
 
-処理一意時は選択肢を返さず質問しない。基準は`tools/TOOLS.md`が所有。
+処理一意時は選択肢を返さず質問しない（基準は`tools/TOOLS.md`）。
 
 ## 人間へ上げる例外
 
@@ -54,12 +49,12 @@ TriggerはHumanまたはRoutine（Routeではない）。Routineも同一規則�
 
 | 例外 | 代表例 | 正本 |
 |---|---|---|
-| 方針・契約 | 目的、`PC-xx`、成功指標、優先順位、Project新設・廃止 | `projects/LIFECYCLE.md` |
+| 方針・契約 | 目的、`PC-xx`、優先順位、Project新設・廃止 | `projects/LIFECYCLE.md` |
 | 不可逆 | 永久削除、履歴改変、force push、reset | `tools/BACKUP.md` |
-| 外部影響 | 公開、本番、送信、権限、deploy、承認push | `projects/PROJECTS.md` |
+| 外部影響 | 公開、本番、送信、権限、承認push | `projects/PROJECTS.md` |
 | 安全性・衝突 | divergence、Single Writer違反、秘密情報、所有者不明変更 | `tools/TOOLS.md` |
 
-決定方針は正本へ記録し繰り返し質問しない。停止時は事実、試行修正、理由、決定点、推奨判断を報告。
+決定方針は正本へ記録し繰り返し質問しない。停止時は事実、試行修正、決定点、推奨判断を報告。
 
 ## 禁止事項
 
@@ -71,10 +66,10 @@ TriggerはHumanまたはRoutine（Routeではない）。Routineも同一規則�
 
 ## 詳細正本
 
-- `projects/PROJECTS.md` — 構造、成果契約、attachment、remote操作、push policy、docs
+- `projects/PROJECTS.md` — 構造、成果契約、attachment、remote操作、docs
 - `projects/LIFECYCLE.md` / `projects/RECOVERY.md` — 状態遷移 / 復旧
-- `tools/TOOLS.md` — 探索、commit、自己修復、サイズ超過、fallback、予算
-- `tools/BACKUP.md` — backup trigger、remote分類、divergence、Single Writer
+- `tools/TOOLS.md` — task class、探索、commit、自己修復、予算
+- `tools/BACKUP.md` — backup、remote分類、divergence、Single Writer
 - `evals/EVALS.md` — 振る舞いevalの契約
 
 ## 参照順序

@@ -177,16 +177,18 @@ if [[ "$dry_run" != true ]]; then
   find "$logs_dir" -type f -name "$routine_id-*.log" -mtime +30 -delete 2>/dev/null || true
 fi
 
+# The daily run owns only routing freshness; a stale catalog is rebuilt routing-only.
+# The full workspace inventory (manifest) is owned by the full cycle below.
 cache_state='current'
 if ! AGENT_DIRECTORY_ROOT="$repo_root" AGENT_CACHE_DIR="$cache_dir" \
   bash "$repo_root/tools/build-context-cache.sh" --check-routing >/dev/null 2>&1; then
   if [[ "$dry_run" == true ]]; then
     cache_state='stale'
-    log 'context cache is stale; dry run does not regenerate it'
+    log 'routing catalog is stale; dry run does not regenerate it'
   else
-    log 'context cache is missing or stale; regenerating once from canon'
+    log 'routing catalog is missing or stale; regenerating it once from canon'
     if ! AGENT_DIRECTORY_ROOT="$repo_root" AGENT_CACHE_DIR="$cache_dir" \
-      bash "$repo_root/tools/build-context-cache.sh" >/dev/null 2>&1 || \
+      bash "$repo_root/tools/build-context-cache.sh" --routing-only >/dev/null 2>&1 || \
       ! AGENT_DIRECTORY_ROOT="$repo_root" AGENT_CACHE_DIR="$cache_dir" \
       bash "$repo_root/tools/build-context-cache.sh" --check-routing >/dev/null 2>&1; then
       emit "ROUTINE_FAILED id=$routine_id phase=cache reason=cache-rebuild-failed"
@@ -206,6 +208,29 @@ else
   [[ ! -f "$full_state_file" ]] || last_full="$(head -n 1 "$full_state_file" 2>/dev/null || true)"
   if [[ ! "$last_full" =~ ^[0-9]+$ ]] || (( $(date +%s) - last_full >= 604800 )); then
     run_full=true
+  fi
+fi
+
+# The full cycle also proves the workspace inventory fresh: --check compares the full
+# cache, a stale manifest is rebuilt once with a normal build, and a dry run only reports.
+if [[ "$run_full" == true ]]; then
+  if ! AGENT_DIRECTORY_ROOT="$repo_root" AGENT_CACHE_DIR="$cache_dir" \
+    bash "$repo_root/tools/build-context-cache.sh" --check >/dev/null 2>&1; then
+    if [[ "$dry_run" == true ]]; then
+      # Keep a more fundamental routing staleness visible; report manifest-stale only on its own.
+      [[ "$cache_state" != 'current' ]] || cache_state='manifest-stale'
+      log 'full cache (manifest) is stale; dry run does not regenerate it'
+    else
+      log 'full cache (manifest) is stale; regenerating it once from canon'
+      if ! AGENT_DIRECTORY_ROOT="$repo_root" AGENT_CACHE_DIR="$cache_dir" \
+        bash "$repo_root/tools/build-context-cache.sh" >/dev/null 2>&1 || \
+        ! AGENT_DIRECTORY_ROOT="$repo_root" AGENT_CACHE_DIR="$cache_dir" \
+        bash "$repo_root/tools/build-context-cache.sh" --check >/dev/null 2>&1; then
+        emit "ROUTINE_FAILED id=$routine_id phase=cache reason=manifest-rebuild-failed"
+        exit 1
+      fi
+      cache_state='rebuilt'
+    fi
   fi
 fi
 
