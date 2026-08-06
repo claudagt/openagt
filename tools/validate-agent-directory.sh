@@ -2627,6 +2627,54 @@ fi
       fail "routine fixture: $1 left the working tree modified"
   }
 
+  # Nested real-validator runs dominate --full wall time (~3s × 17 invocations on near-identical
+  # content). Keep the real validator only for representative runs (the PASS path on the clean
+  # tree and the first FAIL path on the broken probe); every other run uses a stand-in that
+  # checks exactly the property the probe exercises (the Wiki topic status vocabulary) with the
+  # real validator's FAIL wording, so every expectation below still sees real findings.
+  # Each swap is committed because run-routine.sh refuses a dirty tree, and routine_base_sha is
+  # re-read because later cases compare HEAD against it.
+  routine_real_validator_copy="$routine_fixture_dir/real-validator.sh"
+  cp "$routine_work/tools/validate-agent-directory.sh" "$routine_real_validator_copy"
+  routine_commit_validator_swap() {
+    routine_git add -- tools/validate-agent-directory.sh
+    routine_git commit -q -m "fixture: $1"
+    routine_base_sha="$(routine_git rev-parse HEAD)"
+  }
+  routine_use_standin_validator() {
+    cat > "$routine_work/tools/validate-agent-directory.sh" <<'ROUTINE_STANDIN'
+#!/usr/bin/env bash
+# Routine-fixture stand-in: reproduces only the probe check (Wiki topic status vocabulary)
+# with the real validator's exact FAIL wording, at a fraction of the cost. Arguments are
+# accepted and ignored so --strict/--full call sites keep working.
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+status_ok=true
+for page in "$root"/knowledge/wiki/topics/*.md; do
+  [[ -f "$page" ]] || continue
+  page_status="$(awk '
+    NR == 1 && $0 != "---" { exit }
+    NR > 1 && $0 == "---" { exit }
+    index($0, "status:") == 1 { sub(/^[^:]+:[[:space:]]*/, ""); print; exit }
+  ' "$page")"
+  case "$page_status" in
+    active|superseded|archived|retired) ;;
+    *)
+      printf 'FAIL: %s has an invalid status\n' "${page#"$root"/}"
+      status_ok=false
+      ;;
+  esac
+done
+[[ "$status_ok" == true ]] || exit 1
+printf 'PASS: agent-directory structure is valid\n'
+ROUTINE_STANDIN
+    routine_commit_validator_swap 'stand-in validator'
+  }
+  routine_use_real_validator() {
+    cp "$routine_real_validator_copy" "$routine_work/tools/validate-agent-directory.sh"
+    routine_commit_validator_swap 'real validator restored'
+  }
+
   # Clean dry run: generate nothing and NOOP. The cache is only reported stale, not regenerated.
   seed_routine_last_full
   routine_run maintenance --dry-run
@@ -2648,6 +2696,9 @@ fi
   [[ "$(routine_git rev-parse HEAD)" == "$routine_base_sha" ]] || \
     fail 'routine fixture: a NOOP run created a commit'
   routine_expect_clean 'the clean run'
+  # The real validator has proven the PASS path through run-routine; later runs only need
+  # probe-sensitive semantics, so switch to the cheap stand-in from here.
+  routine_use_standin_validator
   routine_run maintenance
   routine_expect 'cache=current' 'the warm second run'
 
@@ -2701,6 +2752,10 @@ fi
   routine_run maintenance
   routine_expect 'ROUTINE_NOOP id=maintenance' 'the stale lock run'
 
+  # Restore the real validator for the first broken-probe run, so the FAIL path (probe
+  # detection and findings parsing) is proven end-to-end against the real implementation once.
+  routine_use_real_validator
+
   # Create a finding for the deterministic checks: a Wiki topic with an invalid status (a low-risk repair target).
   routine_probe='knowledge/wiki/topics/routine-probe.md'
   {
@@ -2716,6 +2771,10 @@ fi
   (( routine_status != 0 )) || fail 'routine fixture: validator findings did not fail the routine'
   routine_expect 'ROUTINE_FAILED id=maintenance phase=validation reason=validator-failures' 'the disabled reasoning run'
   routine_expect 'reasoning=disabled' 'the disabled reasoning run'
+
+  # Both real-validator paths are now covered; the remaining cases (provider gating, patch
+  # safety, sandbox verification, commit scoping) only need probe-sensitive PASS/FAIL results.
+  routine_use_standin_validator
 
   # Provider unconfigured: the deterministic phases complete; only the reasoning layer is marked unconfigured.
   routine_extra_env=(AGENT_ROUTINE_REASONING_ENABLED=true AGENT_ROUTINE_REASONING_PROVIDER=deepseek)
