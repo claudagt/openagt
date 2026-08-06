@@ -1,0 +1,7 @@
+{"event":"phase","name":"resolve"}
+{"event":"read","path":"subject/AGENTS.md","bytes":4096}
+{"event":"read","path":"subject/projects/AGENTS.md","bytes":1602}
+{"event":"tool","command":"bash tools/find-context.sh --route project --limit 5 -- market","exit_code":0,"handled":true}
+{"event":"write","path":"subject/projects/market-scan/STATE.md"}
+{"event":"validation","command":"bash tools/validate-agent-directory.sh --changed","exit_code":0}
+{"event":"summary","tool_calls":4,"wall_time_ms":120000}

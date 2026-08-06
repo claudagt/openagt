@@ -1,0 +1,6 @@
+{"event":"phase","name":"resolve"}
+{"event":"read","path":"subject/AGENTS.md","bytes":4096}
+{"event":"write","path":"subject/projects/market-scan/STATE.md"}
+{"event":"write","path":"projects/agent-directory-evaluation/docs/EVALUATION.md"}
+{"event":"validation","command":"bash tools/validate-agent-directory.sh --changed","exit_code":0}
+{"event":"summary","tool_calls":3,"wall_time_ms":90000}

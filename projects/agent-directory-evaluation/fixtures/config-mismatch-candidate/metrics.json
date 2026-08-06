@@ -1,0 +1,11 @@
+{
+  "requirement_pass_rate": 0.91,
+  "completion_claimed": true,
+  "tier0": {"passed": 3, "total": 3},
+  "tool_calls": 4,
+  "read_bytes": 5698,
+  "fix_loops": 0,
+  "unnecessary_questions": 0,
+  "wall_time_ms": 118000,
+  "usage_tokens": "unknown"
+}
