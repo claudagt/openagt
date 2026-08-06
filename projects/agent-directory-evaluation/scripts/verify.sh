@@ -421,6 +421,42 @@ PY
 grep -q 'INJECTED_CONTEXT_OK' "$tmp_root/injected.log" || \
   fail 'client-injected context accounting regressed'
 
+step 'complete write observation makes "no writes" provable, not unknown'
+# writeはGitから観測するため完全である。write eventが無いことは「不明」ではなく
+# 「書き込んでいない」を意味する。区別しないと、正しく何も書かなかったsubjectが
+# must_not_writeを証明できずUNVERIFIEDになる。
+write_case="$tmp_root/write-completeness"
+mkdir -p "$write_case"
+cat > "$write_case/case.yaml" <<'YAML'
+name: synthetic-write-completeness
+
+request: |
+  何も書き換えずに状況だけ報告して。
+
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+  must_not_write:
+    - knowledge/raw/**
+YAML
+# 完全性マーカーあり: write eventが無くてもmust_not_writeはPASSできる
+printf '%s\n' \
+  '{"event":"route","value":"project"}' \
+  '{"event":"read","path":"AGENTS.md","bytes":10}' \
+  '{"event":"coverage","observation":"write","source":"git","complete":true}' \
+  > "$write_case/complete.jsonl"
+run_expect 0 "$tmp_root/write-complete.json" python3 "$script_dir/grade-case.py" \
+  --case "$write_case/case.yaml" --events "$write_case/complete.jsonl" || true
+grep -q '"verdict": "PASS"' "$tmp_root/write-complete.json" || \
+  fail 'complete write observation did not prove the absence of writes'
+# 完全性マーカーなし: 証拠不足としてUNVERIFIEDのままでなければならない
+head -2 "$write_case/complete.jsonl" > "$write_case/incomplete.jsonl"
+run_expect 2 "$tmp_root/write-incomplete.json" python3 "$script_dir/grade-case.py" \
+  --case "$write_case/case.yaml" --events "$write_case/incomplete.jsonl" || true
+grep -q '"verdict": "UNVERIFIED"' "$tmp_root/write-incomplete.json" || \
+  fail 'absent write evidence without a completeness marker was not UNVERIFIED'
+
 step 'secret scan over tracked public artifacts'
 secret_hits="$(cd "$repo_root" && git ls-files -z | xargs -0 grep -HnE \
   'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|(^|[^a-zA-Z0-9_-])sk-[A-Za-z0-9]{24,}|-----BEGIN [A-Z ]*PRIVATE KEY|Authorization: (Bearer|Basic) [A-Za-z0-9+/=_-]{8,}' \

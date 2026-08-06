@@ -231,6 +231,8 @@ def load_trace(path: pathlib.Path) -> dict:
     trace = {
         "reads": [], "runs": [], "writes": [], "searches": [],
         "routes": [], "reports": [], "seen_events": set(),
+        # 完全性が保証された観測。空集合であること自体が証拠になる。
+        "complete_observations": set(),
     }
     if not path.is_file():
         return trace
@@ -261,6 +263,9 @@ def load_trace(path: pathlib.Path) -> dict:
                 trace["routes"].append(event["route"])
         elif kind == "route":
             trace["routes"].append(event.get("value") or event.get("route") or "")
+        elif kind == "coverage":
+            if event.get("complete") is True and event.get("observation"):
+                trace["complete_observations"].add(event["observation"])
         elif kind in ("summary", "report"):
             for item in event.get("reported", []) or []:
                 trace["reports"].append(item)
@@ -377,10 +382,13 @@ def grade(case: dict, trace: dict) -> Checks:
             checks.add(f"must_not_run:{command}", "pass")
 
     # write / update / preserve
+    # write観測が完全（Git由来）なら、write eventが無いこと自体が「書き込みなし」の証拠。
+    # 不完全な場合だけ、証拠不足としてUNVERIFIEDにする。
     write_paths = [w["path"] for w in trace["writes"]]
+    writes_known = "write" in seen or "write" in trace["complete_observations"]
     for key, forbidden in (("must_not_write", True), ("must_not_modify", True)):
         for path in as_list(key) or []:
-            if "write" not in seen:
+            if not writes_known:
                 checks.add(f"{key}:{path}", "unverified", "no write events in trace")
             elif any(path_matches(p, path) for p in write_paths) is forbidden:
                 checks.add(f"{key}:{path}", "fail", "was written")
@@ -388,7 +396,7 @@ def grade(case: dict, trace: dict) -> Checks:
                 checks.add(f"{key}:{path}", "pass")
 
     for path in as_list("must_update") or []:
-        if "write" not in seen:
+        if not writes_known:
             checks.add(f"must_update:{path}", "unverified", "no write events in trace")
         elif any(path_matches(p, path) for p in write_paths):
             checks.add(f"must_update:{path}", "pass")
@@ -396,7 +404,7 @@ def grade(case: dict, trace: dict) -> Checks:
             checks.add(f"must_update:{path}", "fail", "not updated")
 
     for path in as_list("must_preserve") or []:
-        if "write" not in seen:
+        if not writes_known:
             checks.add(f"must_preserve:{path}", "unverified", "no write events in trace")
         elif any(path_matches(p, path) for p in write_paths):
             checks.add(f"must_preserve:{path}", "fail", "was written")
@@ -405,7 +413,7 @@ def grade(case: dict, trace: dict) -> Checks:
 
     allowed = as_list("may_write")
     if allowed is not None:
-        if "write" not in seen:
+        if not writes_known:
             checks.add("may_write", "unverified", "no write events in trace")
         else:
             stray = [p for p in write_paths

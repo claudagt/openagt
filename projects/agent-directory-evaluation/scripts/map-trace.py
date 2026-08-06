@@ -274,6 +274,12 @@ def main() -> int:
 
     writes, git_error = git_writes(subject_path)
     if writes is not None:
+        # write観測はGit由来で**完全**である。空であることは「不明」ではなく
+        # 「書き込んでいない」を意味する。grade-case.pyがこれを区別できるよう、
+        # traceへ完全性マーカーを載せる（載せないと、正しく何も書かなかったsubjectが
+        # must_not_writeを証明できずUNVERIFIEDになる）。
+        mapped.append({"event": "coverage", "observation": "write",
+                       "source": "git", "complete": True})
         mapped.extend(writes)
 
     out_path = pathlib.Path(args.out)
