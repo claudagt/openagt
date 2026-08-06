@@ -3280,6 +3280,9 @@ def write(name, payload):
 write('good-chat.json', chat(model('repair the schema violation', patch)))
 write('good-anthropic.json', anthropic(model('repair the schema violation', patch)))
 write('malformed-chat.json', chat('this is not the requested json object'))
+write('truncated-chat.json', json.dumps(
+    {"choices": [{"message": {"content": '{"analysis": "cut off mid'},
+                  "finish_reason": "length"}]}))
 write('forbidden-chat.json',
       chat(model('touch canon', patch.replace('knowledge/wiki/topics/routine-probe.md', 'AGENTS.md'))))
 big = ('--- a/knowledge/wiki/topics/routine-probe.md\n'
@@ -3367,6 +3370,23 @@ MOCK_RESPONSES
       fail 'routine fixture: a malformed provider response was not rejected'
     (( routine_adapter_status != 0 )) || fail 'routine fixture: a malformed response exited zero'
     [[ ! -s "$routine_adapter_out" ]] || fail 'routine fixture: a malformed response still produced a patch'
+
+    # Length-capped response: classified as output-truncated, not malformed-response.
+    cp "$routine_mock_state/truncated-chat.json" "$routine_mock_state/response.json"
+    rm -f "$routine_adapter_out"
+    set +e
+    routine_adapter_result="$(printf 'FAIL: fixture finding\n' | \
+      env "${routine_env[@]}" DEEPSEEK_API_KEY=fixture-secret \
+      DEEPSEEK_BASE_URL="http://127.0.0.1:$routine_mock_port" \
+      AGENT_ROUTINE_REASONING_PROVIDER=deepseek AGENT_ROUTINE_REASONING_MODEL=fixture-model \
+      python3 "$routine_work/tools/routine-reasoner.py" --request --root "$routine_work" \
+      --context-file "$routine_probe" --output "$routine_adapter_out" 2>/dev/null)"
+    routine_adapter_status=$?
+    set -e
+    printf '%s\n' "$routine_adapter_result" | grep -Fq 'REASONING_FAILED reason=output-truncated' || \
+      fail 'routine fixture: a length-capped response was not classified as output-truncated'
+    (( routine_adapter_status != 0 )) || fail 'routine fixture: a truncated response exited zero'
+    [[ ! -s "$routine_adapter_out" ]] || fail 'routine fixture: a truncated response still produced a patch'
 
     # A Routine run with reasoning disabled never contacts the endpoint even when one is configured.
     routine_hits_before="$(cat "$routine_mock_state/hits" 2>/dev/null || printf 0)"

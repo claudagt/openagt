@@ -41,6 +41,10 @@ MAX_PAYLOAD_BYTES = 32768
 # Upper bound on how much of a provider response is read; a compliant answer is far smaller.
 MAX_RESPONSE_BYTES = 1048576
 ABSOLUTE_MAX_MODEL_CALLS = 3
+# The Anthropic Messages API requires max_tokens on every request, so a floor stays
+# even when AGENT_ROUTINE_REASONING_MAX_OUTPUT_TOKENS is unset. Chat Completions
+# providers accept requests without a token cap and then use the model's own limit.
+ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS = 8192
 
 SUPPORTED_PROVIDERS = ("deepseek", "openai", "anthropic")
 
@@ -85,12 +89,29 @@ def positive_int(name: str, default: int, ceiling: int = 0) -> int:
     return value
 
 
+def optional_positive_int(name: str):
+    """Like positive_int, but an unset variable means "no limit" (None)."""
+    raw = env(name)
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        fail("invalid-configuration")
+    if value < 1:
+        fail("invalid-configuration")
+    return value
+
+
 def build_request(provider: str, model: str, api_key: str, prompt: str,
-                  max_output_tokens: int):
+                  max_output_tokens):
     """Return (url, headers, body) for the selected provider only.
 
     Request shapes follow each provider's official Messages / Chat Completions
-    documentation. There is no fallback between providers.
+    documentation. There is no fallback between providers. max_output_tokens
+    may be None: Chat Completions requests then omit the cap entirely, while
+    Anthropic falls back to ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS because the
+    Messages API rejects requests without max_tokens.
     """
     if provider == "anthropic":
         base = env("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
@@ -102,7 +123,7 @@ def build_request(provider: str, model: str, api_key: str, prompt: str,
         }
         body = {
             "model": model,
-            "max_tokens": max_output_tokens,
+            "max_tokens": max_output_tokens or ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS,
             "system": PROMPT_INSTRUCTIONS,
             "messages": [{"role": "user", "content": prompt}],
         }
@@ -126,9 +147,28 @@ def build_request(provider: str, model: str, api_key: str, prompt: str,
             {"role": "system", "content": PROMPT_INSTRUCTIONS},
             {"role": "user", "content": prompt},
         ],
-        token_field: max_output_tokens,
     }
+    if max_output_tokens is not None:
+        body[token_field] = max_output_tokens
     return url, headers, body
+
+
+def check_not_truncated(provider: str, payload) -> None:
+    """Separate a budget problem from a malformed reply before parsing.
+
+    A reply cut off at the output-token cap almost always fails JSON parsing,
+    which used to surface as malformed-response and misdirect diagnosis toward
+    the model instead of the token budget.
+    """
+    try:
+        if provider == "anthropic":
+            truncated = payload.get("stop_reason") == "max_tokens"
+        else:
+            truncated = payload["choices"][0].get("finish_reason") == "length"
+    except (KeyError, IndexError, TypeError, AttributeError):
+        return  # structural problems are classified by extract_text
+    if truncated:
+        fail("output-truncated")
 
 
 def extract_text(provider: str, payload) -> str:
@@ -193,10 +233,12 @@ def run_request(argv) -> int:
     api_key = env(key_variable)
     if not model or not api_key:
         fail("unconfigured")
-    timeout = positive_int("AGENT_ROUTINE_REASONING_TIMEOUT_SECONDS", 120)
+    # Reasoning models have been measured at 198-365s per request; the timeout stays
+    # as a hang guard, sized above the slowest observed run.
+    timeout = positive_int("AGENT_ROUTINE_REASONING_TIMEOUT_SECONDS", 600)
     max_calls = positive_int("AGENT_ROUTINE_REASONING_MAX_MODEL_CALLS", 1,
                              ABSOLUTE_MAX_MODEL_CALLS)
-    max_output_tokens = positive_int("AGENT_ROUTINE_REASONING_MAX_OUTPUT_TOKENS", 8192)
+    max_output_tokens = optional_positive_int("AGENT_ROUTINE_REASONING_MAX_OUTPUT_TOKENS")
 
     findings = sys.stdin.read()
     if len(context_files) > MAX_CONTEXT_FILES:
@@ -248,6 +290,7 @@ def run_request(argv) -> int:
     if payload is None:
         fail("transport-error")
 
+    check_not_truncated(provider, payload)
     parsed = parse_model_json(extract_text(provider, payload))
     analysis = parsed.get("analysis", "").strip()
     if analysis:
