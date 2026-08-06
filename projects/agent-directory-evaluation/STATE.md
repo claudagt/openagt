@@ -6,7 +6,7 @@ updated_at: 2026-08-06
 
 ## 現在の到達点
 
-- `docs/EVALUATION.md`（policy v1.0.1）と最小harnessを整備し、`verify.sh`の27検査が合格。
+- `docs/EVALUATION.md`（policy v1.0.1）と最小harnessを整備し、`verify.sh`の29検査が合格。
 - 2026-08-06の人間レビューで初期構築は合格。実運用開始はP0/P1解消まで保留。
 - 第2段階でadapter（`codex-adapter.sh`）、run分類（`classify-run.py`）、case grader
   （`grade-case.py`）、trace写像（`map-trace.py`）、外側runner（`run-case.sh`）、
@@ -62,8 +62,9 @@ updated_at: 2026-08-06
   field名が未確認のため、`map-trace.py`はread/runを写像できずunmappedとして数える。
   結果、実codex traceではread/run系の期待項目がUNVERIFIEDになる。実trace取得後に写像規則を
   追加する（推測で固定しない）。writeはclient非依存のため現時点でも有効。
-- P1: `grade-run.py`の強度不足（HG-06未実装、path正規化なし、秘密検査がevents限定、
-  Tier 0がmetrics自己申告、unknown hashのVALID扱い）。
+- P1（解消）: `grade-run.py`を補強。path正規化（`subject/../..`と絶対pathの脱出検出）、
+  HG-06（並列正本の新設と同一内容の二重化）、秘密検査をmanifest・metricsへ拡大、
+  必須hashの`unknown`をINVALID化。HG-12は自己申告metricsで判定せずcheck-promotion.pyへ委譲。
 - P1（解消）: `check-promotion.py`が3 trial集約・複数config・Tier 0・回帰・MDEを一括判定する。
   閾値引数を持たないためCLIから緩められない。`compare-runs.py`は部品に降格。
 - **人間判断待ち**: Tier 0 caseの一覧が未確定。`check-promotion.py`は`--tier0-file`必須で、
@@ -102,10 +103,9 @@ updated_at: 2026-08-06
 
 ## 次の一手
 
-1. P1補強: `grade-run.py`の強度（HG-06、path正規化、秘密検査の範囲、unknown hashの扱い）。
-   grader_hashが変わるため独立commitにする。
-2. quota回復後: smokeを完了し、codexのitem系eventの実形式を確認して`map-trace.py`へ
+1. quota回復後: smokeを完了し、codexのitem系eventの実形式を確認して`map-trace.py`へ
    read/runの写像規則を追加する。併せてresolved model ID・sampling・上限を実値化する。
-3. 5-6 最初の実baseline取得（run開始時点の最新`agent-directory/main`を再取得・固定）。
+2. 5-6 最初の実baseline取得（run開始時点の最新`agent-directory/main`を再取得・固定）。
+3. Tier 0 case一覧の確定（人間判断）後、`check-promotion.py`へ渡せるようにする。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。

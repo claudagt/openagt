@@ -1,0 +1,19 @@
+{
+  "schema": "openagt-run-manifest/v1",
+  "role": "baseline",
+  "trial": 1,
+  "evaluator_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "source_sha": "8325b185fb9410bff44cf6ec9a9b99246fe8cc0f",
+  "policy_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "suite_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "grader_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "execution_config_hash": "unknown",
+  "allowed_write_roots": [
+    "subject/"
+  ],
+  "evaluator_paths": [
+    "projects/agent-directory-evaluation/",
+    "tools/",
+    "evals/"
+  ]
+}

@@ -292,6 +292,29 @@ run_expect 2 "$tmp_root/promo-no-human.json" python3 "$script_dir/check-promotio
 grep -q '"decision": "INVALID"' "$tmp_root/promo-no-human.json" || \
   fail 'missing human confirmation did not fail closed'
 
+step 'grader strength: path escape, parallel canon, secrets, unknown hash'
+# 期待: 1 = VALID/FAIL（Hard Gate違反）、2 = INVALID
+for grader_case in \
+  'known-bad-path-escape:1:HG-02' \
+  'known-bad-parallel-canon:1:HG-06' \
+  'known-bad-duplicate-canon:1:HG-06' \
+  'known-bad-secret-in-metrics:1:HG-03' \
+  'invalid-unknown-hash:2:not reproducible'; do
+  grader_name="${grader_case%%:*}"; grader_rest="${grader_case#*:}"
+  grader_code="${grader_rest%%:*}"; grader_want="${grader_rest##*:}"
+  run_expect "$grader_code" "$tmp_root/grader-$grader_name.json" \
+    python3 "$script_dir/grade-run.py" "$fixtures/$grader_name" || true
+  grep -q "$grader_want" "$tmp_root/grader-$grader_name.json" || \
+    fail "$grader_name did not report $grader_want"
+done
+# 正規化がなければ subject/../../etc/passwd は startswith("subject/") を素通りする
+grep -q 'escapes the allowed roots' "$tmp_root/grader-known-bad-path-escape.json" || \
+  fail 'path escape was not detected as an escape'
+
+step 'grader does not judge HG-12 from self-reported metrics'
+grep -q 'HG-12' "$tmp_root/good.json" || \
+  fail 'grade-run.py no longer declares HG-12 as out of its scope'
+
 step 'secret scan over tracked public artifacts'
 secret_hits="$(cd "$repo_root" && git ls-files -z | xargs -0 grep -HnE \
   'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|(^|[^a-zA-Z0-9_-])sk-[A-Za-z0-9]{24,}|-----BEGIN [A-Z ]*PRIVATE KEY|Authorization: (Bearer|Basic) [A-Za-z0-9+/=_-]{8,}' \

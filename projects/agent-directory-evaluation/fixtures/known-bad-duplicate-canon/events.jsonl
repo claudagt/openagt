@@ -1,0 +1,5 @@
+{"event": "phase", "name": "resolve"}
+{"event": "write", "path": "subject/docs/A.md", "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+{"event": "write", "path": "subject/docs/B.md", "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+{"event": "validation", "command": "bash tools/validate-agent-directory.sh --changed", "exit_code": 0}
+{"event": "summary", "tool_calls": 3, "wall_time_ms": 90000}

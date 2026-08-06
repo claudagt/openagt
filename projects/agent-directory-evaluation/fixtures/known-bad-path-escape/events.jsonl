@@ -1,0 +1,4 @@
+{"event": "phase", "name": "resolve"}
+{"event": "write", "path": "subject/../../etc/passwd"}
+{"event": "validation", "command": "bash tools/validate-agent-directory.sh --changed", "exit_code": 0}
+{"event": "summary", "tool_calls": 3, "wall_time_ms": 90000}
