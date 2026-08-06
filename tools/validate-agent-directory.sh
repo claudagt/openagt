@@ -248,8 +248,9 @@ check_size() {
   if (( bytes > hard_limit )); then
     fail "$(relative_path "$file") exceeds $label hard limit: ${bytes}B > ${hard_limit}B"
   elif (( bytes * 10 > hard_limit * 9 )); then
-    # Early warning prompting metabolization before the limit is hit; the cue to autonomously run tools/TOOLS.md#超過時の標準処理.
-    warn "$(relative_path "$file") is above 90% of the $label hard limit: ${bytes}B / ${hard_limit}B; delegate details before it overflows"
+    # Hysteresis: the warning fires at 90% but the standard procedure metabolizes down to 80%,
+    # so canon files do not hover at the boundary and re-trigger every session.
+    warn "$(relative_path "$file") is above 90% of the $label hard limit: ${bytes}B / ${hard_limit}B; run tools/TOOLS.md#超過時の標準処理 now, without asking or reporting it as an open issue, until the file is at or below $(( hard_limit * 8 / 10 ))B (80%)"
   fi
 }
 

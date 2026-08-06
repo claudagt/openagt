@@ -17,9 +17,8 @@ docs/<DOMAIN>_SENSE.md = 分野固有の定性的判断
 Root Knowledge         = Projectを越えて再利用する確定知識
 ```
 
-別の`GOAL.md`、`STATUS.md`、`TODO.md`を作らない。詳細履歴は`runs/`またはGit履歴へ置く。
-成果物はKnowledge、Skill、`.tmp/`へ残さず必ず一つのProjectが所有し、再利用可能な知見だけを
-`knowledge/`へ同期する。
+別の`GOAL.md`、`STATUS.md`、`TODO.md`を作らない。成果物はKnowledge、Skill、`.tmp/`へ残さず
+必ず一つのProjectが所有し、再利用可能な知見だけを`knowledge/`へ同期する。
 
 ### 作らない重複
 
@@ -33,13 +32,10 @@ Root Knowledge         = Projectを越えて再利用する確定知識
 
 ## 対象の選択
 
-1. 依頼か正本の明示相対パスを最優先し、未指定なら
-   `tools/find-context.sh --route project --limit 5 -- <query>`で候補を得る。Project選択の単位は
-   `PROJECT.md`であり、`docs/`配下を通常候補へ展開しない。
+1. 依頼か正本の明示相対パスを最優先する（未指定時の検索は`projects/AGENTS.md#着手`）。
+   Project選択の単位は`PROJECT.md`であり、`docs/`配下を通常候補へ展開しない。
 2. 通常候補は`status: active`だけ。`paused`、`completed`、`retired`は明示参照、再開、監査、保守時だけ選ぶ。
 3. 候補メタデータだけで一意に選べず、選択で成果や安全性が変わる場合は利用者へ確認する。
-
-読込順序は`projects/AGENTS.md#着手`が所有。
 
 ## 基本構造
 
@@ -52,12 +48,7 @@ projects/<project-name>/
 ├── AGENTS.md         # 任意。作業差分がある場合だけ
 ├── CLAUDE.md         # AGENTS.mdがあるときのブリッジ（@AGENTS.md）
 ├── ARCHITECTURE.md   # 任意。Project全体の構造地図
-├── docs/             # 任意。分野ごとのDomain Canonと詳細文書
-│   ├── <DOMAIN>.md
-│   ├── <DOMAIN>_SENSE.md
-│   ├── references/
-│   ├── generated/
-│   └── <project-defined>/
+├── docs/             # 任意。Domain Canonと詳細文書（構成は次節）
 ├── inputs/           # Project固有の入力
 ├── outputs/          # 完成成果物
 ├── runs/             # 保存価値のある詳細履歴。既定では読まない
@@ -70,19 +61,14 @@ projects/<project-name>/
 
 ## Project文書の三層
 
-```text
-Scope Canon      = AGENTS.md / PROJECT.md / STATE.md / ARCHITECTURE.md
-Domain Canon     = docs/<DOMAIN>.md、docs/<DOMAIN>_SENSE.md
-Detail Documents = docs/<小文字ケバブケース>/配下の詳細設計、仕様、研究、計画、証拠
-```
+Scope Canon（`AGENTS.md`/`PROJECT.md`/`STATE.md`/`ARCHITECTURE.md`）、Domain Canon
+（`docs/<DOMAIN>.md`と`docs/<DOMAIN>_SENSE.md`）、Detail Documents（`docs/`下の小文字ケバブケースの
+詳細設計、仕様、研究、計画、証拠）の三層とする。
 
 ### Domain Canon
 
-`docs/`直下に置く、意味を持つ大文字のMarkdownである。必須一覧はなく、実際に存在する分野だけを作る。
-
-```text
-docs/DESIGN.md  docs/PLANS.md  docs/RESEARCH.md  docs/PRODUCT_SENSE.md  docs/QUALITY_SCORE.md
-```
+`docs/`直下に置く、意味を持つ大文字のMarkdownである（例: `DESIGN.md`、`PLANS.md`、`RESEARCH.md`）。
+必須一覧はなく、実際に存在する分野だけを作る。
 
 - 命名は原則として`^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*\.md$`を満たす。
 - 内容を持つ`docs/`は最低1件のDomain Canonを直下に持つ。詳細文書だけを置いて入口を欠かない。
@@ -92,11 +78,8 @@ docs/DESIGN.md  docs/PLANS.md  docs/RESEARCH.md  docs/PRODUCT_SENSE.md  docs/QUA
 
 ### Detail Documents
 
-詳細フォルダと詳細文書はProjectごとに設計してよく、agent-directory全体で名前を固定しない。
-
-```text
-docs/design-docs/core-beliefs.md  docs/research/model-selection-study.md
-```
+詳細フォルダと詳細文書はProjectごとに設計してよく、agent-directory全体で名前を固定しない
+（例: `docs/design-docs/core-beliefs.md`）。
 
 - フォルダと詳細文書は原則として小文字ケバブケースとする。
 - `misc/`、`other/`、`notes/`のような総受けフォルダを作らない。
@@ -109,16 +92,10 @@ docs/design-docs/core-beliefs.md  docs/research/model-selection-study.md
 
 ## ARCHITECTURE.md
 
-Project rootに置く任意の全体地図である。
-
-| 所有する | 所有しない |
-|---|---|
-| Projectが解く問題の俯瞰、主要コンポーネント | 現在目標、TODO、進捗 |
-| コード、パッケージ、データの配置 | 詳細な試行履歴 |
-| 依存方向、システム境界 | 頻繁に変わる実装詳細 |
-| アーキテクチャ不変条件、横断的関心事 | `PROJECT.md`と`STATE.md`の再掲 |
-
-短く安定した地図とし、詳細設計は詳細文書が持つ。
+Project rootに置く任意の全体地図である。所有するのは、Projectが解く問題の俯瞰、主要コンポーネント、
+コード・パッケージ・データの配置、依存方向とシステム境界、アーキテクチャ不変条件、横断的関心事。
+所有しないのは、現在目標・TODO・進捗、詳細な試行履歴、頻繁に変わる実装詳細、`PROJECT.md`と
+`STATE.md`の再掲。短く安定した地図とし、詳細設計は詳細文書が持つ。
 
 ## `<DOMAIN>_SENSE.md`
 
@@ -129,15 +106,11 @@ Project rootに置く任意の全体地図である。
   Anti-patterns、良い例と悪い例、レビュー時の問い、見直し条件。
 - 所有しない: 必須仕様、数値合格条件、コマンド、現在状態、単なる好み、根拠のない抽象語。
 
-```text
-<DOMAIN>.md                          = 現在有効な分野の原則・構造・決定
-<DOMAIN>_SENSE.md                    = 定性的な品質判断
-QUALITY_SCORE.md / <DOMAIN>_SCORE.md = 測定可能な評価軸
-```
+測定可能な評価軸は`QUALITY_SCORE.md`または`<DOMAIN>_SCORE.md`が持つ。
 
 ## 個別ProjectのAGENTS.md
 
-Project固有の作業差分だけを持つ差分ファイルである。差分があるときだけ置き、全Projectへ一律生成しない。
+Project固有の作業差分だけを持ち、差分があるときだけ置く（全Projectへ一律生成しない）。
 ただし`ARCHITECTURE.md`または`docs/`が存在する場合は、同Projectの`AGENTS.md`と`CLAUDE.md`を必須とし、
 段階的開示の入口にする。
 
@@ -155,38 +128,21 @@ Project固有の作業差分だけを持つ差分ファイルである。差分�
 - KnowledgeとSkillの参照一覧
 - `projects/PROJECTS.md#作らない重複`が禁じる本文の複製と一括読込指示
 
-```markdown
-## Project Docs Route
-
-| 条件 | 読む正本 |
-|---|---|
-| モジュール、依存、データフローを変更する | `ARCHITECTURE.md` |
-| UIや体験を変更する | `docs/DESIGN.md` |
-```
-
-見出しは`## Project Docs Route`と正確に一致させ、存在する`ARCHITECTURE.md`と`docs/`直下の各Domain Canonを
-この節の条件付き項目として列挙する。項目は「条件」と「読む正本」を持つ表の行、または`条件:`と`参照:`の対と
-する。本文中の言及、単なるファイル一覧、禁止文への登場は条件付き参照として数えない。
-2,048 bytes以内とし、`PROJECT.md`と`STATE.md`を正本として参照する。同階層に`@AGENTS.md`だけを持つ
-`CLAUDE.md`を必ず置き、`CLAUDE.md`だけを単独で置かない。サイズ制約を拡大せず、短いRoute表として
-収まる設計を優先する。
+見出しは`## Project Docs Route`と正確に一致させ、存在する`ARCHITECTURE.md`と`docs/`直下の各Domain
+Canonを条件付き項目として列挙する。項目は「条件」と「読む正本」を持つ表の行、または`条件:`と
+`参照:`の対とする。本文中の言及、単なるファイル一覧、禁止文への
+登場は条件付き参照として数えない。`PROJECT.md`と`STATE.md`を正本として参照し、同階層に`@AGENTS.md`
+だけを持つ`CLAUDE.md`を必ず置く（`CLAUDE.md`単独は不可）。サイズ予算（2KiB）を拡大せず、
+短いRoute表として収める。
 
 ## 研究文書とKnowledge昇格
 
 具体的な研究活動はProjectが所有し、再利用可能な研究方法はSkillが所有する。仮説、調査、実験は規模に応じて
-`docs/RESEARCH.md`か`docs/research/<study-name>.md`へ、成果物は`outputs/`へ置く。推奨要素は次とする。
+`docs/RESEARCH.md`か`docs/research/<study-name>.md`へ、成果物は`outputs/`へ置く。推奨要素は、
+問い、目的、仮説、方法、使用した証拠、観測・結果、反対証拠・限界、現在の結論、Knowledgeへの昇格先。
 
-```text
-問い / 目的 / 仮説 / 方法 / 使用した証拠 / 観測・結果 /
-反対証拠・限界 / 現在の結論 / Knowledgeへの昇格先
-```
-
-Root Knowledgeへ昇格するのは次をすべて満たす場合だけとする。
-
-1. Project外でも再利用できる。
-2. 根拠へ遡れる。
-3. 適用範囲と不確実性が明記されている。
-4. 一時的な作業メモではない。
+Root Knowledgeへ昇格するのは、Project外でも再利用でき、根拠へ遡れ、適用範囲と不確実性が明記され、
+一時的な作業メモでない場合だけとする。
 
 昇格時はProject Researchを研究履歴として残し、Knowledge側と元研究・原資料を双方向にリンクする。
 現在有効な再利用可能結論の正本はKnowledge側とし、同じ結論を二つのactive正本として保守しない。
@@ -206,8 +162,8 @@ Project root、実装root、通常の作業cwdは、attachmentによらず`proje
 worktree、submodule、symlink、`.git` file、外部配置、`repository/`のような下位repo階層を使わない。
 すべてのProjectはEmbeddedで開始し、独立したremote identityが必要な場合だけIndependentへ昇格する。
 
-`PROJECT.md`はattachmentを宣言しない。`repository_mode`、`repository_url`、`repository_reason`、
-`repository_default_branch`、`STATE.md`の`## Repository State`は廃止済みで現役schemaへ残さない。
+`PROJECT.md`はattachmentを宣言しない。`repository_mode`等の旧repository frontmatterと
+`STATE.md`の`## Repository State`は廃止済みで現役schemaへ残さない。
 判定は`projects/REPOSITORIES.md`の登録、`git -C projects/<name> rev-parse --show-toplevel`の結果、
 root Gitがそのpath配下を追跡しているかの三つで行う。
 
@@ -215,15 +171,14 @@ root Gitがそのpath配下を追跡しているかの三つで行う。
 
 Independentでは`projects/<name>/**`のすべて（契約、状態、個別`AGENTS.md`と`CLAUDE.md`、docs、入出力、
 コード、Git履歴）をProject固有Gitが所有し、root Gitは内部ファイルを一つも追跡しない。root側へ
-`PROJECT.md`や`STATE.md`のコピーを残さず、同じ契約と状態を二つのGitへ複製しない。Project内部の
-相対pathは両attachmentで同じであり、mode別の読み替えを持たない。
+`PROJECT.md`や`STATE.md`のコピーを残さず、同じ契約と状態を二つのGitへ複製しない。
 
 ### Registryとignore projection
 
 root Gitが持つのはProject本文ではなく、[projects/REPOSITORIES.md](REPOSITORIES.md)の最小な
 attachment／recovery registryと、その派生projectionである`projects/.gitignore`だけである。registryは
-目的、成果契約、status、mode、現在状態を複製せず、entry形式、field規則、`repository_reason`の値と意味、
-managed blockの形式と更新規則はregistry自身が所有する。registryが正本であり、ignoreは派生である。
+目的、成果契約、status、mode、現在状態を複製せず、entry形式、field規則、`repository_reason`の値、
+managed blockの規則はregistry自身が所有する。registryが正本であり、ignoreは派生である。
 
 Embedded Project、`_template/`、registry自身をignoreせず、`projects/*/`のような広いpatternを追加しない。
 
@@ -235,9 +190,8 @@ Embedded Project、`_template/`、registry自身をignoreせず、`projects/*/`�
 
 一つのAI sessionは二つのGit rootへ書き込まない。Single Writer定義は`tools/BACKUP.md`が所有する。
 
-cwdとcommit先の対応は`projects/AGENTS.md#Git所有境界`が所有する。registryを更新するsessionだけが
-Agent Workspace rootをcwdとし、registryとignore projectionだけを書く。本体を変更するsessionは
-root repositoryを変更しない。
+cwdとcommit先の対応は`projects/AGENTS.md#Git所有境界`が所有する。registryを更新するsessionは
+registryとignore projectionだけを書き、本体を変更するsessionはroot repositoryを変更しない。
 
 ### Remote操作の境界
 
@@ -268,7 +222,7 @@ push、root sessionからのIndependent remote操作、remote divergenceの自�
 通常のIndependent更新は次の順で進み、安全条件を満たす限り確認を挟まない。
 
 1. `projects/<name>/`のsessionで`projects/AGENTS.md`の手順どおり読込、変更、検証、commitする。
-2. policyが`auto`なら`origin`へ通常pushし、remoteにcommit SHAが存在することを確認する。
+2. push policyに従って`origin`へpushする。
 3. SHA、検証結果、未完了をhandoffする。
 4. 別のroot sessionが`projects/REPOSITORIES.md`の`revision`だけを更新する。
 5. root validatorとcacheを実行してroot Gitへcommitし、設定済みならworkspace backupを実行する。
@@ -276,12 +230,8 @@ push、root sessionからのIndependent remote操作、remote divergenceの自�
 ### Materializationとbackup境界
 
 健全なAgent Workspaceでは、statusにかかわらず全Independent repositoryがmaterialize済みである。
-materializerはregistryからcloneを再現して採用revisionを最初にcheckoutし、branch tipを自動採用せず、
-HEADが採用revisionと一致しない既存cloneを正常扱いしない。
-
-backupの既定scopeはworkspaceであり、root pushの前に全Independent repositoryを監査し、Independent
-repository自体はpushしない。`--root-only`は部分結果である。scope、停止reason、監査項目、移行手順、
-rootでの`git clean`の禁止（ignoredな`projects/<name>/`を不可逆に消しうる）は`tools/BACKUP.md`が所有する。
+materializerの動作は`tools/TOOLS.md#materialize-project-repositories.sh`が、backupのscope、
+停止reason、監査項目、移行手順、rootでの`git clean`の禁止は`tools/BACKUP.md`が所有する。
 
 ### 昇格、移行、統合
 
@@ -298,15 +248,12 @@ EmbeddedからIndependentへの昇格は次の順で行う。
 登録のないnested repoまたはsubmoduleは追加、削除、ignore、submodule化せず、停止して利用者へ確認する。
 
 IndependentからEmbeddedへの統合は自動既定にしない。`repository_reason`のどの根拠も現在成立しないことを
-監査し、利用者が明示承認した場合だけ実行する。過去に外部identityを持ったrepoを、停止中という理由だけで
-統合しない。
+監査し、利用者が明示承認した場合だけ実行する。停止中という理由だけで統合しない。
 
 ### 旧構造からの移行
 
-対象は旧`projects/<name>/repository/`方式とagent-directory外へcloneを置く旧方式で、最終標準として
-残さず永久併存も認めない。どちらもclone全体を`projects/<name>/`へ移し、契約と状態はProject固有Gitが
-持つ形へ揃える。順序、監査項目、置換・削除条件、machine-localなsource pathの扱いは
-[tools/BACKUP.md](../tools/BACKUP.md)が所有する。
+旧`projects/<name>/repository/`方式とagent-directory外へcloneを置く旧方式は、最終標準として残さず
+永久併存も認めない。手順、監査項目、置換・削除条件は[tools/BACKUP.md](../tools/BACKUP.md)が所有する。
 
 ## PROJECT.md
 
@@ -325,7 +272,6 @@ mode: finite
 - `description`は200文字以内の一行とし、タブを含めない。
 - `mode`は`finite`または`continuous`だけを使う。
 - `status`は`active | paused | completed | retired`だけを使う。
-- attachmentはfrontmatterで宣言しない。判定は`#Attachment`が持つ。
 - パスが恒久IDである。別のID体系や物理archiveを作らない。
 
 ### finite
@@ -350,27 +296,16 @@ mode: finite
 
 ## 着手から終了まで
 
-1. `PROJECT.md`と`STATE.md`を最後まで読み、現在目標、合格条件、それが前進させる`PROJECT.md#PC-xx`と、
-   Required参照および成立したConditional参照・Domain Canonだけを特定して読む。
-2. 成果契約の範囲で最小かつ完全な変更を行う。契約や品質基準を弱めない。
-3. `PROJECT.md`の検証方法と現在目標の合格条件を実行する。未実行の検証を合格と推測しない。
-4. 状態が変わった同じ作業内で`STATE.md`を現在有効な状態へ更新する。
-5. 検証合格後は同じ作業内でscoped commitまで完結し、可否を質問しない
-   （`tools/TOOLS.md#自律実行の標準完了`）。
-6. 達成結果、検証証拠、commit、push・backup結果、未完了・ブロッカーを区別して報告する。
+実行手順（読込順序、契約とPC-xxの特定、最小かつ完全な変更、検証、STATE更新、scoped commit、報告）は
+入口`projects/AGENTS.md#着手`と`projects/AGENTS.md#実行と完了`が所有する。
 
 `mode`、目的、ゴールまたは使命、完了条件または成功指標、判断原則、非ゴール、固定決定は、
 利用者が変更を明示した場合だけ変更する。
 
 ## Project Criterion
 
-finiteの完了条件とcontinuousの成功指標だけに`PC-01`から始まる固定IDを付ける。
-
-```markdown
-- **PC-01** <安定した合格条件>
-```
-
-IDは達成状態ではなく恒久的な住所である。並べ替えや達成で変更せず、削除後に番号を再利用しない。
+finiteの完了条件とcontinuousの成功指標だけに、`- **PC-01** <安定した合格条件>`の形式で
+`PC-01`から始まる固定IDを付ける。IDは達成状態ではなく恒久的な住所である。並べ替えや達成で変更せず、削除後に番号を再利用しない。
 達成状態と証拠は`STATE.md`だけが持つ。
 
 ## STATE.md
@@ -387,7 +322,7 @@ IDは達成状態ではなく恒久的な住所である。並べ替えや達成
 
 ## 検証
 
-- Project固有の検証は`PROJECT.md`に実行方法、期待結果、入力、必要な環境変数名を記す。
-- 固定コードは`scripts/`、一時コードは`.tmp/`、2回目の再利用候補は`candidates/`が所有する。
+- Project固有の検証は`PROJECT.md`に実行方法、期待結果、入力、必要な環境変数名を記す
+  （コードの置き場は`tools/TOOLS.md#一時作業と固定化`）。
 - 外部公開、本番反映、送信、課金、権限変更、`gated`なpushは実行前に承認を得る。承認がない限り
   完了条件を満たしたとしない。内部で完結する可逆な検証と修正は承認を待たずに行う。
