@@ -93,6 +93,8 @@ updated_at: 2026-08-06
 ## 失敗・却下済み
 
 - gemini 0.46.0の`-s/--sandbox`: container runtime導入が必要なため第1号adapterから除外。
+- `deepseek-v4-pro`: provider側がCodex経路を未提供（「early August 2026に提供予定、
+  flashを使え」と応答。2026-08-06実測）。ノイズ低減のmodel変更手段は現状ない。
 - 「subjectがroot `AGENTS.md`を未読」という所見: **誤検出につき撤回**。codexは同ファイルを
   developer messageへ自動注入し「再読不要」と指示するため、`cat`が現れないのは正しい挙動
   （`codex debug prompt-input`で確認）。自動注入を数えない観測は65/78 caseを誤ってFAILさせる。
@@ -103,8 +105,9 @@ updated_at: 2026-08-06
 
 ## 次の一手
 
-1. `deepseek-v4-pro`でA/Aを実施し、flashとノイズ幅を比較する（modelを変える最後の手）。
-   改善しなければ、指標定義の変更（case合否→check単位）を人間へ提案する。
+1. **人間判断が要る**: ノイズ低減の手段が尽きた。指標定義の変更（case合否の二値→check単位の
+   集計）はpolicy変更のため実施できない。あるいは別clientをsubjectにする（claude CLIは
+   OS強制sandboxを持たないため、write違反は検出できるが防止はできない）。
 2. Tier 0 case一覧の確定（人間判断）後、`check-promotion.py`へ渡せるようにする。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。

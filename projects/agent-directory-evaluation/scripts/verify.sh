@@ -129,7 +129,8 @@ grep -q 'must NOT live under /tmp' "$tmp_root/adapter-refusal.log.err" || \
   fail 'codex-adapter.sh did not refuse a tmp-resident subject'
 
 step 'infra failure is INVALID, not a candidate failure'
-for infra_case in infra-usage-limit:usage_limit infra-rate-limit:rate_limit; do
+for infra_case in infra-usage-limit:usage_limit infra-rate-limit:rate_limit \
+                  infra-model-unavailable:model_unavailable; do
   infra_dir="${infra_case%%:*}"; infra_kind="${infra_case##*:}"
   run_expect 75 "$tmp_root/$infra_dir.json" python3 "$script_dir/classify-run.py" \
     --events "$fixtures/$infra_dir/events.jsonl" --client codex --client-exit-code 1 || true

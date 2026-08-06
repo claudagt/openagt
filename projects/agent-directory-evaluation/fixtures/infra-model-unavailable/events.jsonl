@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"00000000-0000-0000-0000-000000000000"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `example-model-pro` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"error","message":"{\"error\":{\"message\":\"Codex integration with example-model-pro will be available starting early Month 2000. Please use example-model-flash instead for now.\",\"type\":\"invalid_request_error\"}}"}
+{"type":"turn.failed","error":{"message":"provider rejected the requested model"}}

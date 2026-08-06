@@ -27,9 +27,18 @@ PATTERNS = [
     ("usage_limit", r"usage limit|quota|credit|billing|insufficient_quota|purchase more"),
     ("rate_limit", r"\b429\b|rate.?limit|too many requests|backoff"),
     ("auth", r"\b401\b|\b403\b|unauthor|forbidden|not logged in|token .*expired|invalid.*api.?key"),
+    # model_unavailable: 指定modelがそのprovider/経路で使えない場合。
+    # 実測（2026-08-06）: DeepSeekは`deepseek-v4-pro`に対し
+    # 「Codex integration ... will be available starting ...」を返す。
+    # 「利用可能になる予定」という表現は"unavailable"も"not found"も含まないため、
+    # 素直な語彙だけではcandidate失敗へ誤分類される。
+    ("model_unavailable",
+     r"will be available starting|not (yet )?(available|supported)|"
+     r"model .*(unavailable|not found|not supported)|unsupported model|"
+     r"please use .* instead|invalid_request_error.*model"),
     ("provider_error",
      r"\b5\d{2}\b|internal server error|service unavailable|"
-     r"connection (reset|refused|closed)|model .*(unavailable|not found)"),
+     r"connection (reset|refused|closed)"),
     ("timeout", r"\btimed? ?out\b|deadline exceeded"),
 ]
 
