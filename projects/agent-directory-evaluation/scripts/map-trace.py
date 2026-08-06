@@ -17,7 +17,7 @@
 
 client写像規則の状態（2026-08-06、codex-cli 0.146.0の実runで確認）:
   codex: thread.started / turn.started / turn.completed / turn.failed / error（制御）、
-         item.started / item.completed（item.type = command_execution / file_change /
+         item.started / item.updated / item.completed（item.type = command_execution / file_change /
          agent_message / reasoning / error）。command_executionのみを正準語彙へ写像する。
          file_changeは出るがwriteの正本はGit観測とし、client申告に依存させない。
          **codexはfile読取専用のeventを出さない。** readは読取専用commandからの推定に留まり、
@@ -184,8 +184,10 @@ def map_codex_events(raw_events):
         kind = event.get("type") or event.get("event") or ""
         if kind in CODEX_CONTROL_EVENTS:
             continue
-        if kind == "item.started":
-            continue  # completedで拾う
+        if kind in ("item.started", "item.updated"):
+            # 最終状態はitem.completedが持つ。ここで拾うと二重計上になる。
+            # item.updatedはplan（todo_list）の途中更新でも出る。
+            continue
         if kind == "item.completed":
             item = event.get("item") or {}
             item_type = item.get("item_type") or item.get("type") or ""

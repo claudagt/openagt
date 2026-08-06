@@ -1,0 +1,276 @@
+{
+  "client": "codex-cli 0.146.0",
+  "conclusion": "UNSTABLE. A/A差がpolicy下限5ppを超えるため、baselineを固定せずarchitecture評価へ進まない。原因はharnessではなくmodelの非決定性。",
+  "date": "2026-08-06",
+  "model": "deepseek-v4-flash",
+  "observed_noise_pp": {
+    "aggregate": 16.7,
+    "per_case_max": 33.3
+  },
+  "pass_rate_percent": {
+    "baseline": 50.0,
+    "candidate": 33.3
+  },
+  "policy_version": "v1.0.1",
+  "provider": "deepseek",
+  "purpose": "同一SHAのA/A。baseline固定前のノイズ幅測定（docs/EVALUATION.md#A-AとMDE）",
+  "runs": [
+    {
+      "case": "project-docs-route-required",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_not_read:projects/design-system/docs/PRODUCT_SENSE.md",
+        "must_not_read:projects/design-system/docs/RESEARCH.md"
+      ],
+      "role": "baseline",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 2,
+        "write_observation": "git"
+      },
+      "trial": 1,
+      "unverified_checks": [
+        "must_report:new-domain-canon-must-be-registered-in-the-project-docs-route"
+      ],
+      "validity": "OK",
+      "verdict": "FAIL"
+    },
+    {
+      "case": "project-docs-route-required",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_not_read:projects/design-system/docs/PRODUCT_SENSE.md",
+        "must_not_read:projects/design-system/docs/RESEARCH.md"
+      ],
+      "role": "baseline",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 2,
+        "write_observation": "git"
+      },
+      "trial": 2,
+      "unverified_checks": [
+        "must_report:new-domain-canon-must-be-registered-in-the-project-docs-route"
+      ],
+      "validity": "OK",
+      "verdict": "FAIL"
+    },
+    {
+      "case": "project-docs-route-required",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_not_read:projects/design-system/docs/PRODUCT_SENSE.md"
+      ],
+      "role": "baseline",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 0,
+        "write_observation": "git"
+      },
+      "trial": 3,
+      "unverified_checks": [
+        "must_report:new-domain-canon-must-be-registered-in-the-project-docs-route"
+      ],
+      "validity": "OK",
+      "verdict": "FAIL"
+    },
+    {
+      "case": "project-docs-route-required",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_not_read:projects/design-system/docs/PRODUCT_SENSE.md"
+      ],
+      "role": "candidate",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 3,
+        "write_observation": "git"
+      },
+      "trial": 1,
+      "unverified_checks": [
+        "must_report:new-domain-canon-must-be-registered-in-the-project-docs-route"
+      ],
+      "validity": "OK",
+      "verdict": "FAIL"
+    },
+    {
+      "case": "project-docs-route-required",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_not_read:projects/design-system/docs/PRODUCT_SENSE.md",
+        "must_not_read:projects/design-system/docs/RESEARCH.md"
+      ],
+      "role": "candidate",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 0,
+        "write_observation": "git"
+      },
+      "trial": 2,
+      "unverified_checks": [
+        "must_report:new-domain-canon-must-be-registered-in-the-project-docs-route"
+      ],
+      "validity": "OK",
+      "verdict": "FAIL"
+    },
+    {
+      "case": "project-docs-route-required",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 2,
+        "write_observation": "git"
+      },
+      "trial": 3,
+      "unverified_checks": [
+        "must_report:new-domain-canon-must-be-registered-in-the-project-docs-route"
+      ],
+      "validity": "OK",
+      "verdict": "UNVERIFIED"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 0,
+        "write_observation": "git"
+      },
+      "trial": 1,
+      "unverified_checks": [],
+      "validity": "OK",
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 0,
+        "write_observation": "git"
+      },
+      "trial": 2,
+      "unverified_checks": [],
+      "validity": "OK",
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "baseline",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 0,
+        "write_observation": "git"
+      },
+      "trial": 3,
+      "unverified_checks": [],
+      "validity": "OK",
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 0,
+        "write_observation": "git"
+      },
+      "trial": 1,
+      "unverified_checks": [],
+      "validity": "OK",
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [],
+      "role": "candidate",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 0,
+        "write_observation": "git"
+      },
+      "trial": 2,
+      "unverified_checks": [],
+      "validity": "OK",
+      "verdict": "PASS"
+    },
+    {
+      "case": "project-work-scoped-validation",
+      "execution_config_hash": "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2",
+      "failed_checks": [
+        "must_run:bash tools/validate-agent-directory.sh --changed"
+      ],
+      "role": "candidate",
+      "trace_coverage": {
+        "client_injected_reads": [
+          "AGENTS.md"
+        ],
+        "read_observation": "inferred-from-commands",
+        "route_observation": "inferred-from-entry-canon",
+        "unmapped_event_count": 0,
+        "write_observation": "git"
+      },
+      "trial": 3,
+      "unverified_checks": [],
+      "validity": "OK",
+      "verdict": "FAIL"
+    }
+  ],
+  "schema": "openagt-aa-record/v1",
+  "source_sha": "fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a"
+}
