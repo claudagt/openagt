@@ -227,15 +227,17 @@ import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 
 
-def bundle(scenario, config, case, role, trial, verdict, gate_fail=None):
+def bundle(scenario, config, case, role, trial, verdict, gate_fail=None, same_sha=False):
     target = root / scenario / f"{config}-{case}-{role}-{trial}"
     target.mkdir(parents=True, exist_ok=True)
     checks = [{"check": "route", "verdict": "pass"}]
     if gate_fail:
         checks.append({"check": gate_fail, "verdict": "fail", "detail": "was written"})
+    # A/Bは役割ごとに別SHA。same_shaのときだけA/A（同一SHA同士）にする。
+    sha = "a" * 40 if (same_sha or role == "baseline") else "b" * 40
     (target / "evidence.json").write_text(json.dumps({
         "schema": "openagt-run-evidence/v1", "case": case, "role": role, "trial": trial,
-        "source_sha": "0" * 40, "execution_config_hash": f"sha256:{config}",
+        "source_sha": sha, "execution_config_hash": f"sha256:{config}",
         "verdict": verdict, "validity": {"status": "OK"},
         "case_result": {"verdict": verdict, "checks": checks},
     }, indent=2), encoding="utf-8")
@@ -259,11 +261,21 @@ for config in ("aaa", "bbb"):
     for trial in (1, 2):  # trial不足
         bundle("shorttrials", config, "case-x", "baseline", trial, "FAIL")
         bundle("shorttrials", config, "case-x", "candidate", trial, "PASS")
+    for trial in (1, 2, 3):
+        # A/A: 同一SHA同士。改善を論じる対象がないので昇格させてはならない。
+        bundle("selfcompare", config, "case-x", "baseline", trial, "FAIL", same_sha=True)
+        bundle("selfcompare", config, "case-x", "candidate", trial, "PASS", same_sha=True)
+        bundle("selfcompare", config, "tier0-case", "baseline", trial, "PASS", same_sha=True)
+        bundle("selfcompare", config, "tier0-case", "candidate", trial, "PASS", same_sha=True)
+        # ノイズ算出用のA/A証拠（両roleとも同一SHA、差ゼロ＝安定）
+        bundle("aa", config, "case-x", "baseline", trial, "PASS", same_sha=True)
+        bundle("aa", config, "case-x", "candidate", trial, "PASS", same_sha=True)
 (root / "tier0.txt").write_text("tier0-case\n", encoding="utf-8")
 PY
-promo_confirmed=(--tier0-file "$promo_root/tier0.txt" --complexity-verified
-                 --upstream-validator-passed --evidence-commit deadbeef)
-for scenario in eligible:0:ELIGIBLE rejected:1:REJECTED nochange:0:NO_CHANGE shorttrials:2:INVALID; do
+promo_confirmed=(--tier0-file "$promo_root/tier0.txt" --aa-runs-dir "$promo_root/aa"
+                 --complexity-verified --upstream-validator-passed --evidence-commit deadbeef)
+for scenario in eligible:0:ELIGIBLE rejected:1:REJECTED nochange:0:NO_CHANGE \
+                shorttrials:2:INVALID selfcompare:2:INVALID; do
   promo_name="${scenario%%:*}"; promo_rest="${scenario#*:}"
   promo_code="${promo_rest%%:*}"; promo_want="${promo_rest##*:}"
   run_expect "$promo_code" "$tmp_root/promo-$promo_name.json" \
@@ -272,6 +284,10 @@ for scenario in eligible:0:ELIGIBLE rejected:1:REJECTED nochange:0:NO_CHANGE sho
   grep -q "\"decision\": \"$promo_want\"" "$tmp_root/promo-$promo_name.json" || \
     fail "promotion scenario $promo_name was not $promo_want"
 done
+
+step 'promotion gate refuses to promote a revision compared against itself'
+grep -q 'compare a revision against itself' "$tmp_root/promo-selfcompare.json" || \
+  fail 'A/A (same-SHA) comparison was not flagged as measuring noise, not improvement'
 
 step 'promotion gate thresholds cannot be overridden from the CLI'
 if python3 "$script_dir/check-promotion.py" --runs-dir "$promo_root/nochange" \
@@ -282,13 +298,19 @@ grep -q '"cli_overridable": false' "$tmp_root/promo-eligible.json" || \
   fail 'promotion result does not record thresholds as non-overridable'
 
 step 'promotion gate fails closed on unconfirmed conditions'
+run_expect 2 "$tmp_root/promo-no-aa.json" python3 "$script_dir/check-promotion.py" \
+  --runs-dir "$promo_root/eligible" --tier0-file "$promo_root/tier0.txt" \
+  --complexity-verified --upstream-validator-passed --evidence-commit deadbeef || true
+grep -q '"decision": "INVALID"' "$tmp_root/promo-no-aa.json" || \
+  fail 'missing A/A evidence did not fail closed'
 run_expect 2 "$tmp_root/promo-no-tier0.json" python3 "$script_dir/check-promotion.py" \
-  --runs-dir "$promo_root/eligible" --complexity-verified \
+  --runs-dir "$promo_root/eligible" --aa-runs-dir "$promo_root/aa" --complexity-verified \
   --upstream-validator-passed --evidence-commit deadbeef || true
 grep -q '"decision": "INVALID"' "$tmp_root/promo-no-tier0.json" || \
   fail 'missing Tier 0 list did not fail closed'
 run_expect 2 "$tmp_root/promo-no-human.json" python3 "$script_dir/check-promotion.py" \
-  --runs-dir "$promo_root/eligible" --tier0-file "$promo_root/tier0.txt" || true
+  --runs-dir "$promo_root/eligible" --tier0-file "$promo_root/tier0.txt" \
+  --aa-runs-dir "$promo_root/aa" || true
 grep -q '"decision": "INVALID"' "$tmp_root/promo-no-human.json" || \
   fail 'missing human confirmation did not fail closed'
 

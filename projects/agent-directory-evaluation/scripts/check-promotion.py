@@ -77,7 +77,10 @@ def pass_rate(bundles):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runs-dir", required=True,
-                        help="run evidence（evidence.json）を含むdirectory")
+                        help="A/B run evidence（evidence.json）を含むdirectory")
+    parser.add_argument("--aa-runs-dir", default="",
+                        help="A/A run evidence（同一SHA同士）のdirectory。ノイズ幅はここから"
+                             "**証拠として算出**する。数値での指定は受け付けない")
     parser.add_argument("--tier0-file", default="",
                         help="Tier 0 case名の一覧（1行1件）。未指定はTier 0未検証としてINVALID")
     parser.add_argument("--complexity-verified", action="store_true",
@@ -175,8 +178,18 @@ def main() -> int:
                    f"shortfalls: {shortfalls}" if shortfalls else "")
 
     # --- A/AノイズとMDE ---
+    #
+    # A/A（baselineとcandidateが同一source SHA）では、両者の差はすべてノイズである。
+    # そのdeltaをそのままノイズ幅として採る。
+    #
+    # ただしpass率はrole当たりrun数Nで量子化され、最小の非ゼロ差は100/Nになる。
+    # 観測ノイズがこの分解能と同じなら、それは「1 runが反転しただけ」であり、
+    # モデルのばらつきではなく測定粒度を見ている可能性が高い。両者を区別して報告する
+    # （区別しないと、run数を増やせば消える値をMDEとして固定してしまう）。
     per_config_delta = {}
     noise_by_config = {}
+    resolution_by_config = {}
+    aa_configs = []
     for config in configs:
         baseline = [b for b in gradable if b.get("execution_config_hash") == config
                     and b.get("role") == "baseline"]
@@ -187,19 +200,42 @@ def main() -> int:
             per_config_delta[config] = None
             continue
         per_config_delta[config] = cand_rate - base_rate
-        # A/Aノイズ: 同一roleの同一caseにおけるtrial間ばらつきをpp換算で見る
-        spread = []
-        for case in {b.get("case") for b in baseline}:
-            runs = [b for b in baseline if b.get("case") == case]
-            if len(runs) >= 2:
-                rate = pass_rate(runs)
-                spread.append(abs(rate - (100.0 if rate >= 50 else 0.0)))
-        noise_by_config[config] = max(spread) if spread else None
+        base_shas = {b.get("source_sha") for b in baseline}
+        cand_shas = {b.get("source_sha") for b in candidate}
+        if base_shas and base_shas == cand_shas:
+            # --runs-dir自体がA/A。改善を論じる対象がない。
+            aa_configs.append(config)
 
-    missing_noise = [c for c, n in noise_by_config.items() if n is None]
+    # ノイズは別途与えられたA/A証拠から算出する。スカラー指定は受け付けない
+    # （数値で渡せるとMDEを緩めてcandidateを通せてしまい、HG-10に当たる）。
+    if args.aa_runs_dir:
+        aa_bundles, _ = load_evidence(pathlib.Path(args.aa_runs_dir))
+        aa_gradable = [b for b in aa_bundles if is_gradable(b)]
+        for config in configs:
+            aa_base = [b for b in aa_gradable
+                       if b.get("execution_config_hash") == config and b.get("role") == "baseline"]
+            aa_cand = [b for b in aa_gradable
+                       if b.get("execution_config_hash") == config and b.get("role") == "candidate"]
+            if not aa_base or not aa_cand:
+                continue
+            if {b.get("source_sha") for b in aa_base} != {b.get("source_sha") for b in aa_cand}:
+                continue  # 同一SHA同士でなければA/Aではない
+            noise_by_config[config] = abs(pass_rate(aa_cand) - pass_rate(aa_base))
+            resolution_by_config[config] = 100.0 / min(len(aa_base), len(aa_cand))
+
+    missing_noise = [c for c in configs if c not in noise_by_config]
     record("A/A noise measured", not missing_noise,
-           "A/A noise could not be measured; MDE cannot be derived"
-           if missing_noise else "")
+           "no A/A evidence for every config (--aa-runs-dir); MDE cannot be derived "
+           "from observation" if missing_noise else "")
+
+    # 量子化と真のばらつきの区別を明示する
+    quantization_limited = {
+        c: f"noise {noise_by_config[c]:.1f}pp == resolution {resolution_by_config[c]:.1f}pp "
+           f"(a single run flipping); increase runs per role before treating it as model variance"
+        for c in noise_by_config
+        if resolution_by_config.get(c) is not None
+        and abs(noise_by_config[c] - resolution_by_config[c]) < 1e-9
+    }
 
     mde_by_config = {c: max(POLICY_MIN_IMPROVEMENT_PP, n)
                      for c, n in noise_by_config.items() if n is not None}
@@ -233,6 +269,11 @@ def main() -> int:
                 if d is not None and c in mde_by_config and d >= mde_by_config[c]]
     all_configs_improved = bool(mde_by_config) and len(improved) == len(mde_by_config)
 
+    if aa_configs and len(aa_configs) == len(configs):
+        # 全configがA/A（同一SHA同士）。改善の有無を論じる対象がない。
+        record("candidate differs from baseline", False,
+               "all configs compare a revision against itself (A/A); "
+               "this measures noise, not improvement")
     if violations or regressions:
         decision = "REJECTED"
     elif blockers:
@@ -259,6 +300,10 @@ def main() -> int:
         "execution_configs": configs,
         "delta_pp_by_config": per_config_delta,
         "mde_by_config": mde_by_config,
+        "aa_configs": aa_configs,
+        "noise_pp_by_config": noise_by_config,
+        "measurement_resolution_pp_by_config": resolution_by_config,
+        "quantization_limited": quantization_limited,
         "conditions": conditions,
         "blockers": blockers,
     }

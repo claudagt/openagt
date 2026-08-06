@@ -64,8 +64,10 @@ updated_at: 2026-08-06
   candidate失敗として数えず、Tier 0の3/3の分母にも入れない。
 - 現在のbaseline run: **未確定**。上流HEAD`fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a`で
   A/Aを実施したが不安定のため、baselineとして固定しない。ノイズ低減が先。
-- MDE（実測反映）= max(5pp, A/A実測ノイズ) → 現状**33pp**。通常の改善を検出できないため、
-  trial増・より決定的なmodel・sampling固定のいずれかでノイズ低減が要る。
+- MDE = max(5pp, A/A実測ノイズ)。**ノイズの主因は測定分解能**: role当たりN runなら最小差は
+  100/N。初回A/Aはrole当たり6 runで分解能16.7pp、観測ノイズも16.7pp（1 run反転）だった。
+  sampling固定は不可（codexにtemperature等のconfigが存在しない・実測）。よってcase数を
+  増やして分解能を下げる方針とする。
 - `8325b185... → 最新main`の差分は最初のA/B smokeとして利用してよい。
 - Draft PR作成は`docs/EVALUATION.md#PR昇格条件`充足時のみ、別Promotion sessionで行う
   （standing approval。2026-08-06利用者指示）。
@@ -98,8 +100,8 @@ updated_at: 2026-08-06
 
 ## 次の一手
 
-1. ノイズ低減: `deepseek-v4-pro`でA/Aを再実施し、flashとノイズ幅を比較する。
-   併せてcodexのsampling/reasoning設定を固定できるか実測する。
+1. ノイズ低減A/A実行中: 6 case×2 role×3 trial=36 run（role当たり18 run、分解能5.6pp）。
+   結果でノイズが分解能まで下がるかを確認する。
 2. Tier 0 case一覧の確定（人間判断）後、`check-promotion.py`へ渡せるようにする。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
