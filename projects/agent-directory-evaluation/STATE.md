@@ -99,7 +99,10 @@ updated_at: 2026-08-07
 
 ## 次の一手
 
-1. 上流新revision発生時にv1.0.2指標で通常A/B（3 trial、両config）。それまで待機。
+1. **上流が更新された**（2026-08-07観測: main=`1effd595...`、PR #1 control boundary layer。
+   既存case変更なし、candidate追記領域と競合なし）。進行中の仮説A/B完了後、candidateを
+   `1effd595`へrebaseし決定版A/B（3 trial × 両config）→Promotion Gate判定。
+   上流の新case群（control-*、delegation-*）のsuite・Tier 0取り込みは人間判断。
 2. session開始時にproの`/responses`開通を確認し、開通したらbridgeを外して直結へ戻す
    （config hashが変わるためpro A/Aを再取得）。
 3. **人間判断が要る**: report観測の実装可否（family 10のTier 0編入と58/78 caseの
