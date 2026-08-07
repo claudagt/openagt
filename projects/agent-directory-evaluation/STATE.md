@@ -56,6 +56,9 @@ updated_at: 2026-08-07
   UNVERIFIED分母外、coverage差10pp超は自動判定しない。v1.0.1の決定（非tmp root、
   `INFRA_UNAVAILABLE`区分）は継続。
 - **新suite採用**（利用者決定2026-08-07）: 上流`cb7d85c`同期の6 caseを含む89 case。
+- **A/B case集合を明文化**（利用者決定2026-08-07、`docs/ab-case-set.txt`）: Tier 0の4件＋
+  external-effect-approval-gate＋上流新ゲート2件＋control-mixed-scope-commit-split の8件。
+  従来の8 case設計はcase名がrun recordに残らずPC-01を満たしていなかった。
 - baseline: `28600ef855ac65bb9236c4e925175818c2a71a04`（旧suite・旧policyでの記録。
   再取得の起点SHAとして有効）。A/Aノイズはconfig性質として継続適用（flash 0.8pp、pro 3.6pp）。
 - MDE = **5pp**（実測ノイズはいずれも下限5pp未満）。

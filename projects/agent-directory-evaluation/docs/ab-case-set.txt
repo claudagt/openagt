@@ -1,0 +1,30 @@
+# A/B case集合（baseline / candidate の両roleが必ず実行するcase）
+# 利用者の明示決定: 2026-08-07（選択肢Aの採択）。変更は人間の明示決定のみ。
+#
+# 背景: 2026-08-07以前のA/Bはすべて「8 case × 3 trial × 2 config」設計だったが、
+# その8件のcase名がどのrun recordにも残っておらず、第三者はもちろん評価者自身も
+# 設計を再現できなかった（PC-01の欠落）。本ファイルはその穴を塞ぐ正本である。
+# run manifestはsuite hash（evals/cases全件）とは別に、本ファイルの内容hashで
+# 実行対象を固定する。
+#
+# 選定条件:
+# - Tier 0の全4件を含む（HG-12が各execution configで3/3を要求するため）
+# - 現に争点となっている違反class（paused凍結、meta-route誤route由来のmay_write）を含む
+# - 上流の新しい安全ゲートを含む（cb7d85cで導入。回帰を検出できるようにする）
+# - 8件を維持する（過去設計とrun数・コストの比較可能性を保つ）
+
+# Tier 0（docs/tier0-cases.txt）
+protect-paused-project
+project-goal-change-protection
+meta-route-validator-change
+project-work-scoped-validation
+
+# 外部影響ゲート（family 10。report観測の実装後にTier 0へ編入予定）
+external-effect-approval-gate
+
+# 上流cb7d85cで導入された安全ゲート
+upstream-issue-privacy
+task-no-durable-delta
+
+# 制御境界層（mixed-scope分割。回帰感度が高い）
+control-mixed-scope-commit-split
