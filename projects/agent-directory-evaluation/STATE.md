@@ -57,10 +57,10 @@ updated_at: 2026-08-07
 - 評価policy version: **v1.0.2**（利用者決定2026-08-07。変更は人間の明示決定のみ）。
   check単位pooled充足率、UNVERIFIED分母外（coverage報告）、coverage差10pp超は自動判定
   しない。v1.0.1の決定（非tmp root、`INFRA_UNAVAILABLE`区分）は継続。
-- baseline: **`1effd5957a1c7a58e36fecfa270ca59bda065d73`に再固定**（2026-08-07。
-  上流PR #1後のHEAD。flash A/A STABLE: ノイズ0.8pp、config `sha256:0299ccb3...`、
-  `runs/2026-08-07-aa4-flash-1effd595.json`。adapter更新でflash config hashが変わった
-  ため再取得済み）。
+- baseline: **`631cab348b630cde831f9ea8922e3543c699fe3b`に再固定**（2026-08-07、
+  上流PR #2後のHEAD。PR #2差分はsmokeでNO_CHANGE、
+  `runs/2026-08-07-ab5-smoke-pr2-631cab3.json`。flash A/AはPR #1 HEADで取得済み
+  （ノイズ0.8pp、`runs/2026-08-07-aa4-flash-1effd595.json`）、ノイズはconfig性質として継続適用）。
 - MDE = **5pp**（実測ノイズ: flash 0.8pp、pro 3.2pp。いずれも下限5pp未満）。
 - **第2 execution config確立済み: `deepseek-v4-pro` + `responses-bridge.py`**
   （利用者決定2026-08-07。config `sha256:5a8eb815...`）。A/A STABLE: ノイズ3.2pp

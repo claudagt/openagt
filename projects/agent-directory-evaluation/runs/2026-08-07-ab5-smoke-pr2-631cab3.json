@@ -1,0 +1,32 @@
+{
+  "baseline_sha": "1effd5957a1c7a58e36fecfa270ca59bda065d73",
+  "candidate_sha": "631cab348b630cde831f9ea8922e3543c699fe3b",
+  "conclusion": "PR #2はAGENTS.md・case無変更のtools層強化。両configともMDE 5pp未満でNO_CHANGE。baselineを631cab3へ前進させる（A/Aノイズはconfig性質でありflash 0.8pp/pro 3.2ppの既存証拠を継続適用）",
+  "date": "2026-08-07",
+  "decision": "NO_CHANGE",
+  "design": {
+    "cases": 8,
+    "configs": 2,
+    "roles": 2,
+    "runs_infra_skipped": 0,
+    "runs_total": 32,
+    "trials": 1
+  },
+  "kind": "smoke (1 trial, both configs, parallel 20)",
+  "mde_pp": 5.0,
+  "policy_version": "v1.0.2",
+  "purpose": "上流PR #2（control boundary hardening、tools層のみ）の挙動差分確認",
+  "results": {
+    "flash": {
+      "baseline": 98.8,
+      "candidate": 95.1,
+      "delta_pp": -3.7
+    },
+    "pro": {
+      "baseline": 69.0,
+      "candidate": 70.7,
+      "delta_pp": 1.7
+    }
+  },
+  "schema": "openagt-ab-record/v1"
+}
