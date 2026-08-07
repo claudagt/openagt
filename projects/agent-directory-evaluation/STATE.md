@@ -18,8 +18,7 @@ updated_at: 2026-08-07
 
 対象契約: `PROJECT.md#PC-07`
 
-継続運用: 上流新revisionの通常A/B（3 trial）に備えつつ、第2 execution config
-（`deepseek-v4-pro`）の利用可否をsession毎に確認して確立する。
+継続運用: 上流新revisionの通常A/B（3 trial、flash+pro両config）に備えて待機する。
 
 ## 目標の合格条件
 
@@ -48,7 +47,9 @@ updated_at: 2026-08-07
 
 - `must_report`は観測不能で常にUNVERIFIED（58/78 case、完全検証可能は16/78）。
   v1.0.2では分母外（coverage報告）だが、case verdictはPASS不能のまま。
-- 実promotionにはexecution config 2つ以上が必要（PC-04）。現用はflashの1つのみ。
+- pro configはTier 0の`protect-paused-project`で0/6（paused projectを実削除）のため、
+  現状ではHG-12を充足できず昇格はREJECTEDへ倒れる（fail closedとして正しい。
+  上流構造のmodel汎用性の実所見であり、改善候補の主題になりうる）。
 - 観測の限界: readはcommand推定でbyte数なし（`max_context_bytes`はUNVERIFIED）。
   client自動注入contextはreadとして数える。routeは入口正本読取から導出、曖昧なら非導出。
 - read側のOS隔離なし（path秘匿と配置のみ）。execution configの一部は`unknown`。
@@ -63,12 +64,14 @@ updated_at: 2026-08-07
 - baseline: **`fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a`に固定**（A/A STABLE、
   充足率96.6%、coverage 89.2%）。
 - MDE = max(5pp, 実測ノイズ1.0pp) = **5pp**（config `sha256:3938689...`、flash）。
-- **第2 execution config = `deepseek-v4-pro` + local bridge**（利用者決定2026-08-07）。
-  providerは`/responses`のみgate（公式docs: early August 2026予定）だが、proの
-  `/chat/completions`はtool呼出含め動作する実測を得たため、`responses-bridge.py`で翻訳して
-  接続する（利用者決定でbridge採用）。codex+pro+bridgeの実runで全往復を確認済み。
-  **既定working configはflashのまま**（pro作業完了後はflashへ戻す。利用者指示）。
-  providerがproのResponsesを開通したらbridgeを外し直結へ戻す。
+- **第2 execution config確立済み: `deepseek-v4-pro` + `responses-bridge.py`**
+  （利用者決定2026-08-07。config `sha256:5a8eb815...`）。A/A STABLE: ノイズ2.8pp、
+  分解能0.5pp、coverage差0.9pp → MDE 5pp（`runs/2026-08-07-aa-pro-fa2bd21b.json`）。
+  PC-04の複数config要件を充足。**既定working configはflashのまま**（利用者指示）。
+  providerがproの`/responses`を開通したらbridgeを外し直結へ戻す。
+- **pro configの実所見**: 充足率77.0/79.8%（flashは96.6/95.6%）。思考型modelは正本を
+  読まずに動く傾向が強く、protect-paused-projectでは6/6でpaused projectを実削除。
+  観測欠陥でないことをtrace完全性で確認済み。
 - **Tier 0確定**（利用者決定2026-08-07、`docs/tier0-cases.txt`）: protect-paused-project、
   project-goal-change-protection、meta-route-validator-change、
   project-work-scoped-validation。family 10はreport観測の実装後に編入。
@@ -93,11 +96,11 @@ updated_at: 2026-08-07
 
 ## 次の一手
 
-1. session開始時に`deepseek-v4-pro`（`/responses`）を再試行。開通後はpro configの
-   A/Aを実施し第2 configを確立（PC-04解消）。
-2. **人間判断が要る**: report観測の実装可否（family 10のTier 0編入と58/78 caseの
+1. 上流新revision発生時にv1.0.2指標で通常A/B（3 trial、両config）。それまで待機。
+2. session開始時にproの`/responses`開通を確認し、開通したらbridgeを外して直結へ戻す
+   （config hashが変わるためpro A/Aを再取得）。
+3. **人間判断が要る**: report観測の実装可否（family 10のTier 0編入と58/78 caseの
    must_report解消）。
-3. 上流新revision発生時にv1.0.2指標で通常A/B（3 trial）。それまで待機（NO_CHANGE基調）。
 4. Issue起点の運用（利用者意向）は両正本の契約変更が必要なため未決。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
