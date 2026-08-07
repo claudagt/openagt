@@ -6,38 +6,35 @@ updated_at: 2026-08-07
 
 ## 現在の到達点
 
-- `docs/EVALUATION.md`（policy **v1.0.2**、2026-08-07改訂）と最小harnessが揃い、
-  `verify.sh`の36検査が合格。主要指標はcheck単位の充足率（利用者の明示決定）。
-- **A/Aが安定化しbaselineを固定**: v1.0.2でのA/A再実行（36 run、INFRA失敗ゼロ）は
-  ノイズ1.0pp（分解能0.5pp、coverage差0.9pp）。同一データのcase二値では16.7ppで、
-  旧33ppノイズの主因は二値化の増幅と確定（`runs/2026-08-07-aa3-fa2bd21b.json`ほか）。
-- harnessは変更なしで新指標に対応（集計は`check-promotion.py`だけが所有）。
-- **最初のA/B smoke完了**（`8325b185`→`fa2bd21b`、12 run、INFRA 0）: baseline 98.5%、
+- policy **v1.0.2**（2026-08-07改訂、主要指標=check単位充足率）で`verify.sh`36検査合格。
+  harnessは変更なしで対応（集計は`check-promotion.py`だけが所有）。
+- **A/A STABLE・baseline固定**: v1.0.2でのA/A再実行（36 run、INFRA 0）はノイズ1.0pp
+  （分解能0.5pp、coverage差0.9pp）。旧33ppの主因はcase二値化の増幅と確定
+  （`runs/2026-08-07-aa3-fa2bd21b.json`ほか）。
+- **最初のA/B smoke完了**（`8325b185`→`fa2bd21b`、12 run）: baseline 98.5%、
   candidate 97.1%、|delta 1.4pp| < MDE 5pp → **NO_CHANGE**（正しい成果）。
-  `runs/2026-08-07-ab1-smoke-8325b185-fa2bd21b.json`。
 
 ## 現在の目標
 
 対象契約: `PROJECT.md#PC-07`
 
-Tier 0確定（人間判断）後、最初のA/B比較（`8325b185...` → 上流最新main）をv1.0.2指標で
-実施し、MDE判定（ELIGIBLE / NO_CHANGE）まで到達する。
+継続運用: 上流新revisionの通常A/B（3 trial）に備えつつ、第2 execution config
+（`deepseek-v4-pro`）の利用可否をsession毎に確認して確立する。
 
 ## 目標の合格条件
 
-- A/B両roleのrunがmanifest・evidence束付きで揃い、`check-promotion.py`が
-  INVALID以外の決定を出す。
+- 上流新revision発生時、A/B両roleの証拠束から`check-promotion.py`がINVALID以外を出す。
 - 判定に使うA/AノイズがA/A証拠から算出されている（スカラー指定でない）。
 
 ## 検証結果
 
 - 対象: `PROJECT.md#PC-01`
-- 確認日: 2026-08-07 / 方法: `verify.sh`（36検査）+ A/A再実行
+- 確認日: 2026-08-07 / 方法: `verify.sh`36検査 + A/A再実行
 - 結果: 合格。baseline runは実manifest・単一execution config hashで取得済み。
 
 - 対象: `PROJECT.md#PC-07`
-- 確認日: 2026-08-07 / 方法: A/A再実行36 runの集計
-- 結果: 合格。ノイズ1.0pp < policy下限5pp → MDE 5pp。
+- 確認日: 2026-08-07 / 方法: A/A再実行の集計とA/B smoke
+- 結果: 合格。ノイズ1.0pp < 下限5pp → MDE 5pp。smokeはNO_CHANGEで正しく停止。
 
 - 対象: `PROJECT.md#PC-05`
 - 確認日: 2026-08-07 / 方法: verify.sh内secret scan
@@ -49,69 +46,56 @@ Tier 0確定（人間判断）後、最初のA/B比較（`8325b185...` → 上�
 
 ## 未完了・ブロッカー
 
-- `must_report`は観測不能で常にUNVERIFIED（58/78 case）。v1.0.2では主要指標の分母から
-  外れcoverageとして報告されるが、case verdictはPASS不能のまま（完全検証可能は16/78 case）。
-- 実promotionにはexecution config 2つ以上が必要（PC-04）だが、現在使えるのは
-  deepseek-v4-flashの1つのみ。ELIGIBLE到達には第2 configの人間判断が要る。
-- 観測の限界: readは読取専用commandからの推定でbyte数なし（`max_context_bytes`は
-  UNVERIFIED）。client自動注入contextはreadとして数える。routeは入口正本の読取から
-  導出し、曖昧なら導出しない。
-- read側のOS隔離なし: subjectからevaluatorや`$HOME`を読める（path秘匿と配置のみ）。
-- execution configの`unknown`: system instruction、tool schema、sampling、各種上限。
-- 生logはGit管理せずOS一時領域に置く（`runs/`はsanitized記録のみ）。
+- `must_report`は観測不能で常にUNVERIFIED（58/78 case、完全検証可能は16/78）。
+  v1.0.2では分母外（coverage報告）だが、case verdictはPASS不能のまま。
+- 実promotionにはexecution config 2つ以上が必要（PC-04）。現用はflashの1つのみ。
+- 観測の限界: readはcommand推定でbyte数なし（`max_context_bytes`はUNVERIFIED）。
+  client自動注入contextはreadとして数える。routeは入口正本読取から導出、曖昧なら非導出。
+- read側のOS隔離なし（path秘匿と配置のみ）。execution configの一部は`unknown`。
+- 生logはGit管理せずOS一時領域（`runs/`はsanitized記録のみ）。
 
 ## 現在有効な決定
 
 - 初期source revision: `8325b185fb9410bff44cf6ec9a9b99246fe8cc0f`（bootstrap記録）。
-- 評価policy version: **v1.0.2**（利用者の明示決定2026-08-07。変更は人間の明示決定のみ）。
-  主要指標=check単位のpooled充足率。UNVERIFIEDは分母外（coverageとして報告）。
-  role間coverage差10pp超は自動判定しない（INVALID）。v1.0.1の決定
-  （subject非tmp root、`INFRA_UNAVAILABLE`区分）は継続。
-- 現在のbaseline: **`fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a`に固定**（2026-08-07、
-  A/A STABLE）。baseline側充足率96.6%（coverage 89.2%）。
-- MDE = max(5pp, 実測ノイズ1.0pp) = **5pp**（config `sha256:3938689...`、
-  deepseek-v4-flash）。旧33ppはcase二値集計の増幅で、v1.0.2指標では消滅。
-- **第2 execution config = `deepseek-v4-pro`**（利用者決定2026-08-07）。provider提供
-  開始まで待機し、作業session開始時に再試行する。利用可能になったら同configでA/Aを
-  実施しノイズ・MDEを確立してからPC-04の第2 configとして数える。
-- **Tier 0確定**（利用者決定2026-08-07、一覧は`docs/tier0-cases.txt`）:
-  protect-paused-project、project-goal-change-protection、meta-route-validator-change、
-  project-work-scoped-validation。family 10（external-effect-approval-gate）は
-  report観測の実装後に編入（全昇格自動REJECTED回避のため未編入と決定済み）。
-- `8325b185... → 最新main`の差分は最初のA/B smokeとして利用してよい。
+- 評価policy version: **v1.0.2**（利用者決定2026-08-07。変更は人間の明示決定のみ）。
+  check単位pooled充足率、UNVERIFIED分母外（coverage報告）、coverage差10pp超は自動判定
+  しない。v1.0.1の決定（非tmp root、`INFRA_UNAVAILABLE`区分）は継続。
+- baseline: **`fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a`に固定**（A/A STABLE、
+  充足率96.6%、coverage 89.2%）。
+- MDE = max(5pp, 実測ノイズ1.0pp) = **5pp**（config `sha256:3938689...`、flash）。
+- **第2 execution config = `deepseek-v4-pro`**（利用者決定2026-08-07）。実測:
+  model自体は`/chat/completions`で応答するが、codexが使う`/responses`だけprovider側が
+  gate（「early August 2026提供予定」）。session開始時に再試行し、開通後はpro configの
+  A/A→PC-04算入の順。local bridgeは複雑性増のため提供開始を待つ。
+- **Tier 0確定**（利用者決定2026-08-07、`docs/tier0-cases.txt`）: protect-paused-project、
+  project-goal-change-protection、meta-route-validator-change、
+  project-work-scoped-validation。family 10はreport観測の実装後に編入。
 - Draft PR作成は昇格条件充足時のみ別Promotion session（standing approval、2026-08-06）。
-- clientはcodex（`codex exec`）。唯一OS強制sandbox・`--json` trace・hermetic configを
-  備える。組込profileは`:workspace`と`:read-only`のみ。
-- providerはDeepSeek。Responses API nativeで`wire_api="responses"`直結、bridge不要。
-  グローバルcodex設定は変更せずrun毎に`-c`でinline指定。OpenAI quotaを消費しない。
-- **秘密はauth commandで渡し`env_key`を使わない**（env_keyはsubjectのshellから見えた
-  実測あり）。秘密ファイルはCODEX_HOME外の一時領域（CODEX_HOMEはsubjectへ露出する）。
-- 自己申告を判定に使わない（申告exit codeに対応するrun eventが無い実例を確認済み）。
-  write観測はGit由来で完全: write event空は「書込なし」の証拠（完全性markerで区別）。
-- **A/A史**: case二値の2回はUNSTABLE（16.7pp/33.3pp）→check単位の再集計で1.5pp/3.0pp
-  →v1.0.2での再実行はノイズ1.0ppでSTABLE。主因は二値化の増幅（`runs/`の4記録）。
+- clientはcodex（唯一OS強制sandbox・`--json`・hermetic。profileは`:workspace`/`:read-only`）。
+  providerはDeepSeek（`wire_api="responses"`直結）。グローバルcodex設定不変、run毎`-c`指定。
+- 秘密はauth commandで渡す（`env_key`はsubjectから見えた実測）。秘密ファイルは
+  CODEX_HOME外（CODEX_HOMEはsubjectへ露出する）。
+- 自己申告を判定に使わない。write観測はGit由来で完全: write event空=「書込なし」の証拠。
+- A/A史: case二値2回UNSTABLE（16.7/33.3pp）→check単位再集計1.5/3.0pp→v1.0.2再実行1.0pp
+  STABLE（`runs/`の4記録）。
 
 ## 失敗・却下済み
 
-- gemini 0.46.0の`-s/--sandbox`: container runtime導入が必要なため第1号adapterから除外。
-- `deepseek-v4-pro`: Codex経路未提供（「early August 2026提供予定、flashを使え」。
-  2026-08-06実測、08-07再試行2回も同一応答。adapterはINFRA_UNAVAILABLEへ正しく分類。
-  却下ではなく待機——第2 configとして採用決定済み、上記参照）。
-- 「subjectがroot `AGENTS.md`を未読」という所見: **誤検出につき撤回**。codexは同ファイルを
-  自動注入し「再読不要」と指示する（注入を数えないと65/78 caseを誤FAIL）。
-  一般則: clientはcommandを出さない経路で期待を満たしうる。
+- gemini 0.46.0の`-s/--sandbox`: container runtime導入が必要なため除外。
+- 「subjectがroot `AGENTS.md`を未読」所見: **誤検出につき撤回**。codexが自動注入し
+  「再読不要」と指示（注入を数えないと65/78誤FAIL）。一般則: clientはcommandを出さない
+  経路で期待を満たしうる。
 - codexの`-P`profile経路での`sandbox_workspace_write.exclude_*`上書き: 実測で無効。
 
 新しい根拠または利用者の明示指示がない限り、ここにある方法を繰り返さない。
 
 ## 次の一手
 
-1. session開始時に`deepseek-v4-pro`を再試行し、利用可能になり次第pro configの
-   A/Aを実施する（第2 config確立、PC-04解消）。
-2. **人間判断が要る**: report観測の実装可否（family 10のTier 0編入と
-   must_report観測の解消）。
-3. 上流の新revisionが出たら、v1.0.2指標で通常A/B（3 trial）を実施する。
-   それまで実運用は待機（NO_CHANGE基調）。
-4. Issue起点の運用（利用者意向）は両正本の契約変更が必要なため引き続き未決。
+1. session開始時に`deepseek-v4-pro`（`/responses`）を再試行。開通後はpro configの
+   A/Aを実施し第2 configを確立（PC-04解消）。
+2. **人間判断が要る**: report観測の実装可否（family 10のTier 0編入と58/78 caseの
+   must_report解消）。
+3. 上流新revision発生時にv1.0.2指標で通常A/B（3 trial）。それまで待機（NO_CHANGE基調）。
+4. Issue起点の運用（利用者意向）は両正本の契約変更が必要なため未決。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
