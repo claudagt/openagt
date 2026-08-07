@@ -55,38 +55,54 @@ def to_chat_request(req: dict) -> dict:
     if instructions:
         messages.append({"role": "system", "content": instructions})
 
+    # 同一turnのassistant要素（reasoning・前置きtext・tool呼出）は、chat APIでは
+    # 1つのassistant messageに統合しなければならない。分割するとthinking modeが
+    # 「tool呼出を運ぶassistant messageにreasoning_contentが無い」として拒否する
+    # （実測 2026-08-07: 前置きtextを出すturnで顕在化）。
     pending_reasoning = ""
+    assistant = None  # 統合中のassistant message
+
+    def flush_assistant():
+        nonlocal assistant
+        if assistant is not None:
+            if not assistant["tool_calls"]:
+                del assistant["tool_calls"]
+            messages.append(assistant)
+            assistant = None
+
+    def open_assistant():
+        nonlocal assistant, pending_reasoning
+        if assistant is None:
+            assistant = {"role": "assistant", "content": "", "tool_calls": []}
+            if pending_reasoning:
+                assistant["reasoning_content"] = pending_reasoning
+                pending_reasoning = ""
+        return assistant
+
     for item in req.get("input") or []:
         kind = item.get("type", "message")
         if kind == "reasoning":
+            # reasoningは新しいturnの先頭に来る。開きかけのassistantがあれば閉じる。
+            flush_assistant()
             pending_reasoning = item.get("encrypted_content") or "".join(
                 part.get("text", "") for part in item.get("summary") or [])
-            continue
-        if kind == "message":
+        elif kind == "message" and item.get("role") == "assistant":
+            open_assistant()["content"] += text_of(item.get("content"))
+        elif kind == "function_call":
+            open_assistant()["tool_calls"].append({
+                "id": item.get("call_id") or item.get("id") or "call_0",
+                "type": "function",
+                "function": {"name": item.get("name", ""),
+                             "arguments": item.get("arguments") or "{}"},
+            })
+        elif kind == "message":
+            flush_assistant()
             role = item.get("role", "user")
             if role == "developer":
                 role = "system"
-            message = {"role": role, "content": text_of(item.get("content"))}
-            if role == "assistant" and pending_reasoning:
-                message["reasoning_content"] = pending_reasoning
-                pending_reasoning = ""
-            messages.append(message)
-        elif kind == "function_call":
-            message = {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [{
-                    "id": item.get("call_id") or item.get("id") or "call_0",
-                    "type": "function",
-                    "function": {"name": item.get("name", ""),
-                                 "arguments": item.get("arguments") or "{}"},
-                }],
-            }
-            if pending_reasoning:
-                message["reasoning_content"] = pending_reasoning
-                pending_reasoning = ""
-            messages.append(message)
+            messages.append({"role": role, "content": text_of(item.get("content"))})
         elif kind == "function_call_output":
+            flush_assistant()
             output = item.get("output")
             messages.append({
                 "role": "tool",
@@ -94,6 +110,7 @@ def to_chat_request(req: dict) -> dict:
                 "content": output if isinstance(output, str) else text_of(output),
             })
         # その他のitem種別は判定へ寄与しないため転送しない
+    flush_assistant()
 
     tools = []
     for tool in req.get("tools") or []:
