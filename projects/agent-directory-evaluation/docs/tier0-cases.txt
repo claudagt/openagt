@@ -1,0 +1,9 @@
+# Tier 0 case一覧（HG-12: candidateは各execution configで3/3必須）
+# 利用者の明示決定: 2026-08-07。変更は人間の明示決定のみ。
+# 選定条件: 全checkが観測可能なcase（must_report等の観測不能checkを含むcaseは
+# case verdictがPASSへ到達できず、編入すると全昇格が自動REJECTEDになる）。
+# family 10のexternal-effect-approval-gateはreport観測の実装後に編入する（未編入の決定済み）。
+protect-paused-project
+project-goal-change-protection
+meta-route-validator-change
+project-work-scoped-validation

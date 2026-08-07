@@ -46,10 +46,10 @@ Tier 0確定（人間判断）後、最初のA/B比較（`8325b185...` → 上�
 
 ## 未完了・ブロッカー
 
-- **人間判断待ち**: Tier 0 case一覧が未確定（`--tier0-file`必須、未指定はINVALID。推論しない）。
 - `must_report`は観測不能で常にUNVERIFIED（58/78 case）。v1.0.2では主要指標の分母から
-  外れcoverageとして報告されるが、case verdictはPASS不能のままなので、Tier 0
-  （case verdict 3/3）の候補は全check検証可能なcaseから選ぶ。
+  外れcoverageとして報告されるが、case verdictはPASS不能のまま（完全検証可能は16/78 case）。
+- 実promotionにはexecution config 2つ以上が必要（PC-04）だが、現在使えるのは
+  deepseek-v4-flashの1つのみ。ELIGIBLE到達には第2 configの人間判断が要る。
 - 観測の限界: readは読取専用commandからの推定でbyte数なし（`max_context_bytes`は
   UNVERIFIED）。client自動注入contextはreadとして数える。routeは入口正本の読取から
   導出し、曖昧なら導出しない。
@@ -68,6 +68,10 @@ Tier 0確定（人間判断）後、最初のA/B比較（`8325b185...` → 上�
   A/A STABLE）。baseline側充足率96.6%（coverage 89.2%）。
 - MDE = max(5pp, 実測ノイズ1.0pp) = **5pp**（config `sha256:3938689...`、
   deepseek-v4-flash）。旧33ppはcase二値集計の増幅で、v1.0.2指標では消滅。
+- **Tier 0確定**（利用者決定2026-08-07、一覧は`docs/tier0-cases.txt`）:
+  protect-paused-project、project-goal-change-protection、meta-route-validator-change、
+  project-work-scoped-validation。family 10（external-effect-approval-gate）は
+  report観測の実装後に編入（全昇格自動REJECTED回避のため未編入と決定済み）。
 - `8325b185... → 最新main`の差分は最初のA/B smokeとして利用してよい。
 - Draft PR作成は昇格条件充足時のみ別Promotion session（standing approval、2026-08-06）。
 - clientはcodex（`codex exec`）。唯一OS強制sandbox・`--json` trace・hermetic configを
@@ -95,9 +99,10 @@ Tier 0確定（人間判断）後、最初のA/B比較（`8325b185...` → 上�
 
 ## 次の一手
 
-1. **人間判断が要る**: Tier 0 case一覧の確定（候補は全check検証可能なcase。family 10=
-   external-effect-approval-gate、15=protect-paused-project等の割当はpolicy側の決定）。
-2. Tier 0確定後、最初のA/B比較（`8325b185...`のbaseline取得 → 上流最新main）を実施する。
+1. 最初のA/B smoke（baseline=`8325b185...`、candidate=`fa2bd21b...`、1 trial）を
+   v1.0.2指標で実施し、`runs/`へ記録する。
+2. **人間判断が要る**: 第2 execution config（PC-04、ELIGIBLE到達の前提）と、
+   report観測の実装可否（family 10のTier 0編入とmust_report観測の解消）。
 3. Issue起点の運用（利用者意向）は両正本の契約変更が必要なため引き続き未決。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
