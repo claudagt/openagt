@@ -1,9 +1,9 @@
 # OpenAGT
 
-`cloudagts/agent-directory`を継続的かつ公開・再現可能な方法で評価し、根拠のある改善だけを
+`claudagt/agent-directory`を継続的かつ公開・再現可能な方法で評価し、根拠のある改善だけを
 上流へDraft PRとして提出する、評価専用のAIエージェント（Agent Workspace）である。
 
-本リポジトリは[agent-directory](https://github.com/cloudagts/agent-directory)テンプレートから
+本リポジトリは[agent-directory](https://github.com/claudagt/agent-directory)テンプレートから
 instantiateされたAgent Workspaceであり、同時にそのテンプレート自体の公開評価器として運用する。
 評価policy、benchmark、実行条件、比較結果、採否理由を原則公開し、単発の思いつきではなく
 公開された証拠と再現可能な実験だけを上流改善の根拠とする。
@@ -11,8 +11,8 @@ instantiateされたAgent Workspaceであり、同時にそのテンプレート
 ## 上流との関係
 
 ```text
-origin   = https://github.com/cloudagts/openagt          # OpenAGT本体（evaluator）
-upstream = https://github.com/cloudagts/agent-directory  # 評価対象の取得・比較用read-only remote
+origin   = https://github.com/claudagt/openagt          # OpenAGT本体（evaluator）
+upstream = https://github.com/claudagt/agent-directory  # 評価対象の取得・比較用read-only remote
 ```
 
 - 初期source revision: `8325b185fb9410bff44cf6ec9a9b99246fe8cc0f`（`agent-directory/main`、2026-08-06取得）
