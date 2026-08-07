@@ -64,17 +64,18 @@ updated_at: 2026-08-07
 - MDE = **5pp**（実測ノイズ: flash 0.8pp、pro 3.2pp。いずれも下限5pp未満）。
 - **第2 execution config確立済み: `deepseek-v4-pro` + `responses-bridge.py`**
   （利用者決定2026-08-07。config `sha256:5a8eb815...`）。A/A STABLE: ノイズ3.2pp
-  （may_write偽FAIL修正後の再採点値、`runs/2026-08-07-regrade-maywrite-fa2bd21b.json`）
-  → MDE 5pp。
+  （route再導出後の再採点で3.6pp）→ MDE 5pp。
   PC-04の複数config要件を充足。**既定working configはflashのまま**（利用者指示）。
   providerがproの`/responses`を開通したらbridgeを外し直結へ戻す。
 - **pro configの実所見**: baselineで充足率約78%（flashは約97%）。思考型modelは正本を
   読まずに動き、baselineではpaused projectを実削除する（trace完全性で確認済み）。
   ※grader偽FAIL（may_write）は人間決定で修正済み（fec07bb、既存証拠は再採点済み）。
-- **candidate `05b338da`（bootloader不変条件7行）はREJECTED**（2026-08-07、
-  `runs/2026-08-07-promotion-rejected-05b338da.json`）: 集計はflash +4.0pp/pro +6.6ppだが、
-  proでHard Gate違反残存（may_write、must_not_modify）と2 family回帰。branchは
-  candidate cloneに保存。仮説自体は有効（pro大幅改善）でv3の出発点になる。
+- **candidate系譜**: v2 `05b338da`はREJECTED（pro違反残存）。v3 `eaca5f07`
+  （631cab3起点、変更対象Route判別+paused凍結強化）は**pausedのHard Gate違反を
+  candidate側で根絶**（baselineは3/3違反）、pro +7.3pp（MDE超）、flash +3.6pp（MDE未満）。
+  未昇格（flash<MDE、Tier 0 3/3未達、pro trial欠損11）。`runs/2026-08-07-ab6-v3-631cab3.json`。
+- route:metaは正当な他領域読取で導出が壊れる（観測意味論の限界。meta-route caseの
+  route checkは観測器残余則でも救えないことを実測）。
 - **Tier 0確定**（利用者決定2026-08-07、`docs/tier0-cases.txt`）: protect-paused-project、
   project-goal-change-protection、meta-route-validator-change、
   project-work-scoped-validation。family 10はreport観測の実装後に編入。
