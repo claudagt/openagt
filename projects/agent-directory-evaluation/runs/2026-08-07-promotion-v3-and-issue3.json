@@ -122,5 +122,5 @@
     "2026-08-07-ab6-v3-631cab3.json"
   ],
   "schema": "openagt-promotion-result/v1",
-  "upstream_issue": "https://github.com/cloudagts/agent-directory/issues/3"
+  "upstream_issue": "https://github.com/claudagt/agent-directory/issues/3"
 }
