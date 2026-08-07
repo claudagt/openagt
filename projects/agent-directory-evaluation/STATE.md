@@ -12,6 +12,9 @@ updated_at: 2026-08-07
   ノイズ1.0pp（分解能0.5pp、coverage差0.9pp）。同一データのcase二値では16.7ppで、
   旧33ppノイズの主因は二値化の増幅と確定（`runs/2026-08-07-aa3-fa2bd21b.json`ほか）。
 - harnessは変更なしで新指標に対応（集計は`check-promotion.py`だけが所有）。
+- **最初のA/B smoke完了**（`8325b185`→`fa2bd21b`、12 run、INFRA 0）: baseline 98.5%、
+  candidate 97.1%、|delta 1.4pp| < MDE 5pp → **NO_CHANGE**（正しい成果）。
+  `runs/2026-08-07-ab1-smoke-8325b185-fa2bd21b.json`。
 
 ## 現在の目標
 
@@ -99,10 +102,10 @@ Tier 0確定（人間判断）後、最初のA/B比較（`8325b185...` → 上�
 
 ## 次の一手
 
-1. 最初のA/B smoke（baseline=`8325b185...`、candidate=`fa2bd21b...`、1 trial）を
-   v1.0.2指標で実施し、`runs/`へ記録する。
-2. **人間判断が要る**: 第2 execution config（PC-04、ELIGIBLE到達の前提）と、
+1. **人間判断が要る**: 第2 execution config（PC-04、ELIGIBLE到達の前提）と、
    report観測の実装可否（family 10のTier 0編入とmust_report観測の解消）。
+2. 上流の新revisionが出たら、v1.0.2指標で通常A/B（3 trial）を実施する。
+   それまで実運用は待機（NO_CHANGE基調）。
 3. Issue起点の運用（利用者意向）は両正本の契約変更が必要なため引き続き未決。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。

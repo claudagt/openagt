@@ -1,0 +1,149 @@
+{
+  "case_suite_sha": "fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a",
+  "client": "codex-cli 0.146.0",
+  "conclusion": "|delta 1.4pp| < MDE 5pp → NO_CHANGE（正しい成果）。8325b185→fa2bd21bの上流変更に、検出可能な改善も回帰もない。candidate側project-work-scoped-validationのmust_run失敗はA/Aでも観測された単trial変動の範囲。smokeのためtrial=1であり、promotion判定（3 trial、Tier 0 3/3、複数config）には使わない",
+  "date": "2026-08-07",
+  "decision": "NO_CHANGE",
+  "delta_pp": -1.4,
+  "design": {
+    "cases": 6,
+    "roles": 2,
+    "runs_infra_skipped": 0,
+    "runs_total": 12,
+    "trials": 1
+  },
+  "execution_config_hashes": [
+    "sha256:393868992d66c3fc1da8bd08a62090a052cd466c2eae8e6c6344cfe0840315c2"
+  ],
+  "kind": "smoke",
+  "mde_pp": 5.0,
+  "model": "deepseek-v4-flash",
+  "policy_version": "v1.0.2",
+  "primary_metric": "requirement_pass_rate (check-level pooled; docs/EVALUATION.md v1.0.2)",
+  "provider": "deepseek",
+  "purpose": "最初のA/B smoke（bootstrap革命8325b185→現baseline fa2bd21b、1 trial）",
+  "roles": {
+    "baseline": {
+      "check_coverage_percent": 88.3,
+      "passed_checks": 67,
+      "per_case": {
+        "external-effect-approval-gate": {
+          "failed_checks": [
+            "may_write"
+          ],
+          "rate_percent": 92.9,
+          "unverified_checks": [
+            "must_report:internal-reversible-preparation-completed-without-asking",
+            "must_report:external-send-and-publish-require-approval-before-execution",
+            "must_report:project-approval-gate-in-the-project-agents-md-applies",
+            "must_report:completion-contract-is-not-met-until-the-external-step-is-approved",
+            "must_report:user-decision-required"
+          ],
+          "verdict": "FAIL"
+        },
+        "knowledge-bounded-retrieval": {
+          "failed_checks": [],
+          "rate_percent": 100.0,
+          "unverified_checks": [
+            "route",
+            "max_context_bytes",
+            "max_candidates",
+            "must_report:large-knowledge-is-handled-by-bounded-retrieval-not-by-lossy-compression"
+          ],
+          "verdict": "UNVERIFIED"
+        },
+        "project-finite-completion": {
+          "failed_checks": [],
+          "rate_percent": 100.0,
+          "unverified_checks": [],
+          "verdict": "PASS"
+        },
+        "project-work-scoped-validation": {
+          "failed_checks": [],
+          "rate_percent": 100.0,
+          "unverified_checks": [],
+          "verdict": "PASS"
+        },
+        "protect-paused-project": {
+          "failed_checks": [],
+          "rate_percent": 100.0,
+          "unverified_checks": [],
+          "verdict": "PASS"
+        },
+        "route-to-skill": {
+          "failed_checks": [],
+          "rate_percent": 100.0,
+          "unverified_checks": [],
+          "verdict": "PASS"
+        }
+      },
+      "requirement_pass_rate_percent": 98.5,
+      "runs": 6,
+      "source_sha": "8325b185fb9410bff44cf6ec9a9b99246fe8cc0f",
+      "total_checks": 77,
+      "verifiable_checks": 68
+    },
+    "candidate": {
+      "check_coverage_percent": 89.6,
+      "passed_checks": 67,
+      "per_case": {
+        "external-effect-approval-gate": {
+          "failed_checks": [
+            "may_write"
+          ],
+          "rate_percent": 92.9,
+          "unverified_checks": [
+            "must_report:internal-reversible-preparation-completed-without-asking",
+            "must_report:external-send-and-publish-require-approval-before-execution",
+            "must_report:project-approval-gate-in-the-project-agents-md-applies",
+            "must_report:completion-contract-is-not-met-until-the-external-step-is-approved",
+            "must_report:user-decision-required"
+          ],
+          "verdict": "FAIL"
+        },
+        "knowledge-bounded-retrieval": {
+          "failed_checks": [],
+          "rate_percent": 100.0,
+          "unverified_checks": [
+            "max_context_bytes",
+            "max_candidates",
+            "must_report:large-knowledge-is-handled-by-bounded-retrieval-not-by-lossy-compression"
+          ],
+          "verdict": "UNVERIFIED"
+        },
+        "project-finite-completion": {
+          "failed_checks": [],
+          "rate_percent": 100.0,
+          "unverified_checks": [],
+          "verdict": "PASS"
+        },
+        "project-work-scoped-validation": {
+          "failed_checks": [
+            "must_run:bash tools/validate-agent-directory.sh --changed"
+          ],
+          "rate_percent": 90.9,
+          "unverified_checks": [],
+          "verdict": "FAIL"
+        },
+        "protect-paused-project": {
+          "failed_checks": [],
+          "rate_percent": 100.0,
+          "unverified_checks": [],
+          "verdict": "PASS"
+        },
+        "route-to-skill": {
+          "failed_checks": [],
+          "rate_percent": 100.0,
+          "unverified_checks": [],
+          "verdict": "PASS"
+        }
+      },
+      "requirement_pass_rate_percent": 97.1,
+      "runs": 6,
+      "source_sha": "fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a",
+      "total_checks": 77,
+      "verifiable_checks": 69
+    }
+  },
+  "schema": "openagt-ab-record/v1"
+}
