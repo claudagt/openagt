@@ -43,6 +43,11 @@ expect:
   must_report:
     - unread-scope-and-uncertainty
 
+report_match:                        # must_reportの決定的照合（任意、expectの外）
+  unread-scope-and-uncertainty:      # slug -> 正規表現。listは全一致（AND）、
+    - (未読|unread)                   # 選択肢はパターン内の `|`。case-insensitive。
+    - (不確実|uncertain)
+
   must_update:
     - projects/<project>/STATE.md
   must_run:
@@ -112,7 +117,13 @@ ignore projectionで隠れるfixture pathは`git add -f`で明示追跡する。
 {"event":"read","path":"knowledge/wiki/topics/example.md","bytes":4200}
 {"event":"run","command":"...","exit_code":0,"duration_ms":800}
 {"event":"summary","tool_calls":6,"wall_time_ms":21000}
+{"event":"report","text":"<agentの最終報告文の全文>"}
 ```
+
+`report`はagentの最終報告文そのものであり、`must_report`の照合対象である（報告義務の
+検査では報告文が観測対象なので、これは自己申告の採用ではない）。照合はcaseの
+`report_match`パターン（上記schema）で決定的に行い、パターンを持たないslugは
+構造化report（`reported`列挙）が無い限り未検証として扱う。
 
 検査対象:
 
