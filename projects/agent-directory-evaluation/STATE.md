@@ -10,17 +10,18 @@ updated_at: 2026-08-07
   config 2つ（flash / pro+bridge）。
 - A/B実績: 上流差分2回=NO_CHANGE、candidate v2/v3=REJECTED（v3は安全違反根絶を実証し
   上流Issue #3で報告済み）。数値・経緯はすべて`runs/`が持つ。
-- 上流`cb7d85c`を同期済み。suiteとpolicyのhashが動き、**現baselineは判定に使えない**。
+- 上流`cb7d85c`を同期済み。baselineは新suite(89 case)・policy v1.0.4・明文case集合で
+  **`cb7d85c`にて再取得済み**（`runs/2026-08-07-baseline-cb7d85c.json`、48 run、INFRA 0）。
 
 ## 現在の目標
 
 対象契約: `PROJECT.md#PC-07`
 
-新suite（89 case）・新policy（v1.0.4）でbaselineを取り直し、A/B判定を再開できる状態へ戻す。
+Tier 0が両configで3/3未達のままHG-12が全昇格を閉じている状態を、人間判断で解く。
 
 ## 目標の合格条件
 
-- `28600ef`以降の上流HEADで、両config・3 trialのbaseline証拠束が揃う。
+- Tier 0の扱い（case修正 / 編入見直し / HG-12条件）について利用者の決定が記録される。
 - `check-promotion.py`がINVALID以外を出し、A/AノイズがA/A証拠から算出されている。
 
 ## 検証結果
@@ -36,13 +37,14 @@ updated_at: 2026-08-07
 
 ## 未完了・ブロッカー
 
-- **baseline再取得まではA/Bを開始しない**。`28600ef`の証拠はsuite 83件・policy v1.0.3で
-  取得済みだが、現在はsuite 89件`sha256:207122de…`・policy v1.0.4。HG-11により対にできない。
-  旧`runs/`は旧suite・旧policyの記録として保持する。
+- Tier 0は`cb7d85c`のbaselineでも3/3未達（flash 0/4、pro 0/4。proは全4件が3 trial全FAIL）。
+  HG-12が全candidateの昇格を閉じる（人間判断待ち）。
+- **execution configのmodelは観測できない**。codex `--json`のevent列にproviderのmodelエコーが
+  無く、run単位では要求modelしか証明できない（declared）。provider APIへの直接照会では
+  `deepseek-v4-pro`の実在と応答model一致を確認済み。harness側の観測欠落として未解決。
+- 旧`runs/`は旧suite・旧policyの記録。HG-11により新runと対にしない。
 - `must_report`は観測不能で常にUNVERIFIED（58/78 case、完全検証可能は16/78）。分母外
   （coverage報告）だがcase verdictはPASS不能のまま。
-- Tier 0はbaselineでも3/3未達（meta-route-validator-changeは両role 0/3）。現構成のままでは
-  HG-12が全candidateの昇格を閉じる（人間判断待ち、次の一手3）。
 - 観測の限界: readはcommand推定でbyte数なし（`max_context_bytes`はUNVERIFIED）。client自動
   注入contextはreadとして数える。routeは入口正本読取から導出し、曖昧なら非導出。
 - read側のOS隔離なし（path秘匿と配置のみ）。execution configの一部は`unknown`。
@@ -59,14 +61,13 @@ updated_at: 2026-08-07
 - **A/B case集合を明文化**（利用者決定2026-08-07、`docs/ab-case-set.txt`）: Tier 0の4件＋
   external-effect-approval-gate＋上流新ゲート2件＋control-mixed-scope-commit-split の8件。
   従来の8 case設計はcase名がrun recordに残らずPC-01を満たしていなかった。
-- baseline: `28600ef855ac65bb9236c4e925175818c2a71a04`（旧suite・旧policyでの記録。
-  再取得の起点SHAとして有効）。A/Aノイズはconfig性質として継続適用（flash 0.8pp、pro 3.6pp）。
+- baseline: **`cb7d85ceff8882606d54299922611332810e9d94`**（2026-08-07再取得。flash 85.8%、
+  pro 77.6%のpooled充足率）。A/Aノイズはconfig性質として継続適用（flash 0.8pp、pro 3.6pp）。
+- **既定execution configはflashのみ**（利用者決定2026-08-07、コスト理由）。proは利用者の
+  明示指示があるrunだけで使う。PC-04の複数config要件は既取得の証拠で充足済みとする。
 - MDE = **5pp**（実測ノイズはいずれも下限5pp未満）。
-- **第2 execution config: `deepseek-v4-pro` + `responses-bridge.py`**（利用者決定2026-08-07、
-  config `sha256:5a8eb815...`）。A/A STABLE、PC-04を充足。既定working configはflashのまま
-  （利用者指示）。proの`/responses`開通後はbridgeを外す。
-- **pro所見**: 思考型modelは正本を読まずに動く傾向。paused実削除は上流PR #5で解消済み。
-  残る違反classはmeta-route誤route由来のmay_write（別課題）。
+- 第2 config `deepseek-v4-pro`+`responses-bridge.py`（config `sha256:5a8eb815...`）はA/A STABLE
+  でPC-04を充足済み。pro所見: 思考型modelは正本を読まずに動く傾向。
 - **candidate系譜**: v2 `05b338da`・v3 `eaca5f07`ともREJECTED。v3はpausedのHard Gate違反を
   candidate側で根絶したがTier 0未達（詳細は`runs/2026-08-07-promotion-v3-and-issue3.json`）。
 - route:metaは正当な他領域読取で導出が壊れる（観測意味論の限界。観測器残余則でも救えない）。
@@ -92,11 +93,10 @@ updated_at: 2026-08-07
 
 ## 次の一手
 
-1. **baseline再取得（最優先）**: `28600ef`以降の上流HEADで、新suite・新policyのbaselineを
-   smoke先行→3 trial（flash+pro、並列12〜20）で取得する。
-2. 再取得後、上流新revisionの通常A/Bへ戻る。
+1. Tier 0が3/3未達である件の解き方を利用者へ一つ推奨して決める（HG-12が閉じたままのため）。
+2. 上流新revisionの通常A/B（flash、3 trial、並列20）。
 3. meta-route誤route由来のmay_write違反は、report観測・route:meta観測意味論とあわせて次の
    改善主題候補。Issue化は都度利用者決定。
-4. session開始時にproの`/responses`開通を確認（開通後はbridge撤去+pro A/A再取得）。
+4. execution configのmodel観測欠落を潰す（現在declared）。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
