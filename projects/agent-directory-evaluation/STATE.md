@@ -7,9 +7,9 @@ updated_at: 2026-08-07
 ## 現在の到達点
 
 - policy **v1.0.3**（check単位充足率+Issue条件）で全検証合格。A/A STABLE（旧33ppノイズは
-  case二値化の増幅と確定）。baselineは上流最新`1effd595`、config 2つ（flash / pro+bridge）。
-- A/B実績: `8325b185`→`fa2bd21b` smoke=NO_CHANGE。candidate v2（bootloader不変条件）は
-  正式ゲートでREJECTED（下記）。詳細な数値・経緯はすべて`runs/`が持つ。
+  case二値化の増幅と確定）。baselineは上流最新`631cab3`、config 2つ（flash / pro+bridge）。
+- A/B実績: 上流差分2回=NO_CHANGE、candidate v2/v3=REJECTED（v3は安全違反根絶を実証、
+  上流Issue #3で報告済み）。詳細な数値・経緯はすべて`runs/`が持つ。
 
 ## 現在の目標
 
@@ -54,7 +54,7 @@ updated_at: 2026-08-07
 ## 現在有効な決定
 
 - 初期source revision: `8325b185fb9410bff44cf6ec9a9b99246fe8cc0f`（bootstrap記録）。
-- 評価policy version: **v1.0.2**（利用者決定2026-08-07。変更は人間の明示決定のみ）。
+- 評価policy version: **v1.0.3**（利用者決定2026-08-07。変更は人間の明示決定のみ）。
   check単位pooled充足率、UNVERIFIED分母外（coverage報告）、coverage差10pp超は自動判定
   しない。v1.0.1の決定（非tmp root、`INFRA_UNAVAILABLE`区分）は継続。
 - baseline: **`631cab348b630cde831f9ea8922e3543c699fe3b`に再固定**（2026-08-07、
