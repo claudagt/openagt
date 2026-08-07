@@ -71,6 +71,9 @@ Tier 0確定（人間判断）後、最初のA/B比較（`8325b185...` → 上�
   A/A STABLE）。baseline側充足率96.6%（coverage 89.2%）。
 - MDE = max(5pp, 実測ノイズ1.0pp) = **5pp**（config `sha256:3938689...`、
   deepseek-v4-flash）。旧33ppはcase二値集計の増幅で、v1.0.2指標では消滅。
+- **第2 execution config = `deepseek-v4-pro`**（利用者決定2026-08-07）。provider提供
+  開始まで待機し、作業session開始時に再試行する。利用可能になったら同configでA/Aを
+  実施しノイズ・MDEを確立してからPC-04の第2 configとして数える。
 - **Tier 0確定**（利用者決定2026-08-07、一覧は`docs/tier0-cases.txt`）:
   protect-paused-project、project-goal-change-protection、meta-route-validator-change、
   project-work-scoped-validation。family 10（external-effect-approval-gate）は
@@ -92,7 +95,8 @@ Tier 0確定（人間判断）後、最初のA/B比較（`8325b185...` → 上�
 
 - gemini 0.46.0の`-s/--sandbox`: container runtime導入が必要なため第1号adapterから除外。
 - `deepseek-v4-pro`: Codex経路未提供（「early August 2026提供予定、flashを使え」。
-  2026-08-06実測、08-07再試行も同一応答。adapterはINFRA_UNAVAILABLEへ正しく分類）。
+  2026-08-06実測、08-07再試行2回も同一応答。adapterはINFRA_UNAVAILABLEへ正しく分類。
+  却下ではなく待機——第2 configとして採用決定済み、上記参照）。
 - 「subjectがroot `AGENTS.md`を未読」という所見: **誤検出につき撤回**。codexは同ファイルを
   自動注入し「再読不要」と指示する（注入を数えないと65/78 caseを誤FAIL）。
   一般則: clientはcommandを出さない経路で期待を満たしうる。
@@ -102,10 +106,12 @@ Tier 0確定（人間判断）後、最初のA/B比較（`8325b185...` → 上�
 
 ## 次の一手
 
-1. **人間判断が要る**: 第2 execution config（PC-04、ELIGIBLE到達の前提）と、
-   report観測の実装可否（family 10のTier 0編入とmust_report観測の解消）。
-2. 上流の新revisionが出たら、v1.0.2指標で通常A/B（3 trial）を実施する。
+1. session開始時に`deepseek-v4-pro`を再試行し、利用可能になり次第pro configの
+   A/Aを実施する（第2 config確立、PC-04解消）。
+2. **人間判断が要る**: report観測の実装可否（family 10のTier 0編入と
+   must_report観測の解消）。
+3. 上流の新revisionが出たら、v1.0.2指標で通常A/B（3 trial）を実施する。
    それまで実運用は待機（NO_CHANGE基調）。
-3. Issue起点の運用（利用者意向）は両正本の契約変更が必要なため引き続き未決。
+4. Issue起点の運用（利用者意向）は両正本の契約変更が必要なため引き続き未決。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
