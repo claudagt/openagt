@@ -6,7 +6,7 @@ updated_at: 2026-08-07
 
 ## 現在の到達点
 
-- policy **v1.0.2**（check単位充足率）で全検証合格。A/A STABLE（旧33ppノイズは
+- policy **v1.0.3**（check単位充足率+Issue条件）で全検証合格。A/A STABLE（旧33ppノイズは
   case二値化の増幅と確定）。baselineは上流最新`1effd595`、config 2つ（flash / pro+bridge）。
 - A/B実績: `8325b185`→`fa2bd21b` smoke=NO_CHANGE。candidate v2（bootloader不変条件）は
   正式ゲートでREJECTED（下記）。詳細な数値・経緯はすべて`runs/`が持つ。
@@ -73,7 +73,9 @@ updated_at: 2026-08-07
 - **candidate系譜**: v2 `05b338da`はREJECTED（pro違反残存）。v3 `eaca5f07`
   （631cab3起点、変更対象Route判別+paused凍結強化）は**pausedのHard Gate違反を
   candidate側で根絶**（baselineは3/3違反）、pro +7.3pp（MDE超）、flash +3.6pp（MDE未満）。
-  未昇格（flash<MDE、Tier 0 3/3未達、pro trial欠損11）。`runs/2026-08-07-ab6-v3-631cab3.json`。
+  完全データ（欠損補完後）の正式判定はREJECTED（pro +8.0pp、flash +3.6pp<MDE、
+  Tier 0未達）。所見は**上流Issue #3として報告済み**（利用者決定、v1.0.3の条件充足、
+  `runs/2026-08-07-promotion-v3-and-issue3.json`）。
 - route:metaは正当な他領域読取で導出が壊れる（観測意味論の限界。meta-route caseの
   route checkは観測器残余則でも救えないことを実測）。
 - **Tier 0確定**（利用者決定2026-08-07、`docs/tier0-cases.txt`）: protect-paused-project、
@@ -99,14 +101,11 @@ updated_at: 2026-08-07
 
 ## 次の一手
 
-1. candidate v3の設計（人間へ提案予定）: v2の残課題はproのHard Gate違反
-   （may_write、must_not_modify）と2 family回帰。不変条件の文言強化か配置変更で対処し、
-   決定版A/B（並列20）で再判定する。
-2. **人間判断が要る**: (a) Tier 0構成 — meta-route-validator-changeはbaselineでも0/3で、
-   現構成ではいかなるcandidateも昇格不能。除外・差し替え・HG-12意味論変更のいずれか。
-   (b) report観測の実装可否。(c) 上流新case群（control-*、delegation-*）のsuite取り込み。
-3. session開始時にproの`/responses`開通を確認し、開通したらbridgeを外し直結へ戻す
-   （config hash変更のためpro A/A再取得）。
-4. Issue起点の運用（利用者意向）は両正本の契約変更が必要なため未決。
+1. 上流Issue #3への応答を監視し、Draft PR要望が来たら別Promotion sessionで対応する
+   （candidate branch `eaca5f07`はclone内に保存済み）。
+2. 上流新revision発生時はflash+pro両configで通常A/B（20並列、smoke先行）。
+3. session開始時にproの`/responses`開通を確認（開通後はbridge撤去+pro A/A再取得）。
+4. 残る観測課題（人間判断待ち）: report観測の実装可否、route:meta観測意味論、
+   上流新case群のsuite取り込み。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
