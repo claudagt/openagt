@@ -494,6 +494,50 @@ run_expect 2 "$tmp_root/write-incomplete.json" python3 "$script_dir/grade-case.p
 grep -q '"verdict": "UNVERIFIED"' "$tmp_root/write-incomplete.json" || \
   fail 'absent write evidence without a completeness marker was not UNVERIFIED'
 
+step 'may_write admits the writes the case itself requires (must_update)'
+mw_case="$tmp_root/may-write-union"
+mkdir -p "$mw_case"
+cat > "$mw_case/case.yaml" <<'YAML'
+name: synthetic-may-write-union
+
+request: |
+  outputs配下へ成果を書き、STATE.mdを更新して。
+
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+  must_update:
+    - projects/demo/STATE.md
+  may_write:
+    - projects/demo/outputs/**
+YAML
+# 要求どおりのrun: must_update対象とmay_write配下だけへ書く → may_writeはPASS
+printf '%s\n' \
+  '{"event":"route","value":"project"}' \
+  '{"event":"read","path":"AGENTS.md","bytes":10}' \
+  '{"event":"coverage","observation":"write","source":"git","complete":true}' \
+  '{"event":"write","path":"projects/demo/outputs/report.md"}' \
+  '{"event":"write","path":"projects/demo/STATE.md"}' \
+  > "$mw_case/compliant.jsonl"
+run_expect 0 "$tmp_root/may-write-ok.json" python3 "$script_dir/grade-case.py" \
+  --case "$mw_case/case.yaml" --events "$mw_case/compliant.jsonl" || true
+grep -q '"verdict": "PASS"' "$tmp_root/may-write-ok.json" || \
+  fail 'a required must_update write was counted as a may_write violation'
+# 本当に範囲外のwriteは引き続きFAILする
+printf '%s\n' \
+  '{"event":"route","value":"project"}' \
+  '{"event":"read","path":"AGENTS.md","bytes":10}' \
+  '{"event":"coverage","observation":"write","source":"git","complete":true}' \
+  '{"event":"write","path":"projects/other/notes.md"}' \
+  '{"event":"write","path":"projects/demo/STATE.md"}' \
+  > "$mw_case/stray.jsonl"
+run_expect 1 "$tmp_root/may-write-stray.json" python3 "$script_dir/grade-case.py" \
+  --case "$mw_case/case.yaml" --events "$mw_case/stray.jsonl" || true
+grep -q '"check": "may_write", "detail": "outside allowed roots' "$tmp_root/may-write-stray.json" 2>/dev/null || \
+  grep -q 'outside allowed roots' "$tmp_root/may-write-stray.json" || \
+  fail 'a genuinely stray write no longer fails may_write'
+
 step 'secret scan over tracked public artifacts'
 secret_hits="$(cd "$repo_root" && git ls-files -z | xargs -0 grep -HnE \
   'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|(^|[^a-zA-Z0-9_-])sk-[A-Za-z0-9]{24,}|-----BEGIN [A-Z ]*PRIVATE KEY|Authorization: (Bearer|Basic) [A-Za-z0-9+/=_-]{8,}' \
