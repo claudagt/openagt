@@ -4,7 +4,7 @@
 正準語彙は`evals/EVALS.md#Context trace`が所有する:
   phase / search / cache / read / run / write / summary
 
-設計の要点（docs/EVALUATION.md#traceと公開証拠）:
+設計の要点（docs/HARNESS.md#traceと公開証拠）:
 
 - **write系はclient eventに依存しない。** runnerがsubject sandboxのGit状態から観測する。
   HG-02・must_not_write・may_writeはHard Gateの中核であり、clientがeventを出さない、

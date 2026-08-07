@@ -12,7 +12,7 @@ project_dir="$(cd "$script_dir/.." && pwd -P)"
 repo_root="$(cd "$project_dir/../.." && pwd -P)"
 fixtures="$project_dir/fixtures"
 tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/openagt-verify.XXXXXX")"
-# subject sandboxはtmp外へ作る（docs/EVALUATION.md#subject-sandboxの配置）
+# subject sandboxはtmp外へ作る（docs/HARNESS.md#subject-sandboxの配置）
 subject_root="$(mktemp -d "$HOME/.cache/openagt-verify.XXXXXX")"
 trap 'rm -rf "$tmp_root" "$subject_root"' EXIT
 
@@ -59,6 +59,17 @@ cmp -s "$tmp_root/m1.json" "$tmp_root/m2.json" || fail 'make-manifest.py is not 
 grep -q '"policy_hash": "sha256:' "$tmp_root/m1.json" || fail 'manifest lacks a real policy_hash'
 grep -Eq '": 0[,"]' "$tmp_root/m1.json" && fail 'manifest zero-fills an unknown value' || true
 
+step 'manifest pins the measurement-semantics hash (HG-11 scope, v1.1.0)'
+grep -q '"measurement_hash": "sha256:' "$tmp_root/m1.json" || \
+  fail 'manifest lacks a measurement_hash'
+# markerが存在する現行policyでは、測定意味論領域はファイル全体の真部分集合であり、
+# measurement_hashはpolicy_hashと異なる値になる（同値ならfallbackしている）。
+python3 - "$tmp_root/m1.json" <<'PY' || fail 'measurement_hash equals policy_hash (marker extraction is not effective)'
+import json, sys
+m = json.load(open(sys.argv[1]))
+sys.exit(0 if m["measurement_hash"] != m["policy_hash"] else 1)
+PY
+
 step 'known-good run grades PASS'
 if run_expect 0 "$tmp_root/good.json" python3 "$script_dir/grade-run.py" "$fixtures/known-good"; then
   grep -q '"gate": "PASS"' "$tmp_root/good.json" || fail 'known-good verdict is not PASS'
@@ -91,6 +102,44 @@ if run_expect 2 "$tmp_root/mismatch.json" python3 "$script_dir/compare-runs.py" 
   --baseline "$fixtures/aa-baseline" --candidate "$fixtures/config-mismatch-candidate"; then
   grep -q '"decision": "INVALID"' "$tmp_root/mismatch.json" || fail 'condition-mismatch decision is not INVALID'
 fi
+
+step 'governance-only policy revision does not invalidate runs (measurement hash, v1.1.0)'
+# 測定意味論hashが一致していれば、policy hash全体（統治規定を含む）が違っても
+# HG-11は比較可能と判定する。旧記録（measurement_hashなし）はpolicy hashへfallback。
+gov_root="$tmp_root/governance-change"
+mkdir -p "$gov_root"
+cp -R "$fixtures/aa-baseline" "$gov_root/baseline"
+cp -R "$fixtures/aa-candidate" "$gov_root/candidate"
+python3 - "$gov_root" <<'PY'
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+for name, policy in (("baseline", "sha256:" + "1" * 64), ("candidate", "sha256:" + "2" * 64)):
+    path = root / name / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["policy_hash"] = policy          # 統治規定の改訂でpolicy hashは動く
+    manifest["measurement_hash"] = "sha256:" + "e" * 64  # 測定意味論は不変
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+PY
+if run_expect 0 "$tmp_root/governance.json" python3 "$script_dir/compare-runs.py" \
+  --baseline "$gov_root/baseline" --candidate "$gov_root/candidate"; then
+  grep -q '"decision": "NO_CHANGE"' "$tmp_root/governance.json" || \
+    fail 'governance-only policy change was treated as an HG-11 mismatch'
+fi
+# 逆方向: 測定意味論hashが違えば、policy hashが同じでもINVALID
+python3 - "$gov_root" <<'PY'
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+for name, mhash in (("baseline", "sha256:" + "3" * 64), ("candidate", "sha256:" + "4" * 64)):
+    path = root / name / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["policy_hash"] = "sha256:" + "5" * 64
+    manifest["measurement_hash"] = mhash
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+PY
+run_expect 2 "$tmp_root/measurement-mismatch.json" python3 "$script_dir/compare-runs.py" \
+  --baseline "$gov_root/baseline" --candidate "$gov_root/candidate" || true
+grep -q '"decision": "INVALID"' "$tmp_root/measurement-mismatch.json" || \
+  fail 'measurement-semantics mismatch was not INVALID'
 
 step 'subject sandbox isolation'
 sandbox_dest="$subject_root/sandbox"
@@ -220,6 +269,74 @@ grep -q 'knowledge/raw/dump.md' "$tmp_root/runner-fail/trace.jsonl" || \
   fail 'runner failed to observe the unreported write from Git'
 grep -q '"write_observation": "git"' "$tmp_root/runner-fail/trace-coverage.json" || \
   fail 'write observation did not come from Git'
+
+step 'staged driver: docs-only diffs need no evaluation run (Stage 0 gate)'
+gate_repo="$tmp_root/gate-repo"
+mkdir -p "$gate_repo/docs"
+git -C "$gate_repo" init -q
+printf 'readme\n' > "$gate_repo/README.md"
+printf 'bootloader\n' > "$gate_repo/AGENTS.md"
+git -C "$gate_repo" add -A
+git -C "$gate_repo" -c user.name=v -c user.email=v@invalid commit -qm base
+printf 'notes\n' > "$gate_repo/docs/notes.md"
+printf 'readme v2\n' > "$gate_repo/README.md"
+git -C "$gate_repo" add -A
+git -C "$gate_repo" -c user.name=v -c user.email=v@invalid commit -qm docs-only
+printf 'bootloader v2\n' > "$gate_repo/AGENTS.md"
+git -C "$gate_repo" add -A
+git -C "$gate_repo" -c user.name=v -c user.email=v@invalid commit -qm behavior
+run_expect 0 "$tmp_root/gate-docs.log" bash "$script_dir/run-eval.sh" --stage gate \
+  --source "$gate_repo" --diff-base HEAD~2 --diff-head HEAD~1 || true
+grep -q 'GATE_DECISION=NO_EVAL' "$tmp_root/gate-docs.log" || \
+  fail 'docs-only diff was not gated as NO_EVAL'
+run_expect 0 "$tmp_root/gate-behavior.log" bash "$script_dir/run-eval.sh" --stage gate \
+  --source "$gate_repo" --diff-base HEAD~1 --diff-head HEAD || true
+grep -q 'GATE_DECISION=EVAL_REQUIRED' "$tmp_root/gate-behavior.log" || \
+  fail 'a behavior-relevant diff was not gated as EVAL_REQUIRED'
+
+step 'staged driver: smoke passes end to end with a compliant subject'
+driver_list="$tmp_root/driver-cases.txt"
+printf 'case\n' > "$driver_list"
+run_expect 0 "$tmp_root/driver-smoke.log" bash "$script_dir/run-eval.sh" --stage smoke \
+  --source "$repo_root" --sha "$source_revision" \
+  --cases-file "$driver_list" --tier0-file "$driver_list" \
+  --cases-dir "$fixtures/case-command" --adapter "$fixtures/stub-adapter/compliant.sh" \
+  --client canonical --parallel 2 --out-dir "$subject_root/eval-smoke" || true
+grep -q 'decision=SMOKE_PASS' "$tmp_root/driver-smoke.log" || \
+  fail 'compliant smoke did not reach SMOKE_PASS'
+
+step 'staged driver: a Tier 0 failure ends the ladder after round 1 (no wasted trials)'
+run_expect 1 "$tmp_root/driver-early.log" bash "$script_dir/run-eval.sh" --stage ab \
+  --source "$repo_root" --baseline-sha "$source_revision" --candidate-sha "$source_revision" \
+  --cases-file "$driver_list" --tier0-file "$driver_list" \
+  --cases-dir "$fixtures/case-command" --adapter "$fixtures/stub-adapter/violating.sh" \
+  --client canonical --parallel 2 --trials 3 --no-baseline-cache \
+  --out-dir "$subject_root/eval-early" || true
+grep -q 'decision=REJECTED_EARLY' "$tmp_root/driver-early.log" || \
+  fail 'Tier 0 failure did not end the A/B ladder early'
+[[ ! -e "$subject_root/eval-early/runs/candidate/case/trial-2" ]] || \
+  fail 'trials continued after the decision was already determined'
+
+step 'staged driver: baseline evidence is reused, not re-measured'
+bl_cache="$subject_root/baseline-cache"
+run_expect 0 "$tmp_root/driver-ab1.log" bash "$script_dir/run-eval.sh" --stage ab \
+  --source "$repo_root" --baseline-sha "$source_revision" --candidate-sha "$source_revision" \
+  --cases-file "$driver_list" --tier0-file "$driver_list" \
+  --cases-dir "$fixtures/case-command" --adapter "$fixtures/stub-adapter/compliant.sh" \
+  --client canonical --parallel 2 --trials 1 --baseline-cache-dir "$bl_cache" \
+  --out-dir "$subject_root/eval-ab1" || true
+grep -q '"baseline_cache_hits": 0' "$subject_root/eval-ab1/summary.json" || \
+  fail 'first A/B run unexpectedly reported cache hits'
+run_expect 0 "$tmp_root/driver-ab2.log" bash "$script_dir/run-eval.sh" --stage ab \
+  --source "$repo_root" --baseline-sha "$source_revision" --candidate-sha "$source_revision" \
+  --cases-file "$driver_list" --tier0-file "$driver_list" \
+  --cases-dir "$fixtures/case-command" --adapter "$fixtures/stub-adapter/compliant.sh" \
+  --client canonical --parallel 2 --trials 1 --baseline-cache-dir "$bl_cache" \
+  --out-dir "$subject_root/eval-ab2" || true
+grep -q '"baseline_cache_hits": 1' "$subject_root/eval-ab2/summary.json" || \
+  fail 'second A/B run did not reuse the cached baseline evidence'
+[[ -f "$subject_root/eval-ab2/runs/baseline/case/trial-1/cache-hit" ]] || \
+  fail 'reused baseline run is not marked as a cache hit'
 
 step 'promotion gate: scenario decisions are deterministic'
 promo_root="$tmp_root/promotion"

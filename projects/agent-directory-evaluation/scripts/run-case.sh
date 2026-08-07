@@ -6,7 +6,7 @@
 #       validity分類 → case採点 → 証拠束出力
 #
 # subjectの自己申告を判定へ使わない。evaluator rootのpathをsubjectへ渡さない。
-# 生logは証拠束へ入れない（docs/EVALUATION.md#traceと公開証拠）。
+# 生logは証拠束へ入れない（docs/HARNESS.md#traceと公開証拠）。
 set -euo pipefail
 
 usage() {

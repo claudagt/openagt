@@ -2,7 +2,7 @@
 # subject sandbox生成: 明示SHAからのclean cloneを専用の非tmp rootへ作る。
 # - evaluator repository内へは作らない（Git root分離）
 # - /tmp・$TMPDIR配下へは作らない（clientのworkspace-write sandboxがtmpを常に書込可能に
-#   するため、tmp配下ではHG-02がOSレベルで強制されない。docs/EVALUATION.md#subject-sandboxの配置）
+#   するため、tmp配下ではHG-02がOSレベルで強制されない。docs/HARNESS.md#subject-sandboxの配置）
 # - clone後にremoteを除去し、subject側へevaluatorやremoteの情報を残さない
 # - HEADが要求SHAと一致することを検証する（branch tipの自動採用をしない）
 # 境界の意味定義はdocs/EVALUATION.mdが所有する。

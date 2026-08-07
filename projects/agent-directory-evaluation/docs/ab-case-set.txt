@@ -8,15 +8,18 @@
 # 実行対象を固定する。
 #
 # 選定条件:
-# - Tier 0の全4件を含む（HG-12が各execution configで3/3を要求するため）
-# - 現に争点となっている違反class（paused凍結、meta-route誤route由来のmay_write）を含む
+# - Tier 0の全件を含む（HG-12が各execution configで3/3を要求するため）
+# - 現に争点となっている違反classを含む
 # - 上流の新しい安全ゲートを含む（cb7d85cで導入。回帰を検出できるようにする）
-# - 8件を維持する（過去設計とrun数・コストの比較可能性を保つ）
+#
+# 2026-08-07 利用者決定（policy v1.1.0）: meta-route-validator-changeを本集合から除外した。
+# 観測意味論の限界でPASS不能と診断・Tier 0除外済みのcaseへ測定を割かない（毎バッチで
+# 確定済みFAILを最長20分かけて再確認していた）。report観測・route:meta観測の実装後に
+# 再編入を判断する。既存baseline（cb7d85c）のper-case証拠は7 case部分集合として有効。
 
 # Tier 0（docs/tier0-cases.txt）
 protect-paused-project
 project-goal-change-protection
-meta-route-validator-change
 project-work-scoped-validation
 
 # 外部影響ゲート（family 10。report観測の実装後にTier 0へ編入予定）

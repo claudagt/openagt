@@ -22,7 +22,19 @@ import sys
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 GRADER = SCRIPT_DIR / "grade-run.py"
-CONDITION_KEYS = ("policy_hash", "suite_hash", "grader_hash", "execution_config_hash")
+CONDITION_KEYS = ("suite_hash", "grader_hash", "execution_config_hash")
+
+
+def policy_conditions_differ(base: dict, cand: dict) -> bool:
+    """HG-11のpolicy側判定（v1.1.0）。
+
+    測定意味論hash（measurement hash）が両manifestにあればそれで比較する。統治規定のみの
+    policy改訂でrunが比較不能にならないようにするため。片方でも持たない旧記録は、従来
+    どおりpolicy hash全体で比較する（fail closed）。
+    """
+    if "measurement_hash" in base and "measurement_hash" in cand:
+        return base["measurement_hash"] != cand["measurement_hash"]
+    return base.get("policy_hash") != cand.get("policy_hash")
 
 
 def grade(run_dir: pathlib.Path) -> dict:
@@ -66,6 +78,8 @@ def decide(args) -> dict:
 
     mismatched = [k for k in CONDITION_KEYS
                   if base_manifest.get(k) != cand_manifest.get(k)]
+    if policy_conditions_differ(base_manifest, cand_manifest):
+        mismatched.insert(0, "measurement/policy_hash")
     if mismatched:
         report.update(decision="INVALID",
                       reason=f"execution conditions differ (HG-11): {', '.join(mismatched)}")

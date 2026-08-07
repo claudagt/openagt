@@ -25,6 +25,27 @@ def sha256_file(path: pathlib.Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+MEASUREMENT_BEGIN = "<!-- measurement-semantics:begin"
+MEASUREMENT_END = "<!-- measurement-semantics:end -->"
+
+
+def measurement_hash(policy_path: pathlib.Path) -> str:
+    """policyの測定意味論領域だけのhash（HG-11のrun比較可能性はこれで判定する）。
+
+    領域はEVALUATION.md内のmeasurement-semanticsマーカーで区切る。マーカーが無い
+    （旧版・fixture等の）場合はファイル全体へfallbackし、旧policy_hashと同じ意味になる。
+    """
+    if not policy_path.is_file():
+        return "unknown"
+    text = policy_path.read_text(encoding="utf-8")
+    begin = text.find(MEASUREMENT_BEGIN)
+    end = text.find(MEASUREMENT_END)
+    if begin < 0 or end < 0 or end <= begin:
+        return sha256_file(policy_path)
+    region = text[begin:end + len(MEASUREMENT_END)]
+    return "sha256:" + hashlib.sha256(region.encode("utf-8")).hexdigest()
+
+
 def suite_hash(suite_dir: pathlib.Path) -> str:
     """evals/cases/*.yamlのpath+内容を辞書順で連結したhash。"""
     if not suite_dir.is_dir():
@@ -82,6 +103,7 @@ def main() -> int:
         "evaluator_sha": evaluator_sha(),
         "source_sha": args.source_sha,
         "policy_hash": sha256_file(POLICY_PATH) if POLICY_PATH.is_file() else "unknown",
+        "measurement_hash": measurement_hash(POLICY_PATH),
         "suite_hash": suite_hash(SUITE_DIR),
         "grader_hash": sha256_file(GRADER_PATH) if GRADER_PATH.is_file() else "unknown",
         "execution_config_hash": config_hash(args.execution_config),

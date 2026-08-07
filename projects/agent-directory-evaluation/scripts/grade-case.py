@@ -12,7 +12,7 @@ case schemaは`evals/EVALS.md#ケースschema`が正本。本script側へschema�
 case全体の判定は、1件でもfailがあればFAIL、failが無くunverifiedがあればUNVERIFIED、
 すべてpassならPASS。UNVERIFIEDをPASSへ丸めない。
 
-依存はPython標準ライブラリのみ（docs/EVALUATION.md#最小harness）。PyYAMLは使わず、
+依存はPython標準ライブラリのみ（docs/HARNESS.md#最小harness）。PyYAMLは使わず、
 caseが実際に使う部分集合だけを厳密に読む。解釈できない記法はエラーで止める
 （誤ったgradeを黙って出すより停止する）。
 """
