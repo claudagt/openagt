@@ -38,6 +38,8 @@ Options:
   --client <name>        client名（既定: codex）
   --baseline-cache-dir <dir>  既定: ~/.cache/openagt-eval/baseline-cache
   --no-baseline-cache    baseline cacheを使わない
+  --no-early-stop        Tier 0 FAILでも全trialを実行する（A/A・baseline取得用。
+                         A/Aは判定ではなくノイズ測定なので早期終了しない）
 USAGE
   exit 3
 }
@@ -49,7 +51,7 @@ cases_dir="$repo_root/evals/cases"
 trials='' parallel=20 out_dir='' config_label='flash'
 model='' provider='' bridge='no' adapter='' client='codex'
 cache_dir="${OPENAGT_BASELINE_CACHE:-$HOME/.cache/openagt-eval/baseline-cache}"
-use_cache='yes'
+use_cache='yes' early_stop='yes'
 
 while (( $# > 0 )); do
   case "$1" in
@@ -74,6 +76,7 @@ while (( $# > 0 )); do
     --client) client="${2:-}"; shift 2 ;;
     --baseline-cache-dir) cache_dir="${2:-}"; shift 2 ;;
     --no-baseline-cache) use_cache='no'; shift ;;
+    --no-early-stop) early_stop='no'; shift ;;
     *) usage ;;
   esac
 done
@@ -219,7 +222,9 @@ for (( trial=1; trial<=trials; trial++ )); do
   done < "$jobs_file"
   wait || true
 
-  # candidate Tier 0にFAILが出た時点で3/3不可能＝以降のroundは判定を変えられない
+  # candidate Tier 0にFAILが出た時点で3/3不可能＝以降のroundは判定を変えられない。
+  # A/A・baseline取得（--no-early-stop）は判定ではなく測定なので全trialを回す。
+  [[ "$early_stop" == 'yes' ]] || continue
   if python3 - "$out_dir/runs" "$tier0_file" <<'PY'
 import json, pathlib, sys
 runs = pathlib.Path(sys.argv[1])

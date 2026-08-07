@@ -11,9 +11,11 @@ updated_at: 2026-08-07
 - A/A STABLE（旧33ppノイズはcase二値化の増幅）、config 2つ（flash / pro+bridge）。
 - A/B実績: 上流差分2回=NO_CHANGE、candidate v2/v3=REJECTED（v3は安全違反根絶を実証し
   上流Issue #3で報告→上流PR #5でmerge）。数値・経緯はすべて`runs/`が持つ。
-- baselineは**`cb7d85c`で取得済み**（`runs/2026-08-07-baseline-cb7d85c.json`、48 run、
-  INFRA 0）。A/B case集合のv1.1.0改訂（8→7 case）後も7 case部分集合として有効
-  （再取得不要。根拠は`docs/EVALUATION.md`冒頭）。
+- **report観測を実装**（report_match照合。family 10のmust_report 5checkが採点可能に
+  なり、external-effect-approval-gateをTier 0へ編入。Tier 0は4件）。
+- baselineは新suiteで**`cb7d85c`にて再取得済み**
+  （`runs/2026-08-08-aa5-baseline-newsuite-cb7d85c.json`、A/A込み42 run、INFRA 0、
+  A/A STABLE: ノイズ2.35pp・SE 2.84pp < MDE 8pp。baseline cacheへ蓄積済み）。
 
 ## 現在の目標
 
@@ -46,8 +48,8 @@ updated_at: 2026-08-07
 - **execution configのmodelは観測できない**（codex `--json`にproviderのmodelエコーが
   無くdeclaredのみ。provider APIへの直接照会で実在と応答model一致は確認済み）。
 - 旧`runs/`は旧suite・旧policyの記録。HG-11により新runと対にしない。
-- `must_report`は観測不能で常にUNVERIFIED（大半のcaseが該当）。分母外（coverage報告）
-  だがcase verdictはPASS不能のまま。
+- `must_report`は`report_match`パターンを持つcaseだけ採点可能（現在family 10の1 case）。
+  他caseはパターン付与まで従来どおりUNVERIFIED（付与は都度、意味の最小核だけを縛る）。
 - 観測の限界: readはcommand推定でbyte数なし、client自動注入contextはreadとして数える、
   routeは入口正本読取から導出（曖昧なら非導出）、read側のOS隔離なし、execution config
   の一部は`unknown`。生logはGit管理せずOS一時領域（`runs/`はsanitized記録のみ）。
@@ -60,12 +62,12 @@ updated_at: 2026-08-07
   A/B 7 case、pro=Stage 3のみ、driver入口`run-eval.sh`（並列既定20）——これらの正本は
   `docs/EVALUATION.md`であり、ここへ複製しない。
 - **新suite採用**（利用者決定2026-08-07）: 上流`cb7d85c`同期の6 caseを含む89 case。
-- baseline: **`cb7d85ceff8882606d54299922611332810e9d94`**（flash 85.8%、pro 77.6%の
-  pooled充足率）。A/Aノイズはconfig性質として継続適用（flash 0.8pp、pro 3.6pp。
-  SE未満の観測ノイズは`max(観測, SE)`で扱う）。
-- **Tier 0は3件**（利用者決定2026-08-07、`docs/tier0-cases.txt`）。
-  meta-route-validator-changeは観測意味論の限界でPASS不能のため除外し、report観測の
-  実装後に再編入を判断する（A/B集合からも除外、policy v1.1.0）。
+- baseline: **`cb7d85ceff8882606d54299922611332810e9d94`**（新suite・flash 89.5%
+  pooled充足率、coverage 89.7%）。A/Aノイズ: flash 2.35pp（SE 2.84pp、有効2.84pp）。
+  proは旧suiteの77.6%のまま（Stage 3で使う時に再取得）。
+- **Tier 0は4件**（利用者決定2026-08-07、`docs/tier0-cases.txt`）: 従来3件＋
+  external-effect-approval-gate（report観測実装により編入）。
+  meta-route-validator-changeは観測意味論の限界で除外のまま。
 - Draft PR作成は昇格条件充足時のみ別Promotion session（standing approval、2026-08-06）。
 - 上流報告の経路は2種（`docs/EVALUATION.md#上流Issue`）。
 - clientはcodex（唯一OS強制sandbox・`--json`・hermetic）、providerはDeepSeek
@@ -86,12 +88,13 @@ updated_at: 2026-08-07
 
 ## 次の一手
 
-1. 上流新revisionは`run-eval.sh --stage gate`から入る（NO_EVALなら評価runゼロで終了。
-   EVAL_REQUIREDでもsmoke→A/Bの段階順。full A/Bを既定にしない）。
-2. report観測の実装（Tier 0再編入とfamily 10編入の前提）。case側`report_match`の
-   schema拡張が要るため上流提案候補としてまとめる。
-3. meta-route誤route由来のmay_write違反は、report観測・route:meta観測意味論とあわせて
-   次の改善主題候補。Issue化は都度利用者決定。
+1. **candidate v4のA/B**（`aad16241`、完了の定義のbootloader昇格。根拠:
+   144 tier0-runの実測で支配的失敗は手順の省略——入口正本未読66%・検証未実行53%・
+   STATE未記録58%——であり安全実体の違反ではない）。smoke→効けばフルA/B
+   （baseline cache再利用で candidate側21 runのみ）。
+2. 上流新revisionは`run-eval.sh --stage gate`から入る（full A/Bを既定にしない）。
+3. `report_match`のschema拡張とfamily 10計装を上流へ提案（評価由来の変更だが
+   suite正本は上流所有。Issue/PR化は利用者決定）。
 4. execution configのmodel観測欠落を潰す（現在declared）。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
