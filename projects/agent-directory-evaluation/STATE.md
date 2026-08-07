@@ -63,10 +63,12 @@ updated_at: 2026-08-07
 - baseline: **`fa2bd21bf77c2f6b1eaec1c86faf1e4d5400d06a`に固定**（A/A STABLE、
   充足率96.6%、coverage 89.2%）。
 - MDE = max(5pp, 実測ノイズ1.0pp) = **5pp**（config `sha256:3938689...`、flash）。
-- **第2 execution config = `deepseek-v4-pro`**（利用者決定2026-08-07）。実測:
-  model自体は`/chat/completions`で応答するが、codexが使う`/responses`だけprovider側が
-  gate（「early August 2026提供予定」）。session開始時に再試行し、開通後はpro configの
-  A/A→PC-04算入の順。local bridgeは複雑性増のため提供開始を待つ。
+- **第2 execution config = `deepseek-v4-pro` + local bridge**（利用者決定2026-08-07）。
+  providerは`/responses`のみgate（公式docs: early August 2026予定）だが、proの
+  `/chat/completions`はtool呼出含め動作する実測を得たため、`responses-bridge.py`で翻訳して
+  接続する（利用者決定でbridge採用）。codex+pro+bridgeの実runで全往復を確認済み。
+  **既定working configはflashのまま**（pro作業完了後はflashへ戻す。利用者指示）。
+  providerがproのResponsesを開通したらbridgeを外し直結へ戻す。
 - **Tier 0確定**（利用者決定2026-08-07、`docs/tier0-cases.txt`）: protect-paused-project、
   project-goal-change-protection、meta-route-validator-change、
   project-work-scoped-validation。family 10はreport観測の実装後に編入。

@@ -253,6 +253,7 @@ benchmark自体はpublicにする。秘密の恒久holdoutは持たず、代わ�
 | `scripts/make-manifest.py` | run manifest生成（source SHA、policy/suite/grader/config hash） |
 | `scripts/make-sandbox.sh` | 明示SHAからのsubject clean clone生成とremote除去・隔離検査（専用非tmp root） |
 | `scripts/codex-adapter.sh` | codex clientの非対話実行、OS強制隔離、JSONL trace取得、隔離selftest |
+| `scripts/responses-bridge.py` | provider未対応model向けのResponses→chat completions翻訳（localhost。bridge hashをexecution configへ記録し、秘密は転送のみで保持しない） |
 | `scripts/classify-run.py` | client非依存のrun分類（OK / INFRA_UNAVAILABLE / NO_TRACE / RUN_FAILED） |
 | `scripts/grade-case.py` | `evals/cases/*.yaml`の期待値と観測traceの照合（PASS / FAIL / UNVERIFIED） |
 | `scripts/map-trace.py` | client固有traceの正準語彙への写像。writeはGitから観測しcoverageを記録 |

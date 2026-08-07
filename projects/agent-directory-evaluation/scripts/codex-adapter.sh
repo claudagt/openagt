@@ -18,14 +18,17 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: %s --subject <dir> --prompt-file <file> --out-dir <dir> [--provider deepseek] [--model <id>] [--timeout <sec>]\n' "${0##*/}" >&2
+  printf 'Usage: %s --subject <dir> --prompt-file <file> --out-dir <dir> [--provider deepseek] [--model <id>] [--timeout <sec>] [--bridge]\n' "${0##*/}" >&2
   printf '       %s --selftest --out-dir <dir>\n' "${0##*/}" >&2
   exit 3
 }
 
 subject='' prompt_file='' out_dir='' model='' timeout_sec='900' selftest='no'
 # provider未指定はcodex組込（ChatGPT auth）。deepseekはResponses APIで直結する。
-provider=''
+# --bridge: providerがResponses未対応のmodel（deepseek-v4-pro、2026-08-07時点）向けに、
+# localのresponses-bridge.py経由で/chat/completionsへ翻訳する。bridgeはexecution config
+# の一部としてhashを記録する。
+provider='' bridge='no'
 while (( $# > 0 )); do
   case "$1" in
     --subject) subject="${2:-}"; shift 2 ;;
@@ -34,11 +37,14 @@ while (( $# > 0 )); do
     --model) model="${2:-}"; shift 2 ;;
     --provider) provider="${2:-}"; shift 2 ;;
     --timeout) timeout_sec="${2:-}"; shift 2 ;;
+    --bridge) bridge='yes'; shift ;;
     --selftest) selftest='yes'; shift ;;
     *) usage ;;
   esac
 done
 [[ -n "$out_dir" ]] || usage
+[[ "$bridge" == 'no' || "$provider" == 'deepseek' ]] || \
+  { echo 'ERROR: --bridge requires --provider deepseek' >&2; exit 3; }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 evaluator_root="$(cd "$script_dir/../../.." && pwd -P)"
@@ -133,7 +139,12 @@ fi
 # 隔離HOME / CODEX_HOME。auth材のみ複製し、run後に破棄する。
 iso_root="$(mktemp -d "${HOME}/.cache/openagt-iso.XXXXXX")"
 secret_root=''
-trap 'rm -rf "$iso_root" "$secret_root"' EXIT
+bridge_pid=''
+cleanup() {
+  [[ -n "$bridge_pid" ]] && kill "$bridge_pid" 2>/dev/null
+  rm -rf "$iso_root" "$secret_root"
+}
+trap cleanup EXIT
 iso_home="$iso_root/home"; iso_codex="$iso_root/codex"
 mkdir -p "$iso_home" "$iso_codex"; chmod 700 "$iso_root" "$iso_home" "$iso_codex"
 
@@ -160,7 +171,6 @@ case "$provider" in
     # 秘密はCODEX_HOMEと無関係な一時領域へ置く（CODEX_HOME自体はsubjectへ露出する）。
     secret_root="$(mktemp -d "${HOME}/.cache/openagt-key.XXXXXX")"
     chmod 700 "$secret_root"
-    trap 'rm -rf "$iso_root" "$secret_root"' EXIT
     umask 077
     printf '%s' "$DEEPSEEK_API_KEY" > "$secret_root/token"
     chmod 600 "$secret_root/token"
@@ -188,14 +198,36 @@ cfg=(
   -c 'shell_environment_policy.exclude=["*KEY*","*TOKEN*","*SECRET*","*PASSWORD*"]'
 )
 [[ -n "$model" ]] && cfg+=(-m "$model")
+bridge_hash='none' wire='client-default'
 if [[ "$provider" == 'deepseek' ]]; then
+  wire='responses (native)'
   # 実測（2026-08-06）: DeepSeekはResponses APIをnativeに提供する（/responses が200を返す）。
   # codex 0.146.0は`wire_api="chat"`を廃止済みのため、responsesで直結する。
-  # ローカルResponses bridgeは不要（旧構成の名残であり、依存させない）。
+  # 例外（2026-08-07実測）: deepseek-v4-proはprovider側がResponses/Codex統合を未提供
+  # （公式docs: early August 2026予定）。--bridge指定時はlocalのresponses-bridge.pyが
+  # /responses → /chat/completions を翻訳する。bridgeは秘密を保持せずheaderを転送するだけ。
+  ds_base="${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
+  if [[ "$bridge" == 'yes' ]]; then
+    bridge_script="$script_dir/responses-bridge.py"
+    bridge_hash="sha256:$(shasum -a 256 "$bridge_script" | cut -d' ' -f1)"
+    bridge_out="$iso_root/bridge-port"
+    python3 "$bridge_script" --upstream "$ds_base" \
+      > "$bridge_out" 2>"$iso_root/bridge.err" &
+    bridge_pid=$!
+    bridge_port=''
+    for _ in $(seq 1 50); do
+      bridge_port="$(head -1 "$bridge_out" 2>/dev/null || true)"
+      [[ -n "$bridge_port" ]] && break
+      sleep 0.1
+    done
+    [[ -n "$bridge_port" ]] || { echo 'ERROR: responses bridge failed to start' >&2; exit 4; }
+    ds_base="http://127.0.0.1:$bridge_port"
+    wire='responses via local bridge to /chat/completions'
+  fi
   cfg+=(
     -c 'model_provider="deepseek"'
     -c 'model_providers.deepseek.name="DeepSeek"'
-    -c "model_providers.deepseek.base_url=\"${DEEPSEEK_BASE_URL:-https://api.deepseek.com}\""
+    -c "model_providers.deepseek.base_url=\"$ds_base\""
     -c 'model_providers.deepseek.wire_api="responses"'
     -c "model_providers.deepseek.auth.command=\"$secret_root/auth.sh\""
     -c 'model_providers.deepseek.auth.timeout_ms=5000'
@@ -212,6 +244,8 @@ cat > "$out_dir/execution-config.json" <<EOF
   "client_version": "$client_version",
   "adapter_hash": "$adapter_hash",
   "invocation": "codex exec --json --ignore-user-config --ignore-rules --ephemeral --skip-git-repo-check -s workspace-write -C <subject>",
+  "wire": "$wire",
+  "bridge_hash": "$bridge_hash",
   "system_instruction_hash": "unknown",
   "tool_schema_hash": "unknown",
   "filesystem_permission": "workspace-write; write root = subject only; tmp roots excluded; reads NOT restricted by OS",
