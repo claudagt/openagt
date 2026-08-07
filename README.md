@@ -13,11 +13,13 @@ instantiateされたAgent Workspaceであり、同時にそのテンプレート
 ```text
 origin   = https://github.com/claudagt/openagt          # OpenAGT本体（evaluator）
 upstream = https://github.com/claudagt/agent-directory  # 評価対象の取得・比較用read-only remote
+template = https://github.com/claudagt/agent-directory  # 同一URLのread-only alias（tools/BACKUP.md#remoteの分類の命名）
 ```
 
 - 初期source revision: `8325b185fb9410bff44cf6ec9a9b99246fe8cc0f`（`agent-directory/main`、2026-08-06取得）
 - OpenAGTの`main`はこのrevisionをGit祖先として持つ（履歴を引き継いだのは取込時点の`main`だけで、全branch・tagのmirrorではない）
-- `upstream`へはpushしない。upstream/mainの自動merge・自動rebase・force push・mirror pushを行わない
+- `upstream`・`template`へはpushしない。upstream/mainの自動merge・自動rebase・force push・mirror pushを行わない
+- `template`は`tools/report-upstream-issue.sh`がupstream revisionを解決するための命名互換alias。評価用の取得経路は`upstream`のままとする
 - **OpenAGTは上流のmerge権限を持たない。** Draft PRの採否は常に人間がレビューして決める
 
 ## 評価対象とevaluatorの分離
@@ -186,6 +188,7 @@ backupの失敗は検証済みローカルcommitの成功を取り消さず、`l
 | [evals/EVALS.md](evals/EVALS.md) | 振る舞いevalの契約、ケースschema、fixture、最低条件 |
 | [tools/TOOLS.md](tools/TOOLS.md) | Toolの入出力、自律commit、自己修復、サイズ超過、fallback、予算 |
 | [tools/BACKUP.md](tools/BACKUP.md) | backup trigger、remote分類、失敗と復旧、divergence、Single Writer |
+| [tools/UPSTREAM.md](tools/UPSTREAM.md) | 上流Issue報告の事前承認条件、匿名化検査、報告種別、公開禁止情報 |
 | [tools/CONTROL.md](tools/CONTROL.md) | 境界執行の三層、policy tier、明示エスカレーション、違反分類と代謝、委譲境界、導入基準 |
 
 ## ライセンス
