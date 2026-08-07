@@ -49,7 +49,9 @@ mode: continuous
 
 ## 非ゴール
 
-- 上流リポジトリの直接変更、Issue・非Draft PRの作成、merge、リリース判断。
+- 上流リポジトリの直接変更、非Draft PRの作成、merge、リリース判断。
+- Issueの自動作成（利用者の明示決定と再現済み証拠を伴うIssueのみ、
+  `docs/EVALUATION.md#上流Issue`の条件下で作成できる。2026-08-07利用者決定）。
 - モデル間の絶対性能比較・leaderboard・単一総合スコアの作成。
 - 全eval caseの実モデル網羅実行、大量の新case量産、prompt自動最適化。
 - 常駐daemon、dashboard、DB、vector DB、message queue、GitHub Actionsでの評価実行。
