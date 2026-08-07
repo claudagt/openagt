@@ -105,6 +105,11 @@ updated_at: 2026-08-07
 2. meta-route誤route由来のmay_write違反（既存class）は、report観測・route:meta観測
    意味論とあわせて次の改善主題候補。Issue化は都度利用者決定。
 3. session開始時にproの`/responses`開通を確認（開通後はbridge撤去+pro A/A再取得）。
-4. 上流新case群（control-*、delegation-*）のsuite取り込みは人間判断待ち。
+4. 上流新case群（control-*、delegation-*、および`cb7d85c`までの上流同期で入った
+   upstream-issue-*3、task-no-durable-delta、knowledge-correction-propagation、
+   ai-inference-attribution）のsuite取り込みは人間判断待ち。
+   suiteは`evals/cases/*.yaml`全件のためfile追加時点でsuite hashが動く:
+   83件`sha256:6b476529…` → 89件`sha256:207122de…`。HG-11（baseline/candidateのsuite hash一致）
+   により、次のA/Bは新suiteでのbaseline再取得が前提となる。既存`runs/`の証拠は旧suiteのもの。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
