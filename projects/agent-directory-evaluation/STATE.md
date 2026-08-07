@@ -17,11 +17,11 @@ updated_at: 2026-08-07
 
 対象契約: `PROJECT.md#PC-07`
 
-Tier 0が両configで3/3未達のままHG-12が全昇格を閉じている状態を、人間判断で解く。
+report観測を実装し、Tier 0再編入とmust_reportのUNVERIFIED解消の前提を作る。
 
 ## 目標の合格条件
 
-- Tier 0の扱い（case修正 / 編入見直し / HG-12条件）について利用者の決定が記録される。
+- report観測が実装され、must_reportのcheckがUNVERIFIED以外を返す。
 - `check-promotion.py`がINVALID以外を出し、A/AノイズがA/A証拠から算出されている。
 
 ## 検証結果
@@ -37,8 +37,8 @@ Tier 0が両configで3/3未達のままHG-12が全昇格を閉じている状態
 
 ## 未完了・ブロッカー
 
-- Tier 0は`cb7d85c`のbaselineでも3/3未達（flash 0/4、pro 0/4。proは全4件が3 trial全FAIL）。
-  HG-12が全candidateの昇格を閉じる（人間判断待ち）。
+- Tier 0は`cb7d85c`のbaselineで残り3件とも3/3未達（flash 0/3、pro 0/3）。meta-route除外でも
+  HG-12は自動解除されない。candidate側がこの3件を3/3にしない限り昇格は閉じたまま。
 - **execution configのmodelは観測できない**。codex `--json`のevent列にproviderのmodelエコーが
   無く、run単位では要求modelしか証明できない（declared）。provider APIへの直接照会では
   `deepseek-v4-pro`の実在と応答model一致を確認済み。harness側の観測欠落として未解決。
@@ -71,9 +71,9 @@ Tier 0が両configで3/3未達のままHG-12が全昇格を閉じている状態
 - **candidate系譜**: v2 `05b338da`・v3 `eaca5f07`ともREJECTED。v3はpausedのHard Gate違反を
   candidate側で根絶したがTier 0未達（詳細は`runs/2026-08-07-promotion-v3-and-issue3.json`）。
 - route:metaは正当な他領域読取で導出が壊れる（観測意味論の限界。観測器残余則でも救えない）。
-- **Tier 0確定**（利用者決定2026-08-07、`docs/tier0-cases.txt`）: protect-paused-project、
-  project-goal-change-protection、meta-route-validator-change、project-work-scoped-validation。
-  family 10はreport観測の実装後に編入。
+- **Tier 0は3件**（利用者決定2026-08-07、`docs/tier0-cases.txt`）: protect-paused-project、
+  project-goal-change-protection、project-work-scoped-validation。meta-route-validator-changeは
+  観測意味論の限界でPASS不能のため除外、family 10とあわせreport観測の実装後に再編入判断。
 - Draft PR作成は昇格条件充足時のみ別Promotion session（standing approval、2026-08-06）。
 - 上流報告の経路は2種（`docs/EVALUATION.md#上流Issue`）。field報告は
   `tools/report-upstream-issue.sh`の事前承認済み経路、評価由来Issueは個別の明示決定。
@@ -93,10 +93,10 @@ Tier 0が両configで3/3未達のままHG-12が全昇格を閉じている状態
 
 ## 次の一手
 
-1. Tier 0が3/3未達である件の解き方を利用者へ一つ推奨して決める（HG-12が閉じたままのため）。
-2. 上流新revisionの通常A/B（flash、3 trial、並列20）。
-3. meta-route誤route由来のmay_write違反は、report観測・route:meta観測意味論とあわせて次の
+1. 上流新revisionの通常A/B（flash、3 trial、並列20）。
+2. meta-route誤route由来のmay_write違反は、report観測・route:meta観測意味論とあわせて次の
    改善主題候補。Issue化は都度利用者決定。
-4. execution configのmodel観測欠落を潰す（現在declared）。
+3. execution configのmodel観測欠落を潰す（現在declared）。
+4. report観測の実装（Tier 0再編入とfamily 10編入の前提）。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。

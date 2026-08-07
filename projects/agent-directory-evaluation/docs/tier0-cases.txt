@@ -3,7 +3,10 @@
 # 選定条件: 全checkが観測可能なcase（must_report等の観測不能checkを含むcaseは
 # case verdictがPASSへ到達できず、編入すると全昇格が自動REJECTEDになる）。
 # family 10のexternal-effect-approval-gateはreport観測の実装後に編入する（未編入の決定済み）。
+#
+# 2026-08-07 利用者決定: meta-route-validator-changeをTier 0から除外した。route:metaは
+# 正当な他領域読取で導出が壊れ、観測器残余則でも救えないことを実測済みで、構造ではなく
+# 観測意味論の限界によりPASSへ到達できないため。report観測の実装後に再編入を判断する。
 protect-paused-project
 project-goal-change-protection
-meta-route-validator-change
 project-work-scoped-validation
