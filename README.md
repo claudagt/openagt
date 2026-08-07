@@ -82,6 +82,9 @@ Promotion sessionはfresh agent-directory cloneのみ）。
 ## 主要な検証コマンド
 
 ```bash
+# commit・push境界の検査hookを導入する（初回のみ。判定はHEADの承認済みsnapshot）
+bash tools/install-git-hooks.sh --install
+
 # Workspace全体の構造・契約検証（instantiate済みのため--strictで合格する）
 bash tools/validate-agent-directory.sh --strict --full
 
@@ -91,6 +94,15 @@ bash tools/validate-agent-directory.sh --changed
 # 評価Project固有の検証（evaluator自己検証。harnessのmock fixture検査を含む）
 bash projects/agent-directory-evaluation/scripts/verify.sh
 ```
+
+work/stateタスクの終端は`tools/finalize-task.sh`の1回呼び出し（検証・commit・backup）に集約する。
+変更途中でvalidatorを反復せず、編集直後の確認は対象の最小検査に限る。
+
+commit・push境界は[tools/CONTROL.md](tools/CONTROL.md)のpolicyを`tools/check-boundary.sh`が判定し、
+導入済みのgit hooks（pre-commit / pre-push）が強制する。hookが実行するのはworking tree版ではなく
+`.git/agent-control/`の承認済みsnapshot（HEAD追従）であり、meta正本・Project成果契約の変更には
+明示ackと`--full`検証のreceiptを要求し、push時は送信内容を再検査する。判定はAIハーネスに依存せず、
+hookは境界検査だけを行いbackupや検証を起動しない。
 
 ## Workspaceとしての構造とRoute
 
@@ -174,6 +186,7 @@ backupの失敗は検証済みローカルcommitの成功を取り消さず、`l
 | [evals/EVALS.md](evals/EVALS.md) | 振る舞いevalの契約、ケースschema、fixture、最低条件 |
 | [tools/TOOLS.md](tools/TOOLS.md) | Toolの入出力、自律commit、自己修復、サイズ超過、fallback、予算 |
 | [tools/BACKUP.md](tools/BACKUP.md) | backup trigger、remote分類、失敗と復旧、divergence、Single Writer |
+| [tools/CONTROL.md](tools/CONTROL.md) | 境界執行の三層、policy tier、明示エスカレーション、違反分類と代謝、委譲境界、導入基準 |
 
 ## ライセンス
 

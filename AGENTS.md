@@ -38,9 +38,9 @@ Human-on-the-loop。変更前に**Route**、**Owner**、**Target**、**Verify**�
 
 TriggerはHumanまたはRoutine（Routeではない）。同一規則に従い、関連時だけ`routines/ROUTINES.md`を読む。
 
-特定が一意、依頼範囲内、リポジトリ完結、可逆、外部影響なし、契約不変、正本衝突・秘密情報なし、既存検証で確認できる操作は確認せず完了・事後報告。フロー: `対象確定 → 最小読込 → 変更 → 検証 → commit → push/backup → 報告`。
+特定が一意、依頼範囲内、リポジトリ完結、可逆、外部影響なし、契約不変、正本衝突・秘密情報なし、既存検証で確認できる操作は確認せず完了・事後報告。フロー: `対象確定 → 最小読込 → 変更 → finalize（検証・commit・backup） → 報告`。
 
-処理一意時は選択肢を返さず質問しない（基準は`tools/TOOLS.md`）。
+処理一意時は選択肢を返さず質問しない。
 
 ## 人間へ上げる例外
 
@@ -51,24 +51,25 @@ TriggerはHumanまたはRoutine（Routeではない）。同一規則に従い�
 | 方針・契約 | 目的、`PC-xx`、優先順位、Project新設・廃止 | `projects/LIFECYCLE.md` |
 | 不可逆 | 永久削除、履歴改変、force push、reset | `tools/BACKUP.md` |
 | 外部影響 | 公開、本番、送信、権限、承認push | `projects/PROJECTS.md` |
-| 安全性・衝突 | divergence、Single Writer違反、秘密情報、所有者不明変更 | `tools/TOOLS.md` |
+| 安全性・衝突 | divergence、Single Writer違反、秘密情報、所有者不明変更 | `tools/CONTROL.md` |
 
-決定方針は正本へ記録し繰り返し質問しない。停止時は事実、試行修正、決定点、推奨判断を報告。
+決定方針は正本へ記録し再質問しない。停止時は事実、試行、決定点、推奨を報告。
 
 ## 禁止事項
 
 - APIキー・パスワード等を保存・コミットしない（実値は`.env*`のみ）。
 - GitHubを正本・実行基盤にしない。backup remoteへはbackup Toolのみ書き、pull/merge/rebase/force push不可。
 - 未依頼の機能・抽象化・依存を追加しない。
-- 未検証の事を完了と報告しない。
+- 未検証を完了と報告しない。
 - 下位`AGENTS.md`が上位規則・`PROJECT.md`契約を弱めない。
 
 ## 詳細正本
 
 - `projects/PROJECTS.md` — 成果契約、attachment、remote操作
 - `projects/LIFECYCLE.md` / `projects/RECOVERY.md` — 状態遷移 / 復旧
-- `tools/TOOLS.md` — task class、探索、commit、予算
+- `tools/TOOLS.md` — task class、探索、finalize、予算
 - `tools/BACKUP.md` — backup、divergence、Single Writer
+- `tools/CONTROL.md` — 境界執行と違反分類
 - `evals/EVALS.md` — 振る舞いevalの契約
 
 ## 参照順序
