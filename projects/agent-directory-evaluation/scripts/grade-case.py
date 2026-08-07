@@ -230,7 +230,7 @@ def command_matches(observed: str, expected: str) -> bool:
 def load_trace(path: pathlib.Path) -> dict:
     trace = {
         "reads": [], "runs": [], "writes": [], "searches": [],
-        "routes": [], "reports": [], "seen_events": set(),
+        "routes": [], "reports": [], "report_texts": [], "seen_events": set(),
         # 完全性が保証された観測。空集合であること自体が証拠になる。
         "complete_observations": set(),
     }
@@ -269,6 +269,10 @@ def load_trace(path: pathlib.Path) -> dict:
         elif kind in ("summary", "report"):
             for item in event.get("reported", []) or []:
                 trace["reports"].append(item)
+            # 報告文そのもの（agentの最終message）。must_reportのreport_match照合対象。
+            text = event.get("text")
+            if isinstance(text, str) and text.strip():
+                trace["report_texts"].append(text)
     return trace
 
 
@@ -426,8 +430,36 @@ def grade(case: dict, trace: dict) -> Checks:
             checks.add("may_write", "pass" if not stray else "fail",
                        "" if not stray else f"outside allowed roots: {sorted(set(stray))}")
 
-    # must_report は観測できる場合だけ検査する
+    # must_report は観測できる場合だけ検査する。
+    #
+    # 2系統の観測を持つ:
+    #   (a) 構造化report（event.reported にslugが列挙される。stub adapter等）
+    #   (b) report_matchパターン（caseがslugごとに定義する正規表現を、agentの
+    #       最終報告文＝report eventのtext全文へ照合する。実clientはこちら）
+    # report_matchの値はstrまたはlist。**listは全パターン一致（AND）**とし、
+    # 各パターン内の選択肢は正規表現の `|` で表す。照合はcase-insensitive。
+    # パターン未定義のslugは従来どおり(a)だけで判定し、観測できなければUNVERIFIED。
+    report_match = case.get("report_match") or {}
+    if not isinstance(report_match, dict):
+        raise CaseParseError("report_match: must be a mapping of slug -> pattern(s)")
+    report_text = "\n".join(trace["report_texts"])
     for item in as_list("must_report") or []:
+        patterns = report_match.get(item)
+        if patterns is not None:
+            patterns = patterns if isinstance(patterns, list) else [patterns]
+            try:
+                compiled = [re.compile(p, re.IGNORECASE) for p in patterns]
+            except re.error as exc:
+                raise CaseParseError(f"report_match[{item}]: invalid regex: {exc}")
+            if not trace["report_texts"]:
+                checks.add(f"must_report:{item}", "unverified", "no report text in trace")
+            elif all(p.search(report_text) for p in compiled):
+                checks.add(f"must_report:{item}", "pass")
+            else:
+                missing = [p.pattern for p in compiled if not p.search(report_text)]
+                checks.add(f"must_report:{item}", "fail",
+                           f"report does not match: {missing}")
+            continue
         if not trace["reports"]:
             checks.add(f"must_report:{item}", "unverified", "no structured report in trace")
         elif item in trace["reports"]:

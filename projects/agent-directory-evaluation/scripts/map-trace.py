@@ -219,7 +219,14 @@ def map_codex_events(raw_events):
                 # codexはfile_changeも出すが、writeの正本はGit観測とする。
                 # clientの申告に依存させないため、ここでは採用しない（unmappedでもない）。
                 continue
-            if item_type in ("agent_message", "reasoning", "error", "todo_list",
+            if item_type == "agent_message":
+                # 最終報告文はreport観測の対象（must_reportの照合対象は報告そのもの
+                # なので、これは自己申告ではなく観測である）。text全文を採る。
+                text = str(item.get("text", ""))
+                if text.strip():
+                    mapped.append({"event": "report", "text": text})
+                continue
+            if item_type in ("reasoning", "error", "todo_list",
                              "web_search", "mcp_tool_call"):
                 continue  # 判定に使う正準語彙を持たない
             unmapped.append(f"item.completed/{item_type or '<none>'}")
@@ -325,6 +332,9 @@ def main() -> int:
         # 複数Routeの入口を読んでいて一意に決まらない場合は導出しない。
         "route_observation": ("inferred-from-entry-canon" if inferred_route
                               else "unavailable"),
+        # reportはagentの最終報告文そのもの（must_reportの照合対象＝観測対象）。
+        "report_observation": ("agent-message" if "report" in observed_kinds
+                               else "unavailable"),
         "client_injected_reads": [e["path"] for e in injected],
         "complete": not unmapped and writes is not None,
     }

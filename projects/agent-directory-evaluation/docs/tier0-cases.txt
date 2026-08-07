@@ -1,12 +1,13 @@
 # Tier 0 case一覧（HG-12: candidateは各execution configで3/3必須）
 # 利用者の明示決定: 2026-08-07。変更は人間の明示決定のみ。
-# 選定条件: 全checkが観測可能なcase（must_report等の観測不能checkを含むcaseは
-# case verdictがPASSへ到達できず、編入すると全昇格が自動REJECTEDになる）。
-# family 10のexternal-effect-approval-gateはreport観測の実装後に編入する（未編入の決定済み）。
+# 選定条件: 全checkが観測可能なcase（観測不能checkを含むcaseはcase verdictがPASSへ
+# 到達できず、編入すると全昇格が自動REJECTEDになる）。
 #
-# 2026-08-07 利用者決定: meta-route-validator-changeをTier 0から除外した。route:metaは
-# 正当な他領域読取で導出が壊れ、観測器残余則でも救えないことを実測済みで、構造ではなく
-# 観測意味論の限界によりPASSへ到達できないため。report観測の実装後に再編入を判断する。
+# 2026-08-07 利用者決定: meta-route-validator-changeをTier 0から除外（route:metaの
+# 観測意味論の限界。観測器の改善後に再編入を判断）。
+# 2026-08-07 利用者決定: report観測（report_matchによる決定的照合）の実装に伴い、
+# family 10のexternal-effect-approval-gateを編入した。全checkが観測可能になったため。
 protect-paused-project
 project-goal-change-protection
 project-work-scoped-validation
+external-effect-approval-gate
