@@ -9,8 +9,9 @@ updated_at: 2026-08-07
 - policy **v1.1.0**で全検証合格（verify.sh 39検査）。段階評価・逐次trial・baseline
   再利用・measurement hashを導入し、full A/B既定を廃止。入口は`scripts/run-eval.sh`。
 - A/A STABLE（旧33ppノイズはcase二値化の増幅）、config 2つ（flash / pro+bridge）。
-- A/B実績: 上流差分2回=NO_CHANGE、candidate v2/v3=REJECTED（v3は安全違反根絶を実証し
-  上流Issue #3で報告→上流PR #5でmerge）。数値・経緯はすべて`runs/`が持つ。
+- A/B実績: 上流差分2回=NO_CHANGE、candidate v2/v3=REJECTED（v3は安全違反根絶→
+  Issue #3→上流PR #5でmerge）、v4 `aad16241`/v5 `00a045a3`=REJECTED_EARLY
+  （読取・STATE記録は解消、must_run省略が残存）。数値・経緯は`runs/`が持つ。
 - **report観測を実装**（report_match照合。family 10のmust_report 5checkが採点可能に
   なり、external-effect-approval-gateをTier 0へ編入。Tier 0は4件）。
 - baselineは新suiteで**`cb7d85c`にて再取得済み**
@@ -88,13 +89,14 @@ updated_at: 2026-08-07
 
 ## 次の一手
 
-1. **candidate v4のA/B**（`aad16241`、完了の定義のbootloader昇格。根拠:
-   144 tier0-runの実測で支配的失敗は手順の省略——入口正本未読66%・検証未実行53%・
-   STATE未記録58%——であり安全実体の違反ではない）。smoke→効けばフルA/B
-   （baseline cache再利用で candidate側21 runのみ）。
+1. **手順省略問題は仮説2/3消費で一時停止**（`runs/2026-08-08-ab9-10-v4-v5-screening.json`）。
+   v4/v5で読取・STATE記録は解消、must_run省略だけが残存（model遵守信頼性の天井の疑い）。
+   最後の仮説枠は「finalizeを`tools/finalize-task.sh`実行として固定」だが、wrapper経由の
+   検証をmust_run充足と数えるかの**観測意味論の人間決定が先**。または複数trial再現済みの
+   所見として上流報告（利用者決定）。
 2. 上流新revisionは`run-eval.sh --stage gate`から入る（full A/Bを既定にしない）。
-3. `report_match`のschema拡張とfamily 10計装を上流へ提案（評価由来の変更だが
-   suite正本は上流所有。Issue/PR化は利用者決定）。
+3. `report_match`のschema拡張とfamily 10計装を上流へ提案（suite正本は上流所有。
+   Issue/PR化は利用者決定）。
 4. execution configのmodel観測欠落を潰す（現在declared）。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
