@@ -42,21 +42,37 @@ def text_of(content) -> str:
 
 
 def to_chat_request(req: dict) -> dict:
-    """Responses request → chat completions request。"""
+    """Responses request → chat completions request。
+
+    reasoningの往復（実測 2026-08-07）: proのthinking modeは、tool会話の続きで
+    `reasoning_content`をassistant messageへ返送しないとinvalid_requestを返す。
+    本bridgeはreasoningを`encrypted_content`としてcodexへ返しており（codexは
+    store:falseのため次requestの履歴に含めて送り返す）、ここで直後のassistant/
+    tool呼出messageの`reasoning_content`へ復元する。
+    """
     messages = []
     instructions = req.get("instructions")
     if instructions:
         messages.append({"role": "system", "content": instructions})
 
+    pending_reasoning = ""
     for item in req.get("input") or []:
         kind = item.get("type", "message")
+        if kind == "reasoning":
+            pending_reasoning = item.get("encrypted_content") or "".join(
+                part.get("text", "") for part in item.get("summary") or [])
+            continue
         if kind == "message":
             role = item.get("role", "user")
             if role == "developer":
                 role = "system"
-            messages.append({"role": role, "content": text_of(item.get("content"))})
+            message = {"role": role, "content": text_of(item.get("content"))}
+            if role == "assistant" and pending_reasoning:
+                message["reasoning_content"] = pending_reasoning
+                pending_reasoning = ""
+            messages.append(message)
         elif kind == "function_call":
-            messages.append({
+            message = {
                 "role": "assistant",
                 "content": "",
                 "tool_calls": [{
@@ -65,7 +81,11 @@ def to_chat_request(req: dict) -> dict:
                     "function": {"name": item.get("name", ""),
                                  "arguments": item.get("arguments") or "{}"},
                 }],
-            })
+            }
+            if pending_reasoning:
+                message["reasoning_content"] = pending_reasoning
+                pending_reasoning = ""
+            messages.append(message)
         elif kind == "function_call_output":
             output = item.get("output")
             messages.append({
@@ -73,7 +93,7 @@ def to_chat_request(req: dict) -> dict:
                 "tool_call_id": item.get("call_id") or "call_0",
                 "content": output if isinstance(output, str) else text_of(output),
             })
-        # reasoning等は判定へ寄与しないため転送しない
+        # その他のitem種別は判定へ寄与しないため転送しない
 
     tools = []
     for tool in req.get("tools") or []:
@@ -184,7 +204,20 @@ class Handler(BaseHTTPRequestHandler):
         text_buf = []          # 進行中message text
         text_open = False
         tool_calls = {}        # index -> {id, name, arguments}
+        reasoning_buf = []     # 進行中reasoning（encrypted_contentとしてcodexへ返す）
         usage = {}
+
+        def flush_reasoning():
+            """reasoningをitem化してcodexへ返す。次requestで履歴として戻ってくる。"""
+            if not reasoning_buf:
+                return
+            item = {"type": "reasoning", "id": f"rs_{len(output)}",
+                    "summary": [],
+                    "encrypted_content": "".join(reasoning_buf)}
+            output.append(item)
+            self._sse("response.output_item.done",
+                      {"output_index": len(output) - 1, "item": item})
+            reasoning_buf.clear()
 
         def close_message():
             nonlocal text_open
@@ -226,9 +259,13 @@ class Handler(BaseHTTPRequestHandler):
                 usage = chunk["usage"]
             for choice in chunk.get("choices") or []:
                 delta = choice.get("delta") or {}
+                reasoning = delta.get("reasoning_content")
+                if reasoning:
+                    reasoning_buf.append(reasoning)
                 content = delta.get("content")
                 if content:
                     if not text_open:
+                        flush_reasoning()
                         text_open = True
                         self._sse("response.output_item.added",
                                   {"output_index": len(output),
@@ -241,6 +278,7 @@ class Handler(BaseHTTPRequestHandler):
                                "output_index": len(output), "content_index": 0,
                                "delta": content})
                 for tc in delta.get("tool_calls") or []:
+                    flush_reasoning()
                     index = tc.get("index", 0)
                     slot = tool_calls.setdefault(
                         index, {"id": f"call_{index}", "name": "", "arguments": ""})
@@ -252,6 +290,7 @@ class Handler(BaseHTTPRequestHandler):
                     slot["arguments"] += fn.get("arguments") or ""
                 # reasoning_contentは転送しない
 
+        flush_reasoning()
         close_message()
         close_tool_calls()
         completed = {"id": response_id, "status": "completed", "output": output,
