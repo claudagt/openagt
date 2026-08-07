@@ -147,12 +147,19 @@ def injected_reads(client: str, subject: pathlib.Path):
 
 # Route → 入口正本。subjectの`AGENTS.md#Route`表が定義する対応をそのまま使う。
 # 独自の判定基準を作らない（判定はどの入口を実際に読んだかという観測に基づく）。
-# meta / none は固有の入口正本を持たないため、ここからは導出できない。
 ROUTE_ENTRY_CANON = {
     "knowledge/KNOWLEDGE.md": "knowledge",
     "skills/SKILLS.md": "skill",
     "projects/AGENTS.md": "project",
 }
+
+# metaは固有のbootstrap入口を持たず、入口は対象領域の正本そのもの（subjectの
+# AGENTS.md#Route表）。主要3Routeの入口をひとつも読まずに領域正本を読んだ場合だけ
+# metaを導出する（残余則）。主要入口を読んだ作業はそのRouteが支配するため、
+# 領域正本の併読ではmetaへ倒さない。2026-08-07人間決定（これが無いとroute: metaは
+# 観測上導出不能で、meta系caseが構造的にPASS不能だった）。
+META_AREA_CANON = ("tools/TOOLS.md", "tools/BACKUP.md", "tools/CONTROL.md",
+                   "evals/EVALS.md")
 
 
 def infer_route(read_events):
@@ -161,14 +168,23 @@ def infer_route(read_events):
     codexはroute/search eventを出さないため、これが無いと全caseで`route`が
     UNVERIFIEDになり、どのcaseもPASSに到達できない。入口正本の読取という観測事実から
     導出し、複数Routeの入口を読んでいて一意に決まらない場合は導出しない（fail closed）。
+    metaは残余則: 主要入口の読取がゼロで、meta領域正本の読取があるときだけ導出する。
     """
     routes = set()
+    meta_seen = False
     for event in read_events:
         path = (event.get("path") or "").lstrip("./")
         for entry, route in ROUTE_ENTRY_CANON.items():
             if path == entry or path.endswith("/" + entry):
                 routes.add(route)
-    return routes.pop() if len(routes) == 1 else None
+        for entry in META_AREA_CANON:
+            if path == entry or path.endswith("/" + entry):
+                meta_seen = True
+    if len(routes) == 1:
+        return routes.pop()
+    if not routes and meta_seen:
+        return "meta"
+    return None
 
 
 def map_codex_events(raw_events):

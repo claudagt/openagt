@@ -427,6 +427,11 @@ assert mt.infer_route([read("skills/SKILLS.md")]) == "skill"
 assert mt.infer_route([read("projects/market-scan/STATE.md")]) is None
 # 複数Routeの入口を読んでいれば一意に決まらないので導出しない（fail closed）
 assert mt.infer_route([read("projects/AGENTS.md"), read("knowledge/KNOWLEDGE.md")]) is None
+# meta残余則: 主要入口ゼロ+領域正本読取のみでmeta（2026-08-07人間決定）
+assert mt.infer_route([read("tools/TOOLS.md"), read("evals/EVALS.md")]) == "meta"
+assert mt.infer_route([read("tools/CONTROL.md")]) == "meta"
+# 主要入口を読んだ作業はそのRouteが支配し、領域正本の併読でmetaへ倒れない
+assert mt.infer_route([read("projects/AGENTS.md"), read("tools/TOOLS.md")]) == "project"
 print("ROUTE_INFERENCE_OK")
 PY
 grep -q 'ROUTE_INFERENCE_OK' "$tmp_root/route-infer.log" || \
