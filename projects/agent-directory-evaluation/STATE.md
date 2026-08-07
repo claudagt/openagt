@@ -7,7 +7,7 @@ updated_at: 2026-08-07
 ## 現在の到達点
 
 - policy **v1.0.3**（check単位充足率+Issue条件）で全検証合格。A/A STABLE（旧33ppノイズは
-  case二値化の増幅と確定）。baselineは上流最新`631cab3`、config 2つ（flash / pro+bridge）。
+  case二値化の増幅と確定）。baselineは上流最新`28600ef`（Issue #3対応済み）、config 2つ（flash / pro+bridge）。
 - A/B実績: 上流差分2回=NO_CHANGE、candidate v2/v3=REJECTED（v3は安全違反根絶を実証、
   上流Issue #3で報告済み）。詳細な数値・経緯はすべて`runs/`が持つ。
 
@@ -57,19 +57,19 @@ updated_at: 2026-08-07
 - 評価policy version: **v1.0.3**（利用者決定2026-08-07。変更は人間の明示決定のみ）。
   check単位pooled充足率、UNVERIFIED分母外（coverage報告）、coverage差10pp超は自動判定
   しない。v1.0.1の決定（非tmp root、`INFRA_UNAVAILABLE`区分）は継続。
-- baseline: **`631cab348b630cde831f9ea8922e3543c699fe3b`に再固定**（2026-08-07、
-  上流PR #2後のHEAD。PR #2差分はsmokeでNO_CHANGE、
-  `runs/2026-08-07-ab5-smoke-pr2-631cab3.json`。flash A/AはPR #1 HEADで取得済み
-  （ノイズ0.8pp、`runs/2026-08-07-aa4-flash-1effd595.json`）、ノイズはconfig性質として継続適用）。
+- baseline: **`28600ef855ac65bb9236c4e925175818c2a71a04`に再固定**（2026-08-07、
+  Issue #3対応PR #5後のHEAD。検証A/B=NO_CHANGEかつpaused違反ゼロ、
+  `runs/2026-08-07-ab8-verify-issue3-fix-28600ef.json`。A/Aノイズはconfig性質として
+  継続適用: flash 0.8pp、pro 3.6pp）。
 - MDE = **5pp**（実測ノイズ: flash 0.8pp、pro 3.2pp。いずれも下限5pp未満）。
 - **第2 execution config確立済み: `deepseek-v4-pro` + `responses-bridge.py`**
   （利用者決定2026-08-07。config `sha256:5a8eb815...`）。A/A STABLE: ノイズ3.2pp
   （route再導出後の再採点で3.6pp）→ MDE 5pp。
   PC-04の複数config要件を充足。**既定working configはflashのまま**（利用者指示）。
   providerがproの`/responses`を開通したらbridgeを外し直結へ戻す。
-- **pro configの実所見**: baselineで充足率約78%（flashは約97%）。思考型modelは正本を
-  読まずに動き、baselineではpaused projectを実削除する（trace完全性で確認済み）。
-  ※grader偽FAIL（may_write）は人間決定で修正済み（fec07bb、既存証拠は再採点済み）。
+- **pro configの実所見**: 思考型modelは正本を読まずに動く傾向。paused実削除は
+  Issue #3→上流PR #5で解消済み（新HEADで両config違反ゼロを検証）。残る違反classは
+  meta-route誤route由来のmay_write（既存・別課題）。
 - **candidate系譜**: v2 `05b338da`はREJECTED（pro違反残存）。v3 `eaca5f07`
   （631cab3起点、変更対象Route判別+paused凍結強化）は**pausedのHard Gate違反を
   candidate側で根絶**（baselineは3/3違反）、pro +7.3pp（MDE超）、flash +3.6pp（MDE未満）。
@@ -101,11 +101,10 @@ updated_at: 2026-08-07
 
 ## 次の一手
 
-1. 上流Issue #3への応答を監視し、Draft PR要望が来たら別Promotion sessionで対応する
-   （candidate branch `eaca5f07`はclone内に保存済み）。
-2. 上流新revision発生時はflash+pro両configで通常A/B（20並列、smoke先行）。
+1. 上流新revision発生時: smoke先行→通常A/B（flash+pro、並列12〜20）。
+2. meta-route誤route由来のmay_write違反（既存class）は、report観測・route:meta観測
+   意味論とあわせて次の改善主題候補。Issue化は都度利用者決定。
 3. session開始時にproの`/responses`開通を確認（開通後はbridge撤去+pro A/A再取得）。
-4. 残る観測課題（人間判断待ち）: report観測の実装可否、route:meta観測意味論、
-   上流新case群のsuite取り込み。
+4. 上流新case群（control-*、delegation-*）のsuite取り込みは人間判断待ち。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。

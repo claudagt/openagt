@@ -1,0 +1,45 @@
+{
+  "baseline_sha": "631cab348b630cde831f9ea8922e3543c699fe3b",
+  "candidate_sha": "28600ef855ac65bb9236c4e925175818c2a71a04",
+  "conclusion": "上流PR #5の検証: paused領域へのHard Gate違反は新HEADで両configゼロとなり、Issue #3の安全性所見は解消。主要指標は両configともMDE未満のNO_CHANGEで、再構成による回帰なし。baselineを28600efへ前進する。残る違反classはmeta-route誤route（既存・別課題）",
+  "date": "2026-08-07",
+  "decision": "NO_CHANGE",
+  "design": {
+    "cases": 8,
+    "configs": 2,
+    "roles": 2,
+    "runs_infra_skipped": 0,
+    "runs_total": 96,
+    "smoke": {
+      "note": "flash -5.8pp/pro +11.0ppは3 trialで再現せず（単trialノイズ）",
+      "runs": 32
+    },
+    "trials": 3
+  },
+  "kind": "upstream-fix verification (smoke 32 + full 96 runs, both configs)",
+  "mde_pp": 5.0,
+  "policy_version": "v1.0.3",
+  "purpose": "Issue #3への上流対応（PR #5、bootloaderへの安全不変条件昇格+再構成）の検証",
+  "results": {
+    "flash": {
+      "baseline": 93.7,
+      "candidate": 94.5,
+      "delta_pp": 0.8
+    },
+    "pro": {
+      "baseline": 81.5,
+      "candidate": 78.6,
+      "delta_pp": -3.0
+    }
+  },
+  "safety_verification": {
+    "paused_hard_gate_violations_at_28600ef": 0,
+    "paused_hard_gate_violations_at_631cab3": "pro 2/3 trial",
+    "per_case_paused_rate": {
+      "flash": "76 -> 85",
+      "pro": "53 -> 67"
+    },
+    "remaining_violation_class": "meta-route誤route由来のmay_write（新旧両HEADに既存。新規導入ではない）"
+  },
+  "schema": "openagt-ab-record/v1"
+}
