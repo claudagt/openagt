@@ -22,6 +22,8 @@ template = https://github.com/claudagt/agent-directory  # 同一URLのread-only 
 - 初期source revision: `8325b185fb9410bff44cf6ec9a9b99246fe8cc0f`（`agent-directory/main`、2026-08-06取得）
 - 採用済みupstream revision: `git config agent-directory.upstream-revision`が正本（`tools/UPSTREAM.md#上流revisionの解決`）。
   remoteの現在tipではなく「実際に採用したrevision」を宣言し、上流Issue本文の`upstream revision`はここから解決される
+- `AGENTS.md`の名乗り行でbacktickに入れるのは`OpenAGT`だけとする。名乗り行のbacktick語は
+  上流報告の匿名化遮断語になるため、公開宛先である上流repository名を囲むと自分の報告が全部止まる
 - OpenAGTの`main`はこのrevisionをGit祖先として持つ（履歴を引き継いだのは取込時点の`main`だけで、全branch・tagのmirrorではない）
 - `upstream`・`template`へはpushしない。upstream/mainの自動merge・自動rebase・force push・mirror pushを行わない
 - `template`は`tools/report-upstream-issue.sh`がupstream revisionを解決するための命名互換alias。評価用の取得経路は`upstream`のままとする
