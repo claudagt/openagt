@@ -95,8 +95,8 @@ updated_at: 2026-08-07
    検証をmust_run充足と数えるかの**観測意味論の人間決定が先**。または複数trial再現済みの
    所見として上流報告（利用者決定）。
 2. 上流新revisionは`run-eval.sh --stage gate`から入る（full A/Bを既定にしない）。
-3. `report_match`のschema拡張とfamily 10計装を上流へ提案（suite正本は上流所有。
-   Issue/PR化は利用者決定）。
+3. `report_match`のschema欠落は**上流Issue #18として報告済み**（2026-08-08、利用者決定、
+   `tools/report-upstream-issue.sh`経由、修正候補・実trace検証結果つき）。上流の反応待ち。
 4. execution configのmodel観測欠落を潰す（現在declared）。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。8KiBを超えない。
