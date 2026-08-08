@@ -44,15 +44,22 @@ knowledge_log_file="$repo_root/$knowledge_log_path"
 knowledge_source_template="$repo_root/$knowledge_source_template_path"
 knowledge_topic_template="$repo_root/$knowledge_topic_template_path"
 
+# Bootstrap placeholder set: single owner of the "is this tree deployed" predicate.
+# Consumers (run-routine.sh strict gating, the strict check below) query --bootstrap-status
+# instead of carrying their own copy, so adding a field cannot desynchronize the predicates.
+agent_definition_placeholders='<agent-name>|<agent-role>|<agent-mission>|<agent-vision>|<operator-language>|<project-dir>'
+
 usage() {
-  printf 'Usage: %s [--strict] [--full] [--changed] [--base <git-ref>]\n' "${0##*/}" >&2
+  printf 'Usage: %s [--strict] [--full] [--changed] [--base <git-ref>] [--bootstrap-status]\n' "${0##*/}" >&2
 }
 
+bootstrap_status_mode=false
 while (( $# > 0 )); do
   case "$1" in
     --strict) strict=true; shift ;;
     --full) full=true; shift ;;
     --changed) changed=true; shift ;;
+    --bootstrap-status) bootstrap_status_mode=true; shift ;;
     --base)
       [[ $# -ge 2 ]] || { usage; exit 2; }
       base_ref="$2"
@@ -61,6 +68,35 @@ while (( $# > 0 )); do
     *) usage; exit 2 ;;
   esac
 done
+
+# Status query, not a check: prints the deployment state of this tree and exits 0.
+# template = every core placeholder still present, deployed = none present, partial = otherwise.
+if [[ "$bootstrap_status_mode" == true ]]; then
+  bootstrap_present=0
+  bootstrap_total=0
+  bootstrap_ifs="$IFS"
+  IFS='|'
+  for bootstrap_placeholder in $agent_definition_placeholders; do
+    case "$bootstrap_placeholder" in
+      '<project-dir>') continue ;; # 任意箇所の残置検査用で、AGENTS.mdの必須置換フィールドではない
+    esac
+    bootstrap_total=$((bootstrap_total + 1))
+    if grep -Fq "$bootstrap_placeholder" "$repo_root/AGENTS.md" 2>/dev/null; then
+      bootstrap_present=$((bootstrap_present + 1))
+    fi
+  done
+  IFS="$bootstrap_ifs"
+  if (( bootstrap_present == 0 )) && \
+    ! grep -Eq "$agent_definition_placeholders" "$repo_root/AGENTS.md" 2>/dev/null; then
+    bootstrap_status='deployed'
+  elif (( bootstrap_present == bootstrap_total )); then
+    bootstrap_status='template'
+  else
+    bootstrap_status='partial'
+  fi
+  printf 'BOOTSTRAP_STATUS status=%s\n' "$bootstrap_status"
+  exit 0
+fi
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -1211,7 +1247,7 @@ required_files=(
   'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/prepare-context.sh'
   'tools/append-knowledge-log.sh' 'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
   'tools/materialize-project-repositories.sh' 'tools/finalize-task.sh' '.gitignore'
-  'tools/UPSTREAM.md' 'tools/report-upstream-issue.sh'
+  'tools/UPSTREAM.md' 'tools/report-upstream-issue.sh' 'tools/REFERENCE.md'
   'routines/ROUTINES.md' 'routines/maintenance/ROUTINE.md'
   'tools/run-routine.sh' 'tools/manage-routine-schedule.sh' 'tools/routine-reasoner.py'
   "$knowledge_source_template_path" "$knowledge_topic_template_path"
@@ -1292,6 +1328,7 @@ check_size "$repo_root/tools/TOOLS.md" 20480 'tools TOOLS.md'
 check_size "$repo_root/tools/BACKUP.md" 20480 'tools BACKUP.md'
 check_size "$repo_root/tools/CONTROL.md" 20480 'tools CONTROL.md'
 check_size "$repo_root/tools/UPSTREAM.md" 20480 'tools UPSTREAM.md'
+check_size "$repo_root/tools/REFERENCE.md" 20480 'tools REFERENCE.md'
 check_size "$knowledge_index_file" 8192 'Knowledge index'
 check_size "$knowledge_log_file" 131072 'Knowledge log'
 check_size "$repo_root/routines/ROUTINES.md" 16384 'routines ROUTINES.md'
@@ -1304,8 +1341,23 @@ check_heading_warning "$repo_root/skills/SKILLS.md" 30
 check_heading_warning "$repo_root/projects/PROJECTS.md" 30
 
 if [[ "$strict" == true ]]; then
-  if grep -Eq '<agent-name>|<agent-role>|<agent-mission>|<agent-vision>|<project-dir>' "$repo_root/AGENTS.md"; then
+  if grep -Eq "$agent_definition_placeholders" "$repo_root/AGENTS.md"; then
     fail 'AGENTS.md contains unresolved agent definition placeholders'
+  elif [[ -f "$repo_root/tools/report-upstream-issue.sh" ]]; then
+    # A deployed tree must declare at least one backticked real name on the identity line;
+    # an unbackticked name would leave the agent-name rule with nothing to check (leak side).
+    # The report tool owns the extraction predicate, so probe it instead of duplicating the parser.
+    strict_probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-strict-probe.XXXXXX")"
+    cleanup_paths+=("$strict_probe_dir")
+    printf 'strict self-definition probe body\n' > "$strict_probe_dir/body.md"
+    set +e
+    strict_probe_output="$(AGENT_CACHE_DIR="$strict_probe_dir" \
+      bash "$repo_root/tools/report-upstream-issue.sh" \
+      --title '[bug] strict self-definition probe' --body-file "$strict_probe_dir/body.md" --dry-run 2>&1)"
+    set -e
+    if printf '%s\n' "$strict_probe_output" | grep -Fq 'reason=anonymization-source-unparsed'; then
+      fail 'AGENTS.md#自己定義 identity line declares no backticked agent name; the anonymization check has nothing to run on (tools/UPSTREAM.md#公開禁止情報)'
+    fi
   fi
   while IFS= read -r -d '' case_file; do
     if grep -Fq '<skill-name>' "$case_file"; then
@@ -1588,6 +1640,31 @@ while IFS= read -r -d '' case_file; do
   if [[ -n "$fixture_name" && ! -d "$repo_root/evals/fixtures/$fixture_name" ]]; then
     fail "$(relative_path "$case_file") references missing fixture: $fixture_name"
   fi
+  # report_match observes must_report: every match slug must be a declared report duty,
+  # so a renamed duty cannot leave a dead match definition behind (evals/EVALS.md#報告の観測).
+  if grep -q '^report_match:' "$case_file"; then
+    while IFS= read -r report_match_slug; do
+      [[ -n "$report_match_slug" ]] || continue
+      if ! [[ "$report_match_slug" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+        fail "$(relative_path "$case_file") report_match slug must be lowercase kebab-case: $report_match_slug"
+        continue
+      fi
+      if ! awk -v slug="$report_match_slug" '
+        /^  must_report:/ { in_report = 1; next }
+        in_report && !/^    - / { in_report = 0 }
+        in_report { line = $0; sub(/^    - /, "", line); sub(/[[:space:]]*$/, "", line)
+          if (line == slug) found = 1 }
+        END { exit found ? 0 : 1 }
+      ' "$case_file"; then
+        fail "$(relative_path "$case_file") report_match slug is not declared in must_report: $report_match_slug"
+      fi
+    done <<<"$(awk '
+      /^report_match:/ { in_match = 1; next }
+      in_match && /^[^ ]/ { in_match = 0 }
+      in_match && /^  [^ ]/ && /:/ {
+        slug = $1; sub(/:.*/, "", slug); print slug }
+    ' "$case_file")"
+  fi
 done < <(find "$repo_root/evals/cases" -type f -name '*.yaml' -print0)
 
 # Check existence first so an empty glob does not abort with a raw sed error.
@@ -1596,6 +1673,15 @@ if compgen -G "$repo_root/evals/cases/*.yaml" >/dev/null 2>&1; then
   duplicate_case_names="$(sed -n 's/^name: //p' "$repo_root"/evals/cases/*.yaml | LC_ALL=C sort | uniq -d)"
 fi
 [[ -z "$duplicate_case_names" ]] || fail "duplicate eval case names: $duplicate_case_names"
+
+# The report observation contract is pinned: the schema section, the trace event, and the
+# instrumented external-effect safety case must not silently disappear (evals/EVALS.md#報告の観測).
+grep -Fq 'report_match' "$repo_root/evals/EVALS.md" || \
+  fail 'evals/EVALS.md does not define the report_match observation contract'
+grep -Fq '"event":"final_response"' "$repo_root/evals/EVALS.md" || \
+  fail 'evals/EVALS.md trace vocabulary does not include final_response'
+grep -q '^report_match:' "$repo_root/evals/cases/external-effect-approval-gate.yaml" || \
+  fail 'external-effect-approval-gate does not carry a report_match observation contract'
 
 if ! grep -Eq '    - projects/.+/STATE\.md#現在の目標=.+' "$repo_root/evals/cases/project-state-closeout.yaml"; then
   fail 'project-state-closeout does not require advancing the current goal'
@@ -1705,6 +1791,16 @@ if [[ -f "$report_tool" ]]; then
       fail "tools/report-upstream-issue.sh must not run git $forbidden_subcommand"
     fi
   done
+  # Anonymization is fail-closed: an unparseable self-definition must block, never skip the rule.
+  grep -Fq 'anonymization-source-unparsed' "$report_tool" || \
+    fail 'tools/report-upstream-issue.sh must fail closed when no agent name is extractable from AGENTS.md#自己定義'
+  # Duplicate handling never blocks a report: an identical normalized title auto-comments on
+  # the existing issue, ambiguous candidates are listed and the new issue is still created.
+  grep -Fq 'normalize_issue_title' "$report_tool" || \
+    fail 'tools/report-upstream-issue.sh must normalize titles to auto-comment on an identical open issue'
+  if grep -Fq 'possible-duplicate' "$report_tool"; then
+    fail 'tools/report-upstream-issue.sh must not stop on duplicate candidates; observations are never dropped'
+  fi
 fi
 
 grep -Fq 'tools/backup-to-github.sh' "$repo_root/README.md" || \
@@ -1718,6 +1814,62 @@ grep -Fq 'report-upstream-issue.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register report-upstream-issue.sh'
 grep -Fq 'tools/UPSTREAM.md' "$repo_root/AGENTS.md" || \
   fail 'AGENTS.md does not route upstream issue reporting to tools/UPSTREAM.md'
+# The operator interaction language contract is presence-checked like the other bootloader
+# contracts: deleting the three lines must fail even outside --strict (#28).
+grep -Fq '運用者応対言語' "$repo_root/AGENTS.md" || \
+  fail 'AGENTS.md does not carry the operator interaction language contract (運用者応対言語)'
+
+# 相互参照の解決検査（tools/TOOLS.md#相互参照）: 追跡Markdown内の `path.md#target` 恒久参照は、
+# pathが実在し、targetが見出し・frontmatter key・**定義項目** のいずれかとして解決すること。
+# pathはrepository root基準を優先しsourceディレクトリ基準も許容する。プレースホルダーを含む参照と、
+# どちらの基準でも実在しないslashなしの総称instance参照（`PROJECT.md#status`等）は対象外とする。
+# 責務移管で見出しが移動したのに参照元が残る断線（#14 #20）を機械検出する。断線は正本の編集で
+# しか生まれず、meta正本の変更はfull検証へ進む契約のため、この全件走査は--fullだけが実行する。
+if [[ "$full" == true ]]; then
+reference_md_files="$(git -C "$repo_root" ls-files '*.md' 2>/dev/null || true)"
+if [[ -z "$reference_md_files" ]]; then
+  reference_md_files="$(cd "$repo_root" && find . -name '*.md' -type f \
+    -not -path './.git/*' -not -path './.agent-cache/*' -not -path './.tmp/*' \
+    -not -path './projects/*/.git/*' 2>/dev/null | sed 's|^\./||')"
+fi
+while IFS= read -r reference_md_rel; do
+  [[ -n "$reference_md_rel" ]] || continue
+  reference_md_abs="$repo_root/$reference_md_rel"
+  [[ -f "$reference_md_abs" ]] || continue
+  while IFS= read -r markdown_reference; do
+    [[ -n "$markdown_reference" ]] || continue
+    case "$markdown_reference" in
+      *'<'*) continue ;; # プレースホルダー・記法例
+    esac
+    reference_path="${markdown_reference%%#*}"
+    reference_target="${markdown_reference#*#}"
+    reference_target="${reference_target%%=*}" # eval固有の =<期待値> 表記を許容
+    [[ -n "$reference_target" && -n "$reference_path" ]] || continue
+    reference_file=''
+    if [[ -f "$repo_root/$reference_path" ]]; then
+      reference_file="$repo_root/$reference_path"
+    elif [[ -f "$(dirname "$reference_md_abs")/$reference_path" ]]; then
+      reference_file="$(dirname "$reference_md_abs")/$reference_path"
+    elif [[ "$reference_path" != */* ]]; then
+      continue # 総称instance参照
+    else
+      fail "$reference_md_rel references a missing file: $reference_path"
+      continue
+    fi
+    if ! awk -v target="$reference_target" '
+      NR == 1 && /^---$/ { in_frontmatter = 1; next }
+      in_frontmatter && /^---$/ { in_frontmatter = 0; next }
+      in_frontmatter { if (index($0, target ":") == 1) { found = 1; exit }; next }
+      /^#+ / { heading = $0; sub(/^#+[[:space:]]*/, "", heading); sub(/[[:space:]]*$/, "", heading)
+        if (heading == target) { found = 1; exit } }
+      { if (index($0, "**" target "**") > 0) { found = 1; exit } }
+      END { exit found ? 0 : 1 }
+    ' "$reference_file"; then
+      fail "$reference_md_rel reference does not resolve: $reference_path#$reference_target"
+    fi
+  done < <(grep -o '`[^`]*\.md#[^`]*`' "$reference_md_abs" 2>/dev/null | tr -d '`' | LC_ALL=C sort -u || true)
+done <<<"$reference_md_files"
+fi
 grep -Fq 'materialize-project-repositories.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register materialize-project-repositories.sh'
 grep -Fq 'prepare-context.sh' "$repo_root/tools/TOOLS.md" || \
@@ -1904,6 +2056,13 @@ done
 if [[ -f "$repo_root/tools/run-routine.sh" ]]; then
   grep -Fq 'unknown-routine' "$repo_root/tools/run-routine.sh" || \
     fail 'tools/run-routine.sh does not reject unknown routine ids'
+  # The deployment predicate has exactly one owner (--bootstrap-status). A second placeholder
+  # copy in run-routine.sh is how #29 happened: one list updated, the other left behind.
+  grep -Fq -- '--bootstrap-status' "$repo_root/tools/run-routine.sh" || \
+    fail 'tools/run-routine.sh must query the validator --bootstrap-status instead of testing placeholders itself'
+  if grep -Fq '<agent-name>' "$repo_root/tools/run-routine.sh"; then
+    fail 'tools/run-routine.sh must not carry its own copy of the agent definition placeholder set'
+  fi
   for forbidden_routine_git in reset clean stash pull merge rebase push; do
     if grep -Eq "git[^#]*[[:space:]]$forbidden_routine_git([[:space:]]|\$)" "$repo_root/tools/run-routine.sh"; then
       fail "tools/run-routine.sh must not run git $forbidden_routine_git"
@@ -2240,6 +2399,203 @@ set -e
 if (( finalize_probe_status == 0 )) || \
   ! printf '%s\n' "$finalize_probe_output" | grep -Fq 'FINALIZE_BLOCKED reason=ack-env-set'; then
   fail 'finalize-task.sh must refuse a call arriving with an escalation ack preset'
+fi
+
+# report-upstream-issue.sh anonymization derives block terms from the identity line of
+# AGENTS.md#自己定義 (any heading depth) and is fail-closed on the number of checks that
+# actually ran, not on the number of extracted tokens. The probes loop over every declared
+# name (any sort position), any length and writing system, independent of the caller locale,
+# and cover the --search mode. The probes stay on --dry-run, which never writes to the network.
+upstream_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-upstream.XXXXXX")"
+upstream_fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-upstream-cache.XXXXXX")"
+cleanup_paths+=("$upstream_fixture_dir" "$upstream_fixture_cache_dir")
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは検査fixtureに特化した実行主体、`fixture-probe-agent`（`Fixture合同会社`／`Fixture Probe LLC`）。' \
+    '- **運用者応対言語:** `English`。' \
+    '- `<...>`は導入時に置換する。' '' \
+    '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+printf 'privateなdownstream Workspaceの通常作業中に観測した。\n' > "$upstream_fixture_dir/body-clean.md"
+printf 'The bootloader is written in English.\n' > "$upstream_fixture_dir/body-language.md"
+upstream_probe() {
+  set +e
+  upstream_probe_output="$(AGENT_DIRECTORY_ROOT="$upstream_fixture_dir" \
+    AGENT_CACHE_DIR="$upstream_fixture_cache_dir" \
+    bash "$repo_root/tools/report-upstream-issue.sh" \
+    --title '[bug] fixture probe' --body-file "$1" --dry-run 2>&1)"
+  upstream_probe_status=$?
+  set -e
+}
+# Every declared name must block, whatever its position in the sorted extraction (first,
+# middle, and last are all probed so no single-name regression can pass unnoticed).
+for upstream_probe_name in 'Fixture Probe LLC' 'Fixture合同会社' 'fixture-probe-agent'; do
+  printf '%s の運用で観測した。\n' "$upstream_probe_name" > "$upstream_fixture_dir/body-name.md"
+  upstream_probe "$upstream_fixture_dir/body-name.md"
+  if (( upstream_probe_status == 0 )) || \
+    ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
+    fail 'report-upstream-issue.sh must check every declared self-definition name, whatever its sort position'
+  fi
+done
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )); then
+  fail "report-upstream-issue.sh dry-run failed on an anonymized body: $(printf '%s' "$upstream_probe_output" | head -n 2 | tr '\n' ' ')"
+fi
+# The operator interaction language is a contract value, not a proper noun: a body naming
+# the language must pass even though the language sits backticked in the self-definition.
+upstream_probe "$upstream_fixture_dir/body-language.md"
+if (( upstream_probe_status != 0 )); then
+  fail 'report-upstream-issue.sh must not treat the operator interaction language as an agent name'
+fi
+# A short CJK name is still a declared proper noun: no length guard, no locale dependence.
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは`甲乙丙`（役割:`検査fixture`）。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+printf '甲乙丙 のworkspaceで観測した。\n' > "$upstream_fixture_dir/body-short-name.md"
+set +e
+upstream_probe_output="$(LANG=ja_JP.UTF-8 LC_ALL='' AGENT_DIRECTORY_ROOT="$upstream_fixture_dir" \
+  AGENT_CACHE_DIR="$upstream_fixture_cache_dir" \
+  bash "$repo_root/tools/report-upstream-issue.sh" \
+  --title '[bug] fixture probe' --body-file "$upstream_fixture_dir/body-short-name.md" --dry-run 2>&1)"
+upstream_probe_status=$?
+set -e
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
+  fail 'report-upstream-issue.sh must block a 3-character declared name under a UTF-8 locale'
+fi
+# The section is found by heading text, not by heading depth.
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## Agent' '' '### 自己定義' '' \
+    '- あなたは`fixture-probe-agent`（役割:`検査fixture`）。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+printf 'fixture-probe-agent のworkspaceで観測した。\n' > "$upstream_fixture_dir/body-name.md"
+upstream_probe "$upstream_fixture_dir/body-name.md"
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
+  fail 'report-upstream-issue.sh must find the self-definition section at any heading depth'
+fi
+# Fail-closed distinctions: no backticked name on the identity line, placeholders only,
+# and a missing section each block instead of silently skipping the agent-name rule.
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは名を名乗らない散文だけの実行主体。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'reason=anonymization-source-unparsed'; then
+  fail 'report-upstream-issue.sh must fail closed when no backticked name is extractable from AGENTS.md#自己定義'
+fi
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは`<agent-name>`（役割:`<agent-role>`）。' \
+    '- `<...>`は導入時に置換する。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'reason=anonymization-source-unparsed'; then
+  fail 'report-upstream-issue.sh must fail closed when every identity-line token is a template placeholder'
+fi
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 挨拶' '' '- 自己定義の見出しを持たない。'
+} > "$upstream_fixture_dir/AGENTS.md"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'reason=anonymization-source-unparsed'; then
+  fail 'report-upstream-issue.sh must fail closed when AGENTS.md has no 自己定義 section'
+fi
+# --search goes through the same anonymization inspection and honors --dry-run.
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは`fixture-probe-agent`（役割:`検査fixture`）。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+set +e
+upstream_probe_output="$(AGENT_DIRECTORY_ROOT="$upstream_fixture_dir" \
+  AGENT_CACHE_DIR="$upstream_fixture_cache_dir" \
+  bash "$repo_root/tools/report-upstream-issue.sh" \
+  --search 'fixture-probe-agent bootloader' --dry-run 2>&1)"
+upstream_probe_status=$?
+set -e
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
+  fail 'report-upstream-issue.sh must run the anonymization inspection on --search terms'
+fi
+set +e
+upstream_probe_output="$(AGENT_DIRECTORY_ROOT="$upstream_fixture_dir" \
+  AGENT_CACHE_DIR="$upstream_fixture_cache_dir" \
+  bash "$repo_root/tools/report-upstream-issue.sh" \
+  --search 'bootloader routing budget' --dry-run 2>&1)"
+upstream_probe_status=$?
+set -e
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'UPSTREAM_REPORT_SEARCH_DRY_RUN_OK'; then
+  fail 'report-upstream-issue.sh --search must support --dry-run for clean terms'
+fi
+# Upstream revision resolution: a verified declared adoption wins over merge-base, an
+# unverifiable declared sha is never published, an unfetched template remote is not
+# misdiagnosed as unrelated history, and every resolution carries resolved-from.
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは`fixture-probe-agent`（役割:`検査fixture`）。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+upstream_fixture_git() {
+  env -i PATH="$PATH" HOME="$upstream_fixture_dir" GIT_CONFIG_NOSYSTEM=1 \
+    git -C "$upstream_fixture_dir" "$@"
+}
+upstream_fixture_git init -q
+upstream_fixture_git -c user.name=fixture -c user.email=fixture@example.invalid \
+  commit -q --allow-empty -m 'fixture adoption commit'
+upstream_fixture_sha="$(upstream_fixture_git rev-parse HEAD)"
+upstream_fixture_sha_upper="$(printf '%s' "$upstream_fixture_sha" | tr '[:lower:]' '[:upper:]')"
+# 1. A declared sha that git accepts (uppercase form) is verified and normalized.
+upstream_fixture_git config agent-directory.upstream-revision "$upstream_fixture_sha_upper"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq "$upstream_fixture_sha (resolved-from: declared)"; then
+  fail 'report-upstream-issue.sh must verify and normalize a declared adoption revision (uppercase sha included)'
+fi
+# 2. A declared sha that resolves to no commit is never published.
+upstream_fixture_git config agent-directory.upstream-revision deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  printf '%s\n' "$upstream_probe_output" | grep -Fq 'resolved-from: declared' || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'unknown (no-template-remote)'; then
+  fail 'report-upstream-issue.sh must not publish an unverifiable declared revision'
+fi
+# 3. An unfetched template remote is template-not-fetched, not unrelated-history.
+upstream_fixture_git remote add template /nonexistent-template-remote.git
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'unknown (template-not-fetched)' || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'git fetch template'; then
+  fail 'report-upstream-issue.sh must diagnose an unfetched template remote as template-not-fetched'
+fi
+# 4. A fetched ref that shares no history is unrelated-history.
+upstream_fixture_git config --unset agent-directory.upstream-revision
+upstream_fixture_orphan="$(upstream_fixture_git mktree </dev/null)"
+upstream_fixture_orphan="$(upstream_fixture_git -c user.name=fixture -c user.email=fixture@example.invalid \
+  commit-tree "$upstream_fixture_orphan" -m 'unrelated root' </dev/null)"
+upstream_fixture_git update-ref refs/remotes/template/main "$upstream_fixture_orphan"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'unknown (unrelated-history)'; then
+  fail 'report-upstream-issue.sh must diagnose a fetched ref sharing no history as unrelated-history'
+fi
+# 5. merge-base is a labeled diagnostic, and a verified declaration wins over it.
+upstream_fixture_git update-ref refs/remotes/template/main "$upstream_fixture_sha"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq "$upstream_fixture_sha (resolved-from: merge-base)"; then
+  fail 'report-upstream-issue.sh must label a merge-base resolution with resolved-from: merge-base'
+fi
+upstream_fixture_git -c user.name=fixture -c user.email=fixture@example.invalid \
+  commit -q --allow-empty -m 'fixture ported upstream change'
+upstream_fixture_adopted="$(upstream_fixture_git rev-parse HEAD)"
+upstream_fixture_git config agent-directory.upstream-revision "$upstream_fixture_adopted"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq "$upstream_fixture_adopted (resolved-from: declared)"; then
+  fail 'report-upstream-issue.sh must prefer a verified declared adoption over the merge-base ancestor'
 fi
 
 # A canon file lacking frontmatter must not stop cache generation; warn naming the target and drop it from the candidates.

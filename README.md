@@ -8,6 +8,9 @@ instantiateされたAgent Workspaceであり、同時にそのテンプレート
 評価policy、benchmark、実行条件、比較結果、採否理由を原則公開し、単発の思いつきではなく
 公開された証拠と再現可能な実験だけを上流改善の根拠とする。
 
+運用者応対言語は`日本語`（[AGENTS.md](AGENTS.md)#自己定義）。上流canon・Tool出力・評価対象が
+別言語でも応対言語は切り替えず、成果物・外部宛て文面の言語はProject契約が別に持つ。
+
 ## 上流との関係
 
 ```text
@@ -17,6 +20,8 @@ template = https://github.com/claudagt/agent-directory  # 同一URLのread-only 
 ```
 
 - 初期source revision: `8325b185fb9410bff44cf6ec9a9b99246fe8cc0f`（`agent-directory/main`、2026-08-06取得）
+- 採用済みupstream revision: `git config agent-directory.upstream-revision`が正本（`tools/UPSTREAM.md#上流revisionの解決`）。
+  remoteの現在tipではなく「実際に採用したrevision」を宣言し、上流Issue本文の`upstream revision`はここから解決される
 - OpenAGTの`main`はこのrevisionをGit祖先として持つ（履歴を引き継いだのは取込時点の`main`だけで、全branch・tagのmirrorではない）
 - `upstream`・`template`へはpushしない。upstream/mainの自動merge・自動rebase・force push・mirror pushを行わない
 - `template`は`tools/report-upstream-issue.sh`がupstream revisionを解決するための命名互換alias。評価用の取得経路は`upstream`のままとする
@@ -135,8 +140,9 @@ tools/find-context.sh --route project --limit 5 -- "評価"
 tools/prepare-context.sh --route project --target projects/agent-directory-evaluation --class work
 ```
 
-明示パスと正本の明示参照を最優先とし、検索結果は候補として扱う。詳細は
-[tools/TOOLS.md](tools/TOOLS.md)と[AGENTS.md](AGENTS.md)が所有する。
+明示パスと正本の明示参照を最優先とし、検索結果は候補として扱う。探索順位と読込予算の原則は
+[tools/TOOLS.md](tools/TOOLS.md)と[AGENTS.md](AGENTS.md)が、固定Toolの呼び出し形・入出力・
+fallbackは[tools/REFERENCE.md](tools/REFERENCE.md)が所有する。
 
 ## Routine（自律定期保守）
 
@@ -186,7 +192,8 @@ backupの失敗は検証済みローカルcommitの成功を取り消さず、`l
 | [projects/LIFECYCLE.md](projects/LIFECYCLE.md) / [projects/RECOVERY.md](projects/RECOVERY.md) | 状態遷移と削除条件 / 目的不一致からの復旧 |
 | [routines/ROUTINES.md](routines/ROUTINES.md) | Routine Trigger層、Scheduler分離、送信境界、commit/backup条件 |
 | [evals/EVALS.md](evals/EVALS.md) | 振る舞いevalの契約、ケースschema、fixture、最低条件 |
-| [tools/TOOLS.md](tools/TOOLS.md) | Toolの入出力、自律commit、自己修復、サイズ超過、fallback、予算 |
+| [tools/TOOLS.md](tools/TOOLS.md) | task class、Tool登録、相互参照、自律commit、自己修復、サイズ予算 |
+| [tools/REFERENCE.md](tools/REFERENCE.md) | 固定Toolの呼び出し形、入出力、生成物、停止reason、fallback |
 | [tools/BACKUP.md](tools/BACKUP.md) | backup trigger、remote分類、失敗と復旧、divergence、Single Writer |
 | [tools/UPSTREAM.md](tools/UPSTREAM.md) | 上流Issue報告の事前承認条件、匿名化検査、報告種別、公開禁止情報 |
 | [tools/CONTROL.md](tools/CONTROL.md) | 境界執行の三層、policy tier、明示エスカレーション、違反分類と代謝、委譲境界、導入基準 |
