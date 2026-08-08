@@ -50,8 +50,9 @@ mode: continuous
 ## 非ゴール
 
 - 上流リポジトリの直接変更、非Draft PRの作成、merge、リリース判断。
-- 評価由来Issueの自動作成（利用者の明示決定と再現済み証拠を伴うものだけ、
-  `docs/EVALUATION.md#上流Issue`の条件下で作成できる。2026-08-07利用者決定）。
+- 条件を満たさない上流Issueの作成（`docs/EVALUATION.md#上流Issue`の全条件を満たす
+  評価由来Issueはstanding approvalで作成できる。2026-08-08利用者決定、policy v1.1.1。
+  Issueの発見・作成は成果指標ではない）。
   Workspace運用で観測したfield報告は`tools/UPSTREAM.md#事前承認済み送信`の
   事前承認済み経路で送る（2026-08-07利用者決定、policy v1.0.4）。
 - モデル間の絶対性能比較・leaderboard・単一総合スコアの作成。
