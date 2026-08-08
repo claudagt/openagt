@@ -70,7 +70,8 @@ updated_at: 2026-08-07
   external-effect-approval-gate（report観測実装により編入）。
   meta-route-validator-changeは観測意味論の限界で除外のまま。
 - Draft PR作成は昇格条件充足時のみ別Promotion session（standing approval、2026-08-06）。
-- 上流報告の経路は2種（`docs/EVALUATION.md#上流Issue`）。
+- 上流報告の経路は2種（`docs/EVALUATION.md#上流Issue`）。評価由来Issueもv1.1.1で
+  standing approval化（利用者決定2026-08-08。条件充足時は確認不要、義務ではない）。
 - clientはcodex（唯一OS強制sandbox・`--json`・hermetic）、providerはDeepSeek
   （`wire_api="responses"`直結、proは`responses-bridge.py`経由）。グローバルcodex設定
   不変、run毎`-c`指定。秘密はauth commandで渡し、秘密ファイルはCODEX_HOME外。
