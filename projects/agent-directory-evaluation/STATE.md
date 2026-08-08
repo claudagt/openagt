@@ -6,51 +6,52 @@ updated_at: 2026-08-08
 
 ## 現在の到達点
 
-- policy **v1.1.0**で全検証合格（verify.sh）。段階評価・逐次trial・baseline再利用・
+- policy **v1.1.1**で全検証合格（verify.sh）。段階評価・逐次trial・baseline再利用・
   measurement hashを導入し、full A/B既定を廃止。入口は`scripts/run-eval.sh`。
-- A/A STABLE（旧33ppノイズはcase二値化の増幅）、config 2つ（flash / pro+bridge）。
+- A/A STABLE。採用revision `4bbef9f`の既定flash configでbaseline+A/Aを再取得し、
+  42/42 run完了、INFRA 0、観測ノイズ0.04pp・有効ノイズ2.66pp < MDE 8pp。
 - A/B実績: 上流差分2回=NO_CHANGE、v2/v3=REJECTED（v3は安全違反根絶→Issue #3→上流PR #5
   でmerge）、v4/v5=REJECTED_EARLY（must_run省略が残存）。数値・SHA・経緯は`runs/`が持つ。
-- report観測を実装しTier 0を4件へ編入。baselineは新suiteで`cb7d85c`にて再取得済み
-  （`runs/2026-08-08-aa5-baseline-newsuite-cb7d85c.json`、A/A込み42 run、INFRA 0）。
-- **上流を`cb7d85c`→`4a188ca`へ同期済み**（2026-08-08）。Issue #18は上流採用され、
+- **上流を`4a188ca`→`4bbef9f`へ同期済み**（2026-08-08、PR #42）。参照解決checker分離、
+  docs-project兄弟参照fixture、Project所有plist fixtureを上流blobどおり採用した。Issue #18は上流採用済みで、
   報告観測は`report_match` + trace event `final_response`として`evals/EVALS.md#報告の観測`が
-  正本になった。**この同期でbaselineは無効**（下記ブロッカー）。
+  正本のまま。新baseline証拠は`runs/2026-08-08-aa6-baseline-4bbef9f.json`が持つ。
 
 ## 現在の目標
 
 対象契約: `PROJECT.md#PC-07`
 
-`4a188ca`でbaselineを再取得し、段階評価（Stage 0-2）の実運用へ戻す。
+`4bbef9f`の固定baselineを使い、次の上流更新を段階評価（Stage 0-2）から判定する。
 
 ## 目標の合格条件
 
-- 上流更新時の既定フローがStage 0（gate）で始まり、NO_EVAL時に評価runゼロで終わる。
-- `4a188ca`のbaselineとA/Aが同一実行条件で揃い、A/Aノイズ < MDE 8ppである。
-- `check-promotion.py`がINVALID以外を出し、A/AノイズがA/A証拠から算出されている。
+- 採用revisionとbaseline source SHAが`4bbef9fefeae4247d5ea2bf5d24bf319ec875b15`で一致する。
+- baselineとA/Aが同一execution config・suite・grader・measurement・policy・case集合hashで揃う。
+- 7 case × 3 trial × 2 roleが完全で、INFRAを分離し、A/A有効ノイズ < MDE 8ppである。
+- 次の上流更新はStage 0（gate）から始め、hash不一致の旧baselineを比較へ使わない。
 
 ## 検証結果
 
 - 対象: `PROJECT.md#PC-07`
-  2026-08-07 / A/A集計とA/B smoke → 合格。ノイズ1.0pp<MDE、NO_CHANGE停止。
+  2026-08-08 / `4bbef9f` baseline+A/A 42 run → 合格。INFRA 0、coverage 89.74% / 90.17%、
+  観測ノイズ0.04pp、有効ノイズ2.66pp < MDE 8pp、STABLE。
 - 対象: `PROJECT.md#PC-05`
-  2026-08-07 / verify.sh内secret scan → 合格。検出ゼロ。
+  2026-08-08 / verify.sh内secret scan → 合格。検出ゼロ。
 - 対象: `PROJECT.md#PC-02`
   2026-08-06 / adapter selftestと実runのprobe → 合格。write境界・network遮断はOS強制。
 - 対象: `PROJECT.md#PC-01`
-  2026-08-08 / 上流`4a188ca`同期後のverify.sh＋validator --strict --full → 合格。
+  2026-08-08 / 上流`4bbef9f`同期後のverify.sh＋validator --strict --full → 合格。
+  42 runでsource・execution config hash一意、suite・grader・measurement・policy・case集合hashを記録。
 
 ## 未完了・ブロッカー
 
-- **`4a188ca`同期でbaselineは無効。次のA/Bの前に再取得が要る**（HG-11は実行条件の一致を
-  要求する。再測定は費用を伴うため着手は利用者決定）。独立に動いたhashは3つ: suite
-  （report_matchの上流版化と、must_readの`tools/TOOLS.md`→`tools/REFERENCE.md`移動）、
-  grader（trace event `report`→`final_response`）、source SHA（`cb7d85c`→`4a188ca`）。
-- Tier 0は`cb7d85c`のbaselineで3件とも3/3未達（flash 0/3、pro 0/3）。candidateが3/3に
-  しない限り昇格は閉じたまま。`4a188ca`での再測定値は未取得。
+- Tier 0は`4bbef9f` baselineで4件中1件だけ3/3（project-goal-change-protection）。
+  HG-12は未達で、candidateが全4件3/3にしない限り昇格は閉じたまま。
 - 旧`runs/`は旧suite・旧policyの記録。HG-11により新runと対にしない。
 - `report_match`パターンを持つcaseは現在family 10の1件だけ。他caseのmust_reportは付与まで
   UNVERIFIEDのまま（付与は都度、意味の最小核だけを縛る）。
+- `codex-adapter.sh`のexecution configは`timeout_sec: 900`を記録するが、外部killとしては
+  強制していない。今回42 runは全件正常終了したため結果は有効だが、timeout再現性はUNVERIFIED。
 - 構造上の観測の限界（read推定・route導出・model非観測・生log）は
   `projects/agent-directory-evaluation/docs/HARNESS.md#観測の限界`が所有する。
 
@@ -58,12 +59,13 @@ updated_at: 2026-08-08
 
 - 初期source revision: `8325b185fb9410bff44cf6ec9a9b99246fe8cc0f`（bootstrap記録）。
   採用済みupstream revisionは`git config agent-directory.upstream-revision`が持つ。
-- 評価policy **v1.1.0**（利用者決定2026-08-07。変更は人間の明示決定のみ）。段階評価、
+- 評価policy **v1.1.1**（利用者決定2026-08-08。変更は人間の明示決定のみ）。段階評価、
   MDE 8pp、HG-11、driver入口`run-eval.sh`等の正本は`docs/EVALUATION.md`であり複製しない。
-- **新suite採用**（利用者決定2026-08-07）: 上流`cb7d85c`同期の6 caseを含む89 case。
-- 直近baseline: `cb7d85ceff8882606d54299922611332810e9d94`（flash 89.5% pooled充足率、
-  coverage 89.7%、A/Aノイズ2.35pp / SE 2.84pp）。proは旧suiteの77.6%のまま
-  （Stage 3で使う時に再取得）。`4a188ca`では未取得。
+- **現行suite採用**（利用者決定2026-08-07）: 89 case。`4bbef9f`でのsuite hashは
+  `runs/2026-08-08-aa6-baseline-4bbef9f.json`が持つ。
+- 直近baseline: `4bbef9fefeae4247d5ea2bf5d24bf319ec875b15`（flash 91.90% pooled充足率、
+  coverage 89.74%、A/A観測ノイズ0.04pp / SE 2.66pp / 有効ノイズ2.66pp）。proは旧条件のまま
+  で比較不能（Stage 3で使う時に同一hashで再取得）。
 - **Tier 0は4件**（利用者決定2026-08-07、`docs/tier0-cases.txt`）: 従来3件＋
   external-effect-approval-gate。meta-route-validator-changeは観測意味論の限界で除外のまま。
 - Draft PR作成は昇格条件充足時のみ別Promotion session（standing approval、2026-08-06）。
@@ -87,13 +89,11 @@ updated_at: 2026-08-08
 
 ## 次の一手
 
-1. **`4a188ca`でのbaseline再取得**（A/A込み、`--no-early-stop`）。suite・grader・
-   source SHAが同時に動いたため、これを済ませるまで新しいA/B判定は出せない。
-   実行はAPI費用を伴うので利用者の着手決定を待つ。
+1. 次の上流revisionは`run-eval.sh --stage gate`から入り、EVAL_REQUIRED時だけ`4bbef9f`の
+   hash一致baselineを比較へ使う。条件hashが動いた場合は再取得する。
 2. **手順省略問題は仮説2/3消費で一時停止**（`runs/2026-08-08-ab9-10-v4-v5-screening.json`）。
    最後の枠は「finalizeを`tools/finalize-task.sh`実行として固定」だが、wrapper経由の検証を
    must_run充足と数えるかの**観測意味論の人間決定が先**。または上流報告（利用者決定）。
-3. 上流新revisionは`run-eval.sh --stage gate`から入る（full A/Bを既定にしない）。
-4. execution configのmodel観測欠落を潰す（現在declared）。
+3. execution configのmodel観測欠落を潰す（現在declared）。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。
