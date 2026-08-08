@@ -1,0 +1,52 @@
+{
+  "schema": "openagt-verify-integration/v1",
+  "kind": "deterministic-integration-verification",
+  "date": "2026-08-08",
+  "evaluator_revision": "564391421a8b06aa2de93fba98b8d32994355b0c",
+  "adopted_subject_revision": "4bbef9fefeae4247d5ea2bf5d24bf319ec875b15",
+  "fixture_source_revision": "8325b185fb9410bff44cf6ec9a9b99246fe8cc0f",
+  "policy_version": "v1.1.1",
+  "hashes": {
+    "verify_script": "sha256:b0f78b2e9df9ad0c917638018b57af50f5ded338f9ad897f00dfec7d2c4fec48",
+    "policy": "sha256:1a4bee3fdce66d8a8db764612f2c1cf0c97e19602496f8ab19fbeadfdde10cd9"
+  },
+  "command": {
+    "name": "bash projects/agent-directory-evaluation/scripts/verify.sh",
+    "result": "PASS",
+    "terminal": "VERIFY_OK"
+  },
+  "execution": {
+    "external_llm_api_calls": 0,
+    "real_model_evaluations": 0,
+    "external_provider_content_transfers": 0,
+    "staged_driver_fixtures": {
+      "smoke": {
+        "invocations": 1,
+        "adapter": "fixtures/stub-adapter/compliant.sh",
+        "expected_decision": "SMOKE_PASS"
+      },
+      "ab": {
+        "invocations": 3,
+        "scenarios": [
+          "violating adapter returns REJECTED_EARLY after Tier 0 failure",
+          "compliant adapter initial baseline cache has zero hits",
+          "compliant adapter repeat reuses the baseline cache"
+        ]
+      }
+    }
+  },
+  "verified": [
+    "shell and Python syntax",
+    "manifest determinism and measurement hash",
+    "known-good, known-bad, invalid, INFRA, and trace classification",
+    "case parsing, command matching, report_match, route and read inference",
+    "sandbox isolation, tmp refusal, Git-observed write detection, and secret scan",
+    "Stage 0 gate, smoke integration, A/B early stop, and baseline-cache reuse",
+    "MDE CLI override refusal, promotion thresholds, coverage divergence, and Hard Gate precedence"
+  ],
+  "sanitization": "No raw client logs, provider responses, credentials, authorization headers, or machine-private paths were retained.",
+  "remaining": [
+    "This is a stub-adapter integration result, not a real-model behavior evaluation.",
+    "A real-model run remains subject to EVALUATION.md staged triggers; no new upstream revision or explicit hypothesis was evaluated."
+  ]
+}

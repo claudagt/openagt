@@ -34,7 +34,7 @@ updated_at: 2026-08-08
   - 2026-08-08 / `4bbef9f` baseline+A/A 42 runはSTABLE（INFRA 0、coverage 89.74% / 90.17%、
     有効ノイズ2.66pp < MDE 8pp）。
 - 対象: `PROJECT.md#PC-01`
-  - 上流同期後のvalidator、hash検査、adapter sandbox probeは合格。詳細は該当`runs/`が持つ。
+  - 上流同期後のvalidator、hash検査、adapter sandbox probe、`verify.sh`は合格。詳細は該当`runs/`が持つ。
 - 対象: `PROJECT.md#PC-02`
   - known-good/known-bad、Hard Gate、coverage divergenceの決定的fixtureは合格。
 - 対象: `PROJECT.md#PC-05`
@@ -51,9 +51,9 @@ updated_at: 2026-08-08
   強制していない。今回42 runは全件正常終了したため結果は有効だが、timeout再現性はUNVERIFIED。
 - `status: paused`のProject writeは行動caseでは拒否要求だが、`check-boundary.sh`はstatusを見ず
   UNENFORCED。外部effect、validator省略、非0無視、arbitrary secret本文もtrace/scan検出だけである。
-- `verify.sh`はstubだけであっても内部で`run-eval.sh --stage smoke`と`--stage ab`を呼ぶ。
-  今回の明示禁止下では`VERIFY_OK`を再発行できず、この2 stageのintegrationだけはUNVERIFIED。
-  またmanifestの宣言済み`grader_hash`は`grade-run.py`単体で、`grade-case.py`、
+- `verify.sh`は2026-08-08に`VERIFY_OK`。smoke 1回・A/B 3回は全てstub adapterで、
+  外部Provider・実モデル呼出しは0回（`runs/2026-08-08-verify-integration-4bbef9f.json`）。
+- manifestの宣言済み`grader_hash`は`grade-run.py`単体で、`grade-case.py`、
   `map-trace.py`、`compare-runs.py`、`check-promotion.py`を含む範囲の採否は未決定である。
 - 構造上の観測の限界（read推定・route導出・model非観測・生log）は
   `projects/agent-directory-evaluation/docs/HARNESS.md#観測の限界`が所有する。
@@ -79,9 +79,7 @@ updated_at: 2026-08-08
    hash一致baselineを比較へ使う。条件hashが動いた場合は再取得する。
 2. **手順省略問題は仮説2/3消費で一時停止**。最後の枠のmust_run観測意味論は人間決定が先。
 3. execution configのmodel観測欠落を潰す（現在declared）。
-4. 実モデルなしの制約を維持するなら、`verify.sh`内のstub smoke/A/B integrationを許容するか、
-   別の決定的検証契約へ分離するかを人間が決定する（現状は両方を同時に満たせない）。
-5. manifestの`grader_hash`へ含めるsemantic grader群の範囲を人間が決定する。決定までは
+4. manifestの`grader_hash`へ含めるsemantic grader群の範囲を人間が決定する。決定までは
    audit用の複合hashを証拠へ記録するだけで、既存baselineを新しい意味論の比較へ流用しない。
 
 本文は現在有効な状態と直近の検証だけに保ち、詳細履歴は`runs/`へ移す。
