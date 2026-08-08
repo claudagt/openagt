@@ -23,6 +23,8 @@ import sys
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 GRADER = SCRIPT_DIR / "grade-run.py"
 CONDITION_KEYS = ("suite_hash", "grader_hash", "execution_config_hash")
+# EVALUATION.md#A/AとMDEが所有する固定下限。CLIから緩和させない。
+POLICY_MIN_IMPROVEMENT_PP = 8.0
 
 
 def policy_conditions_differ(base: dict, cand: dict) -> bool:
@@ -100,7 +102,7 @@ def decide(args) -> dict:
         return report
 
     delta_pp = (cand_value - base_value) * 100.0
-    effective_mde_pp = max(args.mde_pp, args.aa_noise_pp)
+    effective_mde_pp = max(POLICY_MIN_IMPROVEMENT_PP, args.aa_noise_pp)
     report.update(baseline_value=base_value, candidate_value=cand_value,
                   delta_pp=round(delta_pp, 6), effective_mde_pp=effective_mde_pp)
 
@@ -131,8 +133,6 @@ def main() -> int:
     parser.add_argument("--baseline", required=True)
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--metric", default="requirement_pass_rate")
-    parser.add_argument("--mde-pp", type=float, default=5.0,
-                        help="policy固定の最低改善幅（パーセントポイント）")
     parser.add_argument("--aa-noise-pp", type=float, default=2.0,
                         help="A/Aで観測したノイズ幅（パーセントポイント）")
     args = parser.parse_args()

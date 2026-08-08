@@ -25,8 +25,9 @@ import pathlib
 import sys
 
 # --- policy由来の固定値（docs/EVALUATION.md）。CLIから変更できない。 ---
-# EVALUATION.md#A/AとMDE: primary指標で5パーセントポイント
-POLICY_MIN_IMPROVEMENT_PP = 5.0
+# EVALUATION.md#A/AとMDE: policy固定の最低改善幅は8パーセントポイント。
+# v1.0.0の5ppはv1.1.0で検出力不足として廃止された。
+POLICY_MIN_IMPROVEMENT_PP = 8.0
 # EVALUATION.md#trial: 通常release比較は3回
 REQUIRED_TRIALS = 3
 # EVALUATION.md#Hard Gate HG-12: Tier 0は各execution configで3/3

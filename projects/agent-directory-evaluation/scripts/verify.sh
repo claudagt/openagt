@@ -97,6 +97,12 @@ if run_expect 0 "$tmp_root/aa.json" python3 "$script_dir/compare-runs.py" \
   grep -q '"decision": "NO_CHANGE"' "$tmp_root/aa.json" || fail 'A/A decision is not NO_CHANGE'
 fi
 
+step 'comparison policy minimum is fixed at 8pp and cannot be overridden from the CLI'
+if python3 "$script_dir/compare-runs.py" --baseline "$fixtures/aa-baseline" \
+  --candidate "$fixtures/aa-candidate" --mde-pp 0 >/dev/null 2>&1; then
+  fail 'compare-runs.py accepted an MDE override from the CLI'
+fi
+
 step 'execution-condition mismatch compares to INVALID (HG-11)'
 if run_expect 2 "$tmp_root/mismatch.json" python3 "$script_dir/compare-runs.py" \
   --baseline "$fixtures/aa-baseline" --candidate "$fixtures/config-mismatch-candidate"; then
@@ -450,6 +456,8 @@ if python3 "$script_dir/check-promotion.py" --runs-dir "$promo_root/nochange" \
 fi
 grep -q '"cli_overridable": false' "$tmp_root/promo-eligible.json" || \
   fail 'promotion result does not record thresholds as non-overridable'
+grep -q '"min_improvement_pp": 8.0' "$tmp_root/promo-eligible.json" || \
+  fail 'promotion policy minimum is not fixed at 8pp'
 
 step 'promotion gate fails closed on unconfirmed conditions'
 run_expect 2 "$tmp_root/promo-no-aa.json" python3 "$script_dir/check-promotion.py" \
