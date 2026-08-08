@@ -220,11 +220,11 @@ def map_codex_events(raw_events):
                 # clientの申告に依存させないため、ここでは採用しない（unmappedでもない）。
                 continue
             if item_type == "agent_message":
-                # 最終報告文はreport観測の対象（must_reportの照合対象は報告そのもの
+                # 最終報告文はfinal_response観測の対象（must_reportの照合対象は報告そのもの
                 # なので、これは自己申告ではなく観測である）。text全文を採る。
                 text = str(item.get("text", ""))
                 if text.strip():
-                    mapped.append({"event": "report", "text": text})
+                    mapped.append({"event": "final_response", "text": text})
                 continue
             if item_type in ("reasoning", "error", "todo_list",
                              "web_search", "mcp_tool_call"):
@@ -237,7 +237,7 @@ def map_codex_events(raw_events):
 
 # 正準語彙をそのまま出すclient用。harness自己検証のstub adapterと、
 # 将来的に正準語彙で出力するclientが使う。writeはこちらでも採用せず、Gitを優先する。
-CANONICAL_EVENTS = {"phase", "search", "cache", "read", "run", "summary", "route", "report"}
+CANONICAL_EVENTS = {"phase", "search", "cache", "read", "run", "summary", "route", "final_response"}
 
 
 def map_canonical_events(raw_events):
@@ -332,8 +332,8 @@ def main() -> int:
         # 複数Routeの入口を読んでいて一意に決まらない場合は導出しない。
         "route_observation": ("inferred-from-entry-canon" if inferred_route
                               else "unavailable"),
-        # reportはagentの最終報告文そのもの（must_reportの照合対象＝観測対象）。
-        "report_observation": ("agent-message" if "report" in observed_kinds
+        # final_responseはagentの最終報告文そのもの（must_reportの照合対象＝観測対象）。
+        "report_observation": ("agent-message" if "final_response" in observed_kinds
                                else "unavailable"),
         "client_injected_reads": [e["path"] for e in injected],
         "complete": not unmapped and writes is not None,

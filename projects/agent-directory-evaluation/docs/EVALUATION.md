@@ -33,12 +33,12 @@ v1.0.2の変更: 主要指標の集計単位をcase二値からcheck単位の充
 case二値集計はA/Aで33ppの観測ノイズを生んでいた（`runs/2026-08-06-aa2-fa2bd21b.json`）。
 
 v1.0.1の変更: (1) subject sandboxの配置をOS一時領域から専用の非tmp rootへ変更した
-（`docs/HARNESS.md#subject-sandboxの配置`）。(2) 実行基盤側の失敗（利用制限、
+（`projects/agent-directory-evaluation/docs/HARNESS.md#subject sandboxの配置`）。(2) 実行基盤側の失敗（利用制限、
 rate limit、認証失敗等）をcandidate失敗と区別する規定を明文化した（[#Hard Gate](#hard-gate)）。
 
 評価policy、metric、benchmark、trial、A/A・MDE、停止条件、PR昇格条件は本書だけが所有する。
 `POLICY.md`、`METRICS.md`、`BENCHMARK.md`、`SCORING.md`、`GATES.md`のような並列正本を作らない。
-実行harness（script構成、sandbox配置、trace形式）は`docs/HARNESS.md`が所有する
+実行harness（script構成、sandbox配置、trace形式）は`projects/agent-directory-evaluation/docs/HARNESS.md`が所有する
 （v1.1.0で責務移管。意味定義の複製ではなく分担）。
 本書の変更は[#評価policy変更](#評価policy変更)の手続きに従い、人間の明示決定なしに行わない。
 
@@ -52,7 +52,7 @@ Promotion session         = fresh agent-directory cloneだけへwriteし、Draft
 
 OpenAGT rootの継承ファイルを上流の現在状態として評価しない。上流評価は必ず明示SHAの
 clean clone（`scripts/make-sandbox.sh`）に対して行う。sandbox配置・script構成・trace形式
-は`docs/HARNESS.md`が所有する。
+は`projects/agent-directory-evaluation/docs/HARNESS.md`が所有する。
 
 <!-- measurement-semantics:begin
 ここからendマーカーまでが測定意味論の領域。make-manifest.pyがこの領域のhashを

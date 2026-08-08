@@ -71,3 +71,19 @@ client提供のusage、validity、final decision。
 - 全runの巨大な生logをGit管理しない。`runs/`へ保存するのは採否判断・回帰・再現に必要な
   sanitized証拠だけとする。
 - 一時log、完全なprovider response、debug dumpは`.agent-cache/`またはOS一時領域が所有する。
+
+## 観測の限界
+
+harnessが構造上「観測できない」ことを固定して記録する。ここに挙げた項目は都度の所見では
+なく、判定を`unverified`側へ倒す根拠である（`docs/EVALUATION.md`のUNVERIFIED規則）。
+
+- **read**: commandからの推定で、byte数を持たない。clientが自動注入したcontextはreadとして
+  数える（注入を数えないと大量の誤FAILになる）。read側のOS隔離は無い。
+- **route**: 入口正本の読取から導出する。複数Routeの入口を読んで一意に決まらない場合は
+  導出しない（誤ったrouteを埋めない）。
+- **execution configのmodel**: 観測できない。codexの`--json`にproviderのmodelエコーが無く、
+  記録は`declared`にとどまる。実在と応答modelの一致はprovider APIへの直接照会で確認する。
+  execution configの他の項目も一部は`unknown`のまま残る。
+- **must_report**: `report_match`パターンを持つcaseだけが採点可能で、パターンの無いslugは
+  UNVERIFIEDのまま残る（`evals/EVALS.md#報告の観測`）。曖昧なキーワード照合で埋めない。
+- **生log**: Git管理せずOS一時領域が持つ。`runs/`はsanitized記録だけを持つ。

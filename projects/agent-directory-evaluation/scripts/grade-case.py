@@ -266,7 +266,7 @@ def load_trace(path: pathlib.Path) -> dict:
         elif kind == "coverage":
             if event.get("complete") is True and event.get("observation"):
                 trace["complete_observations"].add(event["observation"])
-        elif kind in ("summary", "report"):
+        elif kind in ("summary", "final_response"):
             for item in event.get("reported", []) or []:
                 trace["reports"].append(item)
             # 報告文そのもの（agentの最終message）。must_reportのreport_match照合対象。
@@ -435,7 +435,7 @@ def grade(case: dict, trace: dict) -> Checks:
     # 2系統の観測を持つ:
     #   (a) 構造化report（event.reported にslugが列挙される。stub adapter等）
     #   (b) report_matchパターン（caseがslugごとに定義する正規表現を、agentの
-    #       最終報告文＝report eventのtext全文へ照合する。実clientはこちら）
+    #       最終報告文＝final_response eventのtext全文へ照合する。実clientはこちら）
     # report_matchの値はstrまたはlist。**listは全パターン一致（AND）**とし、
     # 各パターン内の選択肢は正規表現の `|` で表す。照合はcase-insensitive。
     # パターン未定義のslugは従来どおり(a)だけで判定し、観測できなければUNVERIFIED。

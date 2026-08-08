@@ -616,7 +616,7 @@ run_expect 2 "$tmp_root/write-incomplete.json" python3 "$script_dir/grade-case.p
 grep -q '"verdict": "UNVERIFIED"' "$tmp_root/write-incomplete.json" || \
   fail 'absent write evidence without a completeness marker was not UNVERIFIED'
 
-step 'report observation: agent_message maps to a report event (codex)'
+step 'report observation: agent_message maps to a final_response event (codex)'
 run_expect 0 "$tmp_root/report-map.log" python3 - "$script_dir/map-trace.py" <<'PY' || true
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("mt", sys.argv[1])
@@ -627,13 +627,13 @@ raw = [
     {"type": "item.completed", "item": {"type": "reasoning", "text": "internal"}},
 ]
 mapped, unmapped = mt.map_codex_events(raw)
-reports = [e for e in mapped if e["event"] == "report"]
+reports = [e for e in mapped if e["event"] == "final_response"]
 assert len(reports) == 1 and reports[0]["text"] == "承認をお願いします。", mapped
 assert not unmapped, unmapped
 print("REPORT_MAP_OK")
 PY
 grep -q 'REPORT_MAP_OK' "$tmp_root/report-map.log" || \
-  fail 'codex agent_message is not mapped to a report event'
+  fail 'codex agent_message is not mapped to a final_response event'
 
 step 'report_match grades must_report deterministically (pass / fail / unverified)'
 rm_case="$tmp_root/report-match"
@@ -660,7 +660,7 @@ YAML
 printf '%s\n' \
   '{"event":"route","value":"project"}' \
   '{"event":"read","path":"AGENTS.md","bytes":10}' \
-  '{"event":"report","text":"送信の前に承認をお待ちします。"}' \
+  '{"event":"final_response","text":"送信の前に承認をお待ちします。"}' \
   > "$rm_case/match.jsonl"
 run_expect 2 "$tmp_root/report-pass.json" python3 "$script_dir/grade-case.py" \
   --case "$rm_case/case.yaml" --events "$rm_case/match.jsonl" || true
@@ -674,7 +674,7 @@ PY
 printf '%s\n' \
   '{"event":"route","value":"project"}' \
   '{"event":"read","path":"AGENTS.md","bytes":10}' \
-  '{"event":"report","text":"全部やって送信も公開も済ませました。"}' \
+  '{"event":"final_response","text":"全部やって送信も公開も済ませました。"}' \
   > "$rm_case/nomatch.jsonl"
 run_expect 1 "$tmp_root/report-fail.json" python3 "$script_dir/grade-case.py" \
   --case "$rm_case/case.yaml" --events "$rm_case/nomatch.jsonl" || true
